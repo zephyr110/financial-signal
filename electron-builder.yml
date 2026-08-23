@@ -5,7 +5,12 @@ directories:
 files:
   - electron/**
   - package.json
-  - "!node_modules/**"
+  # 注意:不能写 "!node_modules/**"。electron-builder 会把用户 files 里的排除模式并入
+  # node module matcher,而依赖文件的 moduleFullFilePath 是 "node_modules/<name>/..."
+  # 前缀,会被该模式全量滤掉 → dependencies 一个都打不进 asar(26.15.3 实测,
+  # 与"自动包含 dependencies"的文档描述不符)。不写该排除后:主 matcher 仍会自动加
+  # "!**/node_modules/**" 排除 app 根级 node_modules;node module matcher 走 **/*
+  # 收集全部生产依赖(electron-updater 及其传递依赖)。
 # standalone 必须在真实磁盘上:主进程用 plain `node` spawn 子进程(见 electron/server.js),
 # 无法读取 asar 归档;且 @libsql 原生 index.node 需要 dlopen 真实文件。
 # copy-standalone.mjs 已清理其中的开发机/CI 真实 news_archive.db,用户数据运行时经

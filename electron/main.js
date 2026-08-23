@@ -9,6 +9,7 @@ const { createScheduler } = require('./scheduler');
 const { createTray } = require('./tray');
 const { registerIpc } = require('./ipc');
 const { notifyNewHighSignals } = require('./notifier');
+const { initUpdater } = require('./updater');
 
 let mainWindow = null;
 let serverUrl = null;
@@ -157,6 +158,8 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     try {
       if (!isDev) {
+        // 仅打包版自动更新:启动静默检查一次(托盘手动检查在 createTray 里接上)
+        initUpdater();
         serverManager = createServerManager({
           spawn,
           dbPath,
@@ -196,7 +199,7 @@ if (!gotLock) {
             fs.mkdirSync(path.dirname(dbPath), { recursive: true });
             shell.openPath(path.dirname(dbPath));
           },
-          // onCheckUpdate 留空:自动更新是 Task 12
+          onCheckUpdate: () => initUpdater({ manual: true }),
           onQuit: () => {
             app.quit();
           },
