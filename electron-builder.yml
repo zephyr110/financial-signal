@@ -24,10 +24,15 @@ extraResources:
       - "**/*"
 afterPack: scripts/after-pack.mjs
 asar: true
+# macos-latest runner 是 arm64;显式双 arch 保证 Intel(arm64 runner 交叉构建 x64,
+# electron-builder 自动下载 x64 二进制,zip/dmg 均无需原生工具)。zip 是 auto-update 所需
+# (electron-updater 用 latest-mac.yml 里的 zip 做差分)。
 mac:
   target:
     - target: dmg
+      arch: [x64, arm64]
     - target: zip
+      arch: [x64, arm64]
   category: public.app-category.finance
 win:
   target:

@@ -36,8 +36,10 @@ async function copyTree(src, dest) {
       let resolved = null;
       try {
         resolved = await realpath(absTarget); // 解析链接链(含 junction)
-      } catch {
-        /* dangling link:目标不存在 */
+      } catch (err) {
+        // 仅 dangling link(ENOENT/ELOOP)降级为空目录兜底,其余错误抛出,
+        // 让真实问题(权限、路径非法等)暴露为打包失败而不是静默吞掉。
+        if (err.code !== 'ENOENT' && err.code !== 'ELOOP') throw err;
       }
       if (resolved) {
         const resolvedSt = await lstat(resolved);

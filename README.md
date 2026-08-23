@@ -79,7 +79,7 @@ pnpm typecheck  # tsc --noEmit
 
 - **开发**: `pnpm dev:desktop`(next dev + Electron 窗口)
 - **打包(本地 mac)**: `NEWS_DB_PATH=./seed/news_archive.db pnpm dist:dir`
-- **发布**: push `v*` tag,CI 三平台打包上传 GitHub Releases。mac 包当前未签名(CI 无签名证书),首次打开会被 Gatekeeper 拦截:右键应用 → 打开,或 `xattr -cr "/Applications/Financial Signal.app"`;正式分发需配置 Apple Developer 证书 + notarization
+- **发布**: push `v*` tag,CI 三平台打包上传 GitHub Releases。mac 包当前未签名(CI 无签名证书),首次打开会被 Gatekeeper 拦截:右键应用 → 打开,或 `xattr -cr "/Applications/Financial Signal.app"`;正式分发需配置 Apple Developer 证书 + notarization。注意:mac 包未签名时 electron-updater 自动更新不会生效,升级需手动下载新版本安装
 - **数据目录**: macOS `~/Library/Application Support/financial-signal/`、Windows `%APPDATA%/financial-signal`、Linux `~/.config/financial-signal`
 - **首次启动**: 可导入现有 `news_archive.db` 或全新开始;在设置弹窗配置 LLM key 后分析管线自动启用
 
