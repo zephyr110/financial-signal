@@ -67,7 +67,11 @@ describe('createServerManager', () => {
     const url = await manager.start()
     expect(url).toBe('http://127.0.0.1:3001')
     expect(spawn).toHaveBeenCalledTimes(1)
-    expect(spawn).toHaveBeenCalledWith('node', expect.any(Array), expect.objectContaining({ cwd: expect.stringContaining('.next/standalone') }))
+    // ELECTRON_RUN_AS_NODE 模式:可执行文件必须是当前进程的 execPath(不依赖系统 node)
+    expect(spawn).toHaveBeenCalledWith(process.execPath, expect.any(Array), expect.objectContaining({
+      cwd: expect.stringContaining('.next/standalone'),
+      env: expect.objectContaining({ ELECTRON_RUN_AS_NODE: '1' }),
+    }))
     expect(children[0].stdout.on).toHaveBeenCalledWith('data', expect.any(Function))
     expect(manager.getUrl()).toBe(url)
   })
@@ -152,9 +156,9 @@ describe('createServerManager', () => {
     })
     const p = manager.start()
     await vi.advanceTimersByTimeAsync(0)
-    children[0].emit('error', new Error('spawn node ENOENT'))
-    await expect(p).rejects.toThrow('standalone server spawn failed: spawn node ENOENT')
-    expect(errorLog).toHaveBeenCalledWith('[server] spawn error:', 'spawn node ENOENT')
+    children[0].emit('error', new Error('spawn ENOENT'))
+    await expect(p).rejects.toThrow('standalone server spawn failed: spawn ENOENT')
+    expect(errorLog).toHaveBeenCalledWith('[server] spawn error:', 'spawn ENOENT')
     expect(log).toHaveBeenCalledWith('[server] exited(null sig=spawn-error), restart in 2000ms (1/5)')
     await vi.advanceTimersByTimeAsync(2000) // 走重启路径
     expect(spawn).toHaveBeenCalledTimes(2)

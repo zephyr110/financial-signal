@@ -1,7 +1,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { createClient } = require('@libsql/client');
+const { createClient } = require('./libsql-client');
 
 const REQUIRED_TABLES = ['news_archive', 'app_settings'];
 

@@ -1,11 +1,14 @@
 'use strict';
 const path = require('path');
 const { findFreePort, waitForHealthy, buildServerEnv } = require('./server-utils');
+const { resolveStandaloneDir } = require('./libsql-client');
 
 const MAX_RESTARTS = 5;
 const BASE_RETRY_MS = 1000;
 const MAX_RETRY_MS = 30000;
-const STANDALONE_DIR = path.join(__dirname, '..', '.next', 'standalone');
+// 打包后 standalone 经 extraResources 落在 Resources/standalone(asar 外,plain node
+// 子进程必须从真实磁盘读取);dev 布局为 .next/standalone。
+const STANDALONE_DIR = resolveStandaloneDir();
 
 /** dev 模式返回固定 URL(next dev 由 dev:desktop 脚本管理)。 */
 function devUrl() {
@@ -67,9 +70,12 @@ function createServerManager({
     let exitBeforeHealthyResolve;
     const exitBeforeHealthy = new Promise((resolve) => { exitBeforeHealthyResolve = resolve; });
 
-    child = spawn('node', [serverJs], {
+    // 不依赖系统 node:用当前进程的可执行文件(dev 为 Electron.app 二进制,打包后为
+    // "Financial Signal.app/Contents/MacOS/Financial Signal")以 ELECTRON_RUN_AS_NODE
+    // 模式当 node 跑 standalone server → dev/prod 统一,分发机器无需安装 node。
+    child = spawn(process.execPath, [serverJs], {
       cwd: STANDALONE_DIR,
-      env,
+      env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     child.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));

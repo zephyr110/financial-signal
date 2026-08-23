@@ -25,6 +25,10 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
   const [showWelcome, setShowWelcome] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  // getInfo 判定完成前不自动拉数据:挂载即 fetch /api/news 会让 server 侧
+  // getDb() 抢先建出空库(abort 只能断客户端连接,救不回服务端已创建的
+  // 文件),getInfo 的 imported 判定随后恒 true → 欢迎页永不出现。
+  const [welcomeChecked, setWelcomeChecked] = useState(false);
 
   useEffect(() => {
     const win = (window as any).desktop;
@@ -32,11 +36,15 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
       win
         .getInfo()
         .then((info: any) => {
+          setWelcomeChecked(true);
           if (!info.imported) setShowWelcome(true);
         })
         .catch(() => {
           // getInfo 失败(IPC 异常等)不阻塞首页渲染,按已导入处理
+          setWelcomeChecked(true);
         });
+    } else {
+      setWelcomeChecked(true); // web 模式无 IPC,直接放行自动刷新
     }
   }, []);
 
@@ -115,16 +123,18 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
   // Only auto-refresh if SSG returned no data (cold start)
   // 欢迎页展示期间不拉取数据:fetch /api/news 会触发 server 侧 getDb() 建库,
   // 与 getInfo 的 imported 判定竞态(抢先建出的空库使欢迎页永不出现)。
-  // showWelcome 进依赖:变为 true 时 cleanup 会 abort 掉在途请求,彻底封死竞态窗口。
+  // welcomeChecked 前置:挂载期 getInfo 判定完成前不发请求(abort 救不回
+  // 服务端已建出的库文件),判定 imported=false 后 welcome 常驻、永不拉取。
   useEffect(() => {
     if (showWelcome) return;
+    if (!welcomeChecked) return;
     if (!ssgToday || ssgToday.length === 0) {
       doRefresh();
     }
     return () => {
       if (abortRef.current) abortRef.current.abort();
     };
-  }, [doRefresh, ssgToday, showWelcome]);
+  }, [doRefresh, ssgToday, showWelcome, welcomeChecked]);
 
   // ---- touch handlers ----
   const onTouchStart = useCallback((e) => {

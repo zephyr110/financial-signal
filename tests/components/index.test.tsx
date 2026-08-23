@@ -85,6 +85,17 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
     expect(screen.queryByText(/欢迎使用 Financial Signal/)).toBeNull()
   })
 
+  it('imported=false 时挂载期不拉取 /api/news(防服务端 getDb 抢先建库)', async () => {
+    desktopMock.getInfo.mockResolvedValue({ imported: false })
+    render(<Home {...baseProps} />)
+    await screen.findByText(/欢迎使用 Financial Signal/)
+    // 欢迎页展示全程不应请求 /api/news(AppShell 的 /api/auth/me 属布局,与数据
+    // 拉取无关):getInfo 判定完成前不发请求,判定 imported=false 后自动刷新
+    // effect 直接 return——杜绝 server 侧 getDb() 抢先建库
+    expect(global.fetch).not.toHaveBeenCalledWith('/api/news', expect.anything())
+    expect(desktopMock.getInfo).toHaveBeenCalledTimes(1)
+  })
+
   it('点"全新开始"调用 createFreshDb,成功后欢迎页消失', async () => {
     desktopMock.getInfo.mockResolvedValue({ imported: false })
     desktopMock.createFreshDb.mockResolvedValue({ ok: true })

@@ -1,0 +1,40 @@
+appId: com.zephyr.financial-signal
+productName: Financial Signal
+directories:
+  output: dist
+files:
+  - electron/**
+  - package.json
+  - "!node_modules/**"
+# standalone 必须在真实磁盘上:主进程用 plain `node` spawn 子进程(见 electron/server.js),
+# 无法读取 asar 归档;且 @libsql 原生 index.node 需要 dlopen 真实文件。
+# copy-standalone.mjs 已清理其中的开发机/CI 真实 news_archive.db,用户数据运行时经
+# NEWS_DB_PATH 指向 userData。dev 布局为 .next/standalone,打包后为 Resources/standalone。
+extraResources:
+  # 注意:createFilter 硬编码拒绝根 node_modules(relative === "node_modules"),
+  # filter 无法放行;standalone 的 node_modules 由 afterPack hook(scripts/after-pack.mjs)补齐。
+  - from: .next/standalone
+    to: standalone
+    filter:
+      - "**/*"
+afterPack: scripts/after-pack.mjs
+asar: true
+mac:
+  target:
+    - target: dmg
+    - target: zip
+  category: public.app-category.finance
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Finance
+  maintainer: zephyr
+publish:
+  provider: github
+  owner: zephyr110
+  repo: financial-signal

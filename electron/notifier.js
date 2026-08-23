@@ -1,6 +1,6 @@
 'use strict';
 const { Notification } = require('electron');
-const { createClient } = require('@libsql/client');
+const { createClient } = require('./libsql-client');
 const { queryNewHighSignals } = require('./notify-query');
 const { loadConfig, saveConfig } = require('./store');
 

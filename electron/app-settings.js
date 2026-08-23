@@ -1,5 +1,5 @@
 'use strict';
-const { createClient } = require('@libsql/client');
+const { createClient } = require('./libsql-client');
 
 /** 读 app_settings 表全量键值(不依赖 Web 侧 lib/settings.ts 缓存)。 */
 async function getSettings(dbPath) {
