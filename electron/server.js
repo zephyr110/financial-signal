@@ -62,6 +62,12 @@ function createServerManager({
   /** 选端口 → spawn standalone → 等健康 → 返回 baseUrl。 */
   async function start() {
     stopping = false; // stop 后仍可再次 start(幂等)
+    // 旧代际遗留的重启定时器在新生命周期开始时作废:restartAfterDbChange 场景下
+    // 旧 child 的 exit 已调度 restart 但 timer 尚未触发,stop() 清不到它,必须在新 start 清。
+    if (restartTimer) {
+      clearTimeoutImpl(restartTimer);
+      restartTimer = null;
+    }
     lastSpawnError = null;
     const port = await findFreePortImpl();
     const serverJs = path.join(STANDALONE_DIR, 'server.js');
@@ -73,25 +79,31 @@ function createServerManager({
     // 不依赖系统 node:用当前进程的可执行文件(dev 为 Electron.app 二进制,打包后为
     // "Financial Signal.app/Contents/MacOS/Financial Signal")以 ELECTRON_RUN_AS_NODE
     // 模式当 node 跑 standalone server → dev/prod 统一,分发机器无需安装 node。
-    child = spawn(process.execPath, [serverJs], {
+    const spawned = spawn(process.execPath, [serverJs], {
       cwd: STANDALONE_DIR,
       env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    child.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
-    child.stdout.on('data', (d) => {
+    child = spawned;
+    spawned.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+    spawned.stdout.on('data', (d) => {
       const line = String(d).trim();
       if (line && !line.startsWith('✓')) process.stdout.write(`[server] ${line}\n`);
     });
     // spawn 失败(ENOENT 等)不发 'exit',只发 'error' + 'close' → 与 'exit' 统一走重启路径
-    child.on('error', (err) => {
+    // 代际守卫:stop→start 连续序列下,被 SIGTERM 的旧 child 的 'exit' 在下一事件循环
+    // 才送达,此时 child 已指向新实例(或仍为 null)→ 必须忽略旧实例的 exit/error,
+    // 否则误判崩溃 → 清掉新进程引用 + 2s 后拉出第三个 server(幽灵重启,新 server 脱管成孤儿)。
+    spawned.on('error', (err) => {
+      if (child !== spawned) return;
       lastSpawnError = err.message;
       child = null;
       exitBeforeHealthyResolve();
       errorLog('[server] spawn error:', err.message);
       scheduleRestart(null, 'spawn-error');
     });
-    child.on('exit', (code, signal) => {
+    spawned.on('exit', (code, signal) => {
+      if (child !== spawned) return;
       child = null;
       exitBeforeHealthyResolve();
       scheduleRestart(code, signal);

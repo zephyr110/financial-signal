@@ -32,10 +32,10 @@ function makeFakeChild() {
   return child
 }
 
-/** 组装一个全部依赖可注入的 manager,返回句柄供断言。 */
-function setup({ waitForHealthy, onCrash, onGiveUp } = {}) {
+/** 组装一个全部依赖可注入的 manager,返回句柄供断言。spawn 可注入自定义实现(如异步补发 exit 的 fake child)。 */
+function setup({ waitForHealthy, onCrash, onGiveUp, spawn: spawnImpl } = {}) {
   const children = []
-  const spawn = vi.fn(() => {
+  const spawn = spawnImpl || vi.fn(() => {
     const c = makeFakeChild()
     children.push(c)
     return c
@@ -176,5 +176,42 @@ describe('createServerManager', () => {
     expect(spawn).toHaveBeenCalledTimes(2)
     expect(manager.getUrl()).toBe(url2)
     manager.stop()
+  })
+
+  it('ignores the killed child delayed exit after stop→start (no ghost restart or orphan)', async () => {
+    // 真实进程被 SIGTERM 后 'exit' 在下一事件循环才送达:stop() 后立即 start()
+    // (restartAfterDbChange 场景)会让旧 child 的 exit 落在新生命周期里。无代际守卫时
+    // 旧 exit 被当作崩溃 → 清掉新进程引用 + 2s 后 spawn 第三个 server(幽灵重启),
+    // 健康工作的第二个 server 脱管成孤儿进程。
+    const spawnedChildren = []
+    const spawnImpl = vi.fn(() => {
+      const c = makeFakeChild()
+      c.kill = vi.fn(() => {
+        setTimeout(() => { c.exitCode = 0; c.emit('exit', null, 'SIGTERM') }, 0)
+        return true
+      })
+      spawnedChildren.push(c)
+      return c
+    })
+    const { manager, spawn, onCrash, log } = setup({ spawn: spawnImpl })
+
+    await manager.start() // 第一个 server 健康
+    expect(spawn).toHaveBeenCalledTimes(1)
+
+    manager.stop() // SIGTERM,真实 exit 异步送达
+    const url2 = await manager.start() // 立即再 start(与 restartAfterDbChange 一致)
+    expect(spawn).toHaveBeenCalledTimes(2)
+    expect(url2).toBe('http://127.0.0.1:3002')
+
+    await vi.advanceTimersByTimeAsync(0) // 旧 child 的 exit 送达
+    await vi.advanceTimersByTimeAsync(2000) // 旧代码的幽灵重启窗口(退避 2000ms)
+    expect(spawn).toHaveBeenCalledTimes(2) // 未被当成崩溃 → 无第三个 server
+    expect(onCrash).not.toHaveBeenCalled()
+    expect(manager.getUrl()).toBe(url2) // 第二个 server 仍是当前 server
+    expect(spawnedChildren[1].kill).not.toHaveBeenCalled() // 新 child 未被误杀
+
+    // restarts 未被旧 exit 污染:当前 child 崩溃仍从 2000ms(1/5)退避开始
+    spawnedChildren[1].emit('exit', 1, null)
+    expect(log).toHaveBeenLastCalledWith('[server] exited(1), restart in 2000ms (1/5)')
   })
 })
