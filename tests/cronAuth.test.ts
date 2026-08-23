@@ -77,15 +77,20 @@ describe('assertCronAuth', () => {
 
 describe('DESKTOP_MODE', () => {
   it('bypasses auth when DESKTOP_MODE=1 even without secret', async () => {
-    const prev = process.env.DESKTOP_MODE;
+    // VERCEL=1 让"无 secret 即 503"分支生效:若无 DESKTOP_MODE 守卫,此用例必然失败(强判别)
+    const prevDesktopMode = process.env.DESKTOP_MODE;
+    const prevVercel = process.env.VERCEL;
     process.env.DESKTOP_MODE = '1';
+    process.env.VERCEL = '1';
     try {
       const req = { query: {}, headers: {} };
       const res = { status: () => ({ json: () => {} }) };
       expect(await assertCronAuth(req, res)).toBe(true);
     } finally {
-      if (prev === undefined) delete process.env.DESKTOP_MODE;
-      else process.env.DESKTOP_MODE = prev;
+      if (prevDesktopMode === undefined) delete process.env.DESKTOP_MODE;
+      else process.env.DESKTOP_MODE = prevDesktopMode;
+      if (prevVercel === undefined) delete process.env.VERCEL;
+      else process.env.VERCEL = prevVercel;
     }
   });
 });
