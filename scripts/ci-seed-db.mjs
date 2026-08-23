@@ -3,7 +3,10 @@
  * 构建期 seed 库:本地/CI 无数据文件时生成含关键表的空库,
  * 使 prebuild 的 verify-data.mjs 通过(桌面端构建不依赖远端 Turso)。
  * 用法:NEWS_DB_PATH=./seed/news_archive.db node scripts/ci-seed-db.mjs
- * 注意:仅建 verify-data 要求的关键表;运行时 lib/db.ts initSchema 会建全量表。
+ * 注意:pipeline_run / pipeline_cursor 的列定义必须与 lib/db.ts initSchema 逐列保持一致。
+ * 运行时 initSchema 用 CREATE TABLE IF NOT EXISTS,已存在的错误表结构不会被修复,
+ * 因此 seed 中这两张表建错会让管线在空库上直接抛 no such column。
+ * 其余 5 张表为 verify-data 要求的关键表;initSchema 会在运行时补齐本脚本未建的表。
  */
 import { createClient } from '@libsql/client';
 import fs from 'fs';
@@ -48,14 +51,20 @@ await client.executeMultiple(`
     calculated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(signal_date, industry)
   );
   CREATE TABLE IF NOT EXISTS pipeline_run (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_name TEXT NOT NULL, batch_id TEXT NOT NULL, retry_count INTEGER DEFAULT 0,
-    status TEXT NOT NULL, started_at TEXT NOT NULL DEFAULT (datetime('now')),
-    finished_at TEXT, detail TEXT
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_name        TEXT    NOT NULL,  -- fetch | analyze | deep-analyze | event-threads | fetch-market
+    batch_id        TEXT    NOT NULL,  -- 调用方批次标识(QStash 消息 ID 或小时时间窗)
+    retry_count     INTEGER NOT NULL DEFAULT 0,
+    status          TEXT    NOT NULL,  -- running | success | failed
+    items_processed INTEGER,
+    error           TEXT,
+    started_at      TEXT    NOT NULL DEFAULT (datetime('now')),  -- 列定义同 lib/db.ts;seed 额外加默认值,允许缺省插入
+    finished_at     TEXT
   );
   CREATE TABLE IF NOT EXISTS pipeline_cursor (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key TEXT NOT NULL UNIQUE, value TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    job_name     TEXT PRIMARY KEY,  -- analyze | deep-analyze
+    last_news_id INTEGER NOT NULL DEFAULT 0,
+    updated_at   TEXT NOT NULL
   );
 `);
 console.log(`[ci-seed-db] ✓ 空库已建: ${filePath}`);
