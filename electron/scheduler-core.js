@@ -13,14 +13,4 @@ function isLlmConfigured(settings) {
   return Boolean(settings && settings.llm_api_key);
 }
 
-/**
- * 最近抓取是否超过阈值(未抓取过视为 stale)。
- * 输入时间兼容 ISO-8601 与 SQLite 空格格式(datetime('now'),按 UTC 解释)。
- */
-function isDataStale(lastFetchAt, nowIso, thresholdMs) {
-  if (!lastFetchAt) return true;
-  const t = lastFetchAt.includes('T') ? lastFetchAt : lastFetchAt.replace(' ', 'T') + 'Z';
-  return Date.parse(nowIso) - Date.parse(t) > thresholdMs;
-}
-
-module.exports = { PIPELINE_JOBS, buildJobSequence, isLlmConfigured, isDataStale };
+module.exports = { PIPELINE_JOBS, buildJobSequence, isLlmConfigured };

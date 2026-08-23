@@ -7,8 +7,20 @@ import { getSetting, SETTING_KEYS } from './settings';
  * In production/Vercel, a secret must be configured somewhere.
  */
 export async function assertCronAuth(req, res) {
-  // 桌面端本地调度:主进程调用自身服务,无需 secret
-  if (process.env.DESKTOP_MODE === '1') return true;
+  // 桌面端本地调度:主进程调用自身服务,无需 secret。但随机端口监听 127.0.0.1,
+  // 恶意网页可用 fetch 无鉴权触发本地管线(消耗用户 LLM 额度)→ 带 Origin 头且
+  // 非本机页面时拒绝;调度器自己的 http.get 不带 Origin 头,不受影响。
+  if (process.env.DESKTOP_MODE === '1') {
+    const origin = req.headers.origin;
+    if (
+      typeof origin === 'string' &&
+      !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
+    ) {
+      res.status(403).json({ error: 'Forbidden origin' });
+      return false;
+    }
+    return true;
+  }
   let cronSecret;
   try {
     cronSecret = (await getSetting(SETTING_KEYS.CRON_SECRET)) || process.env.CRON_SECRET;

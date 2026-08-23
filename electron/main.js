@@ -11,6 +11,10 @@ const { registerIpc } = require('./ipc');
 const { notifyNewHighSignals } = require('./notifier');
 const { initUpdater } = require('./updater');
 
+// Windows 通知依赖 AppUserModelID(与 electron-builder appId 一致,缺失则托盘通知
+// 静默不显示)。须在 whenReady 之前调用;mac/Linux 上是 no-op,安全。
+app.setAppUserModelId('com.zephyr.financial-signal');
+
 let mainWindow = null;
 let serverUrl = null;
 let scheduler = null;

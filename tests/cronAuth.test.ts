@@ -93,4 +93,31 @@ describe('DESKTOP_MODE', () => {
       else process.env.VERCEL = prevVercel;
     }
   });
+
+  it('blocks cross-site Origin in DESKTOP_MODE (browser CSRF guard)', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1');
+    const res = mockRes();
+    expect(await assertCronAuth(mockReq({}, { origin: 'https://evil.example' }), res)).toBe(false);
+    expect(res._status).toBe(403);
+  });
+
+  it('allows local page Origins in DESKTOP_MODE (127.0.0.1 / localhost, any port)', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1');
+    const res = mockRes();
+    expect(await assertCronAuth(mockReq({}, { origin: 'http://127.0.0.1:3010' }), res)).toBe(true);
+    expect(await assertCronAuth(mockReq({}, { origin: 'http://localhost:3010' }), res)).toBe(true);
+  });
+
+  it('web mode ignores Origin (behavior unchanged)', async () => {
+    // DESKTOP_MODE describe 没有 beforeEach:先清掉前一个用例残留的 DESKTOP_MODE stub
+    vi.unstubAllEnvs();
+    // 写库并失效 30s 缓存,确定性拿到 web-secret(不受 assertCronAuth describe 里共享 DB 状态影响)
+    await setSettings({ [SETTING_KEYS.CRON_SECRET]: 'web-secret' });
+    const res = mockRes();
+    // 带恶意 Origin + 正确 token:web 模式仍按 secret 鉴权,Origin 不参与
+    expect(await assertCronAuth(mockReq({ token: 'web-secret' }, { origin: 'https://evil.example' }), res)).toBe(true);
+    // 错误 token 仍是 401(而非 403):证明 web 模式只走 secret 鉴权
+    expect(await assertCronAuth(mockReq({ token: 'wrong' }, { origin: 'https://evil.example' }), res)).toBe(false);
+    expect(res._status).toBe(401);
+  });
 });
