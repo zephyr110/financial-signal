@@ -2,11 +2,11 @@
 const http = require('http');
 const { buildJobSequence, isLlmConfigured } = require('./scheduler-core');
 const { loadConfig } = require('./store');
-const { getSettings } = require('./app-settings');
+const { getSettings: getAppSettings } = require('./app-settings');
 
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
 
-function callCron(baseUrl, job) {
+function callCron(baseUrl, job, { timeoutMs = 60000 } = {}) {
   return new Promise((resolve, reject) => {
     const req = http.get(`${baseUrl}/api/cron/${job}`, (res) => {
       res.resume();
@@ -14,13 +14,16 @@ function callCron(baseUrl, job) {
       resolve(false);
     });
     req.on('error', reject);
-    req.setTimeout(60000, () => { req.destroy(); reject(new Error(`cron ${job} timeout`)); });
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error(`cron ${job} timeout`)); });
   });
 }
 
 /** 创建调度器:start() 立即执行一轮管线,之后每 intervalMs 一轮。 */
-function createScheduler({ baseUrl, dbPath, configFile, onRunStart, onRunEnd }) {
-  const cfg = loadConfig(configFile, { intervalMs: DEFAULT_INTERVAL_MS, notifyLastRunAt: null });
+function createScheduler({
+  baseUrl, dbPath, configFile, onRunStart, onRunEnd,
+  getConfig = loadConfig, getSettings = getAppSettings,
+}) {
+  const cfg = getConfig(configFile, { intervalMs: DEFAULT_INTERVAL_MS, notifyLastRunAt: null });
   let timer = null;
   let running = false;
 

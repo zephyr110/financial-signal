@@ -1,12 +1,14 @@
 'use strict';
 const { app, BrowserWindow } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
-const { startServer, devUrl, stopServer } = require('./server');
+const { createServerManager, devUrl } = require('./server');
 const { createScheduler } = require('./scheduler');
 
 let mainWindow = null;
 let serverUrl = null;
 let scheduler = null;
+let serverManager = null;
 
 const isDev = !app.isPackaged;
 const userData = app.getPath('userData');
@@ -63,15 +65,24 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     try {
-      const url = isDev ? devUrl() : await startServer({
-        dbPath,
-        // 崩溃重启后端口变化:更新 serverUrl、重新导航、重建调度器(绑新端口)
-        onCrash: (nextUrl) => {
-          serverUrl = nextUrl;
-          navigate();
-          if (!isDev) startScheduler();
-        },
-      });
+      if (!isDev) {
+        serverManager = createServerManager({
+          spawn,
+          dbPath,
+          // 崩溃重启后端口变化:更新 serverUrl、重新导航、重建调度器(绑新端口)
+          onCrash: (nextUrl) => {
+            serverUrl = nextUrl;
+            navigate();
+            startScheduler();
+          },
+          // 重启 5 次仍无法恢复:standalone 不可用,退出应用而不是静默瘫痪
+          onGiveUp: () => {
+            console.error('[app] standalone server failed to recover, quitting');
+            app.quit();
+          },
+        });
+      }
+      const url = isDev ? devUrl() : await serverManager.start();
       serverUrl = url;
       createWindow();
       navigate();
@@ -94,6 +105,6 @@ if (!gotLock) {
 
   // 退出前停掉 standalone 子进程(避免残留 node 进程)
   app.on('will-quit', () => {
-    stopServer();
+    if (serverManager) serverManager.stop();
   });
 }

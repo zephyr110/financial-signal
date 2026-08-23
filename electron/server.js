@@ -1,102 +1,137 @@
 'use strict';
-const { spawn } = require('child_process');
 const path = require('path');
 const { findFreePort, waitForHealthy, buildServerEnv } = require('./server-utils');
 
 const MAX_RESTARTS = 5;
+const BASE_RETRY_MS = 1000;
+const MAX_RETRY_MS = 30000;
 const STANDALONE_DIR = path.join(__dirname, '..', '.next', 'standalone');
-
-let child = null;
-let restarts = 0;
-let currentUrl = null;
-let stopping = false;
-let restartTimer = null;
 
 /** dev 模式返回固定 URL(next dev 由 dev:desktop 脚本管理)。 */
 function devUrl() {
   return 'http://127.0.0.1:3010';
 }
 
-/** prod 模式:选端口 → spawn standalone → 等健康 → 返回 baseUrl。 */
-async function startServer({ dbPath, onCrash }) {
-  const port = await findFreePort();
-  const serverJs = path.join(STANDALONE_DIR, 'server.js');
-  const env = buildServerEnv({ port, dbPath });
+/**
+ * 管理 standalone server 生命周期(spawn/健康检查/崩溃退避重启 ≤5 次/stop)。
+ * 依赖全部可注入(spawn/waitForHealthy/findFreePort/定时器/日志),便于单测。
+ * 'exit' 与 spawn 'error' 走同一条重启路径;健康后 restarts 归零(连续失败语义);
+ * 重启次数耗尽时回调 onGiveUp(由调用方决定是否退出应用)。
+ */
+function createServerManager({
+  spawn,
+  dbPath,
+  baseUrl = 'http://127.0.0.1',
+  onCrash,
+  onGiveUp,
+  log = console.log,
+  errorLog = console.error,
+  findFreePort: findFreePortImpl = findFreePort,
+  waitForHealthy: waitForHealthyImpl = waitForHealthy,
+  setTimeout: setTimeoutImpl = setTimeout,
+  clearTimeout: clearTimeoutImpl = clearTimeout,
+} = {}) {
+  let child = null;
+  let restarts = 0;
+  let stopping = false;
+  let restartTimer = null;
+  let currentUrl = null;
+  let lastSpawnError = null;
 
-  child = spawn('node', [serverJs], {
-    cwd: STANDALONE_DIR,
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  child.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
-  child.stdout.on('data', (d) => {
-    const line = String(d).trim();
-    if (line && !line.startsWith('✓')) process.stdout.write(`[server] ${line}\n`);
-  });
-  child.on('error', (err) => {
-    console.error('[server] spawn error:', err.message);
-  });
-
-  child.on('exit', (code) => {
-    child = null;
-    if (stopping) return; // 主动关闭(退出应用),不再重启
+  /** 崩溃/spawn 失败后的统一退避重启;次数耗尽时通知 onGiveUp。 */
+  function scheduleRestart(code, signal) {
+    if (stopping) return;
     if (restarts < MAX_RESTARTS) {
       restarts += 1;
-      const delay = Math.min(1000 * 2 ** restarts, 30000);
-      console.log(`[server] exited(${code}), restart in ${delay}ms (${restarts}/${MAX_RESTARTS})`);
-      restartTimer = setTimeout(() => {
+      const delay = Math.min(BASE_RETRY_MS * 2 ** restarts, MAX_RETRY_MS);
+      log(`[server] exited(${code}${signal ? ' sig=' + signal : ''}), restart in ${delay}ms (${restarts}/${MAX_RESTARTS})`);
+      restartTimer = setTimeoutImpl(() => {
         restartTimer = null;
-        if (stopping) return; // 已 stopServer,不再重启
-        startServer({ dbPath, onCrash }).then(onCrash).catch(() => {});
+        if (stopping) return;
+        start().then(onCrash).catch(() => {});
       }, delay);
     } else {
-      console.error('[server] too many crashes, giving up');
+      errorLog('[server] too many crashes, giving up');
+      if (onGiveUp) onGiveUp();
     }
-  });
-
-  // 启动期:首个 child 在变健康前退出 → 立即失败,由重启循环接管
-  // (exit 监听不重复触发重启逻辑,只是额外 resolve 一个 promise)
-  const c = child;
-  const exitBeforeHealthy = new Promise((resolve) => {
-    const onFirstExit = () => {
-      c.removeListener('exit', onFirstExit);
-      resolve();
-    };
-    c.on('exit', onFirstExit);
-  });
-
-  const url = `http://127.0.0.1:${port}`;
-  currentUrl = url;
-  const healthy = await Promise.race([
-    waitForHealthy(`${url}/api/health`),
-    exitBeforeHealthy.then(() => false),
-  ]);
-  if (!healthy) throw new Error('standalone server exited before becoming healthy');
-  return url;
-}
-
-/** 当前 server 的 baseUrl(未启动返回 null)。 */
-function serverBaseUrl() {
-  return currentUrl;
-}
-
-/** 主动停掉 standalone 子进程(应用退出时调用,不再触发重启)。 */
-function stopServer() {
-  stopping = true;
-  if (restartTimer) {
-    clearTimeout(restartTimer);
-    restartTimer = null;
   }
-  const c = child;
-  child = null;
-  currentUrl = null;
-  if (!c) return;
-  c.kill('SIGTERM');
-  // exitCode 为 null 表示进程尚未退出 → 兜底 SIGKILL
-  // (不能用 c.killed:kill() 一调用它就置 true,不是"已退出"的意思)
-  setTimeout(() => {
-    if (c.exitCode === null) c.kill('SIGKILL');
-  }, 500).unref();
+
+  /** 选端口 → spawn standalone → 等健康 → 返回 baseUrl。 */
+  async function start() {
+    stopping = false; // stop 后仍可再次 start(幂等)
+    lastSpawnError = null;
+    const port = await findFreePortImpl();
+    const serverJs = path.join(STANDALONE_DIR, 'server.js');
+    const env = buildServerEnv({ port, dbPath });
+
+    let exitBeforeHealthyResolve;
+    const exitBeforeHealthy = new Promise((resolve) => { exitBeforeHealthyResolve = resolve; });
+
+    child = spawn('node', [serverJs], {
+      cwd: STANDALONE_DIR,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+    child.stdout.on('data', (d) => {
+      const line = String(d).trim();
+      if (line && !line.startsWith('✓')) process.stdout.write(`[server] ${line}\n`);
+    });
+    // spawn 失败(ENOENT 等)不发 'exit',只发 'error' + 'close' → 与 'exit' 统一走重启路径
+    child.on('error', (err) => {
+      lastSpawnError = err.message;
+      child = null;
+      exitBeforeHealthyResolve();
+      errorLog('[server] spawn error:', err.message);
+      scheduleRestart(null, 'spawn-error');
+    });
+    child.on('exit', (code, signal) => {
+      child = null;
+      exitBeforeHealthyResolve();
+      scheduleRestart(code, signal);
+    });
+
+    const url = `${baseUrl}:${port}`;
+    currentUrl = url;
+    const healthy = await Promise.race([
+      waitForHealthyImpl(`${url}/api/health`),
+      exitBeforeHealthy.then(() => false),
+    ]);
+    if (!healthy) {
+      throw new Error(lastSpawnError
+        ? `standalone server spawn failed: ${lastSpawnError}`
+        : 'standalone server exited before becoming healthy');
+    }
+    restarts = 0; // 连续失败语义:健康后重置(退避 delay 只在连续失败时增长)
+    return url;
+  }
+
+  /** 当前 server 的 baseUrl(未启动返回 null)。 */
+  function getUrl() {
+    return currentUrl;
+  }
+
+  /** 主动停掉 standalone 子进程(应用退出时调用,不再触发重启)。 */
+  function stop() {
+    stopping = true;
+    if (restartTimer) {
+      clearTimeoutImpl(restartTimer);
+      restartTimer = null;
+    }
+    const c = child;
+    child = null;
+    currentUrl = null;
+    if (!c) return;
+    c.kill('SIGTERM');
+    // exitCode 为 null 表示进程尚未退出 → 兜底 SIGKILL
+    // (不能用 c.killed:kill() 一调用它就置 true,不是"已退出"的意思)
+    const t = setTimeoutImpl(() => {
+      if (c.exitCode === null) c.kill('SIGKILL');
+    }, 500);
+    if (t && typeof t.unref === 'function') t.unref();
+  }
+
+  return { start, stop, getUrl };
 }
 
-module.exports = { startServer, devUrl, serverBaseUrl, stopServer };
+module.exports = { createServerManager, devUrl };
