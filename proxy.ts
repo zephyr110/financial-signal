@@ -21,6 +21,8 @@ const PUBLIC_API = ['/api/auth/', '/api/health', '/api/rss', '/api/events', '/ap
 const PUBLIC_PREFIX = ['/agent/s/'];
 
 export default async function proxy(req: NextRequest) {
+  // 桌面端:本地单用户应用,跳过登录门卫
+  if (process.env.DESKTOP_MODE === '1') return NextResponse.next();
   const { pathname, search } = req.nextUrl;
 
   if (STATIC_EXT_RE.test(pathname)) return NextResponse.next();

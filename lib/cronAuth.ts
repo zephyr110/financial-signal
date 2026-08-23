@@ -7,6 +7,8 @@ import { getSetting, SETTING_KEYS } from './settings';
  * In production/Vercel, a secret must be configured somewhere.
  */
 export async function assertCronAuth(req, res) {
+  // 桌面端本地调度:主进程调用自身服务,无需 secret
+  if (process.env.DESKTOP_MODE === '1') return true;
   let cronSecret;
   try {
     cronSecret = (await getSetting(SETTING_KEYS.CRON_SECRET)) || process.env.CRON_SECRET;

@@ -74,3 +74,18 @@ describe('assertCronAuth', () => {
     expect(await assertCronAuth(mockReq({ token: 'env-secret' }), res)).toBe(false)
   })
 })
+
+describe('DESKTOP_MODE', () => {
+  it('bypasses auth when DESKTOP_MODE=1 even without secret', async () => {
+    const prev = process.env.DESKTOP_MODE;
+    process.env.DESKTOP_MODE = '1';
+    try {
+      const req = { query: {}, headers: {} };
+      const res = { status: () => ({ json: () => {} }) };
+      expect(await assertCronAuth(req, res)).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.DESKTOP_MODE;
+      else process.env.DESKTOP_MODE = prev;
+    }
+  });
+});
