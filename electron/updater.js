@@ -16,16 +16,22 @@ function initUpdater({ manual = false } = {}) {
   if (!listenersRegistered) {
     listenersRegistered = true;
     autoUpdater.on('update-available', async (info) => {
-      if (manualMode) {
-        const { response } = await dialog.showMessageBox({
-          type: 'info',
-          buttons: ['下载', '稍后'],
-          defaultId: 0,
-          message: `发现新版本 ${info.version}`,
-        });
-        if (response !== 0) return;
+      try {
+        if (manualMode) {
+          const { response } = await dialog.showMessageBox({
+            type: 'info',
+            buttons: ['下载', '稍后'],
+            defaultId: 0,
+            message: `发现新版本 ${info.version}`,
+          });
+          if (response !== 0) return;
+        }
+        // downloadUpdate 失败会同时 dispatch 'error' 并 reject;不捕获的话
+        // async 监听器的 rejection 无人理会 → unhandled rejection 终止进程。
+        await autoUpdater.downloadUpdate();
+      } catch (err) {
+        console.error('[updater] download failed:', err.message);
       }
-      await autoUpdater.downloadUpdate();
     });
     autoUpdater.on('update-downloaded', async (info) => {
       const { response } = await dialog.showMessageBox({
@@ -40,15 +46,20 @@ function initUpdater({ manual = false } = {}) {
       if (manualMode) dialog.showMessageBox({ type: 'info', message: '已是最新版本' });
     });
     autoUpdater.on('error', (err) => {
+      // 静默模式也留日志——错误事件可能不伴随 promise rejection(如下载中途失败),
+      // 只在弹窗分支打日志会丢掉启动后静默检查的失败现场。
+      console.error('[updater] update error:', err.message);
       if (manualMode) dialog.showMessageBox({ type: 'error', message: `检查更新失败: ${err.message}` });
     });
   }
   manualMode = manual;
   if (!checkedOnce && !manual) {
     checkedOnce = true;
-    autoUpdater.checkForUpdates().catch(() => {});
+    autoUpdater.checkForUpdates().catch((err) => console.error('[updater] check failed:', err.message));
   }
-  if (manual) autoUpdater.checkForUpdates().catch(() => {});
+  if (manual) {
+    autoUpdater.checkForUpdates().catch((err) => console.error('[updater] check failed:', err.message));
+  }
 }
 
 module.exports = { initUpdater };

@@ -169,18 +169,24 @@ describe('update-not-available / error 处理', () => {
     )
   })
 
-  it('手动:error 弹"检查更新失败";静默:吞掉只记日志', async () => {
+  it('手动:error 弹"检查更新失败";静默:不弹框但记日志', async () => {
     const initUpdater = await loadInitUpdater()
-    initUpdater()
-    updater.emit('error', new Error('404 not found'))
-    await flush()
-    expect(electronStub.dialog.showMessageBox).not.toHaveBeenCalled()
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      initUpdater()
+      updater.emit('error', new Error('404 not found'))
+      await flush()
+      expect(electronStub.dialog.showMessageBox).not.toHaveBeenCalled()
+      expect(errSpy).toHaveBeenCalledWith('[updater] update error:', '404 not found')
 
-    initUpdater({ manual: true })
-    updater.emit('error', new Error('404 not found'))
-    await flush()
-    expect(electronStub.dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'error', message: '检查更新失败: 404 not found' }),
-    )
+      initUpdater({ manual: true })
+      updater.emit('error', new Error('500 server'))
+      await flush()
+      expect(electronStub.dialog.showMessageBox).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', message: '检查更新失败: 500 server' }),
+      )
+    } finally {
+      errSpy.mockRestore()
+    }
   })
 })
