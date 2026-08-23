@@ -127,4 +127,40 @@ describe('notifyNewHighSignals', () => {
     expect(fakeNotification.shown).toHaveLength(0)
     expect(readConfig().notifyLastRunAt).toBe('2026-08-23 10:00:00')
   })
+
+  it('does not advance the cursor when the query fails', async () => {
+    await insertNews('boom', 5, '2026-08-23 10:00:00')
+    const oldCursor = '2026-08-23 08:00:00'
+    fs.writeFileSync(configFile, JSON.stringify({ notifyLastRunAt: oldCursor }))
+    await db.execute('DROP TABLE analysis_result') // 查询必然抛错
+    await expect(notify()).rejects.toThrow()
+    expect(readConfig().notifyLastRunAt).toBe(oldCursor)
+    expect(fakeNotification.shown).toHaveLength(0)
+  })
+
+  it('continues pushing remaining notifications when one fails to construct', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await insertNews('first-fail', 5, '2026-08-23 10:00:00')
+    await insertNews('second-ok', 5, '2026-08-23 11:00:00')
+    let calls = 0
+    class FlakyNotification {
+      constructor(opts) {
+        calls += 1
+        if (calls === 1) throw new Error('boom')
+        this.opts = opts
+      }
+      on() {}
+      show() { fakeNotification.shown.push(this) }
+      static isSupported() { return true }
+    }
+    try {
+      const count = await notify({ NotificationImpl: FlakyNotification })
+      expect(count).toBe(2)
+      expect(fakeNotification.shown).toHaveLength(1)
+      expect(fakeNotification.shown[0].opts.body).toBe('first-fail')
+      expect(readConfig().notifyLastRunAt).toBe('2026-08-23 11:00:00')
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
 })

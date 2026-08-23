@@ -29,15 +29,24 @@ async function validateDbFile(file) {
   }
 }
 
-/** 校验通过后复制到目标路径。返回 { ok, error? } */
+/** 校验通过后原子替换到目标路径。返回 { ok, error? } */
 async function importDbFile(src, dest) {
   const v = await validateDbFile(src);
   if (!v.ok) return v;
+  // 先拷临时文件再 rename:rename 换 inode,旧文件全程完整,
+  // 活跃 server 连接(可能正在写库)不受影响,重启后自然打开新 inode。
+  const tmp = `${dest}.tmp`;
   try {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
+    fs.copyFileSync(src, tmp);
+    fs.renameSync(tmp, dest);
     return { ok: true };
   } catch (err) {
+    try {
+      if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    } catch {
+      // 清理失败只记日志,不掩盖原始错误
+    }
     return { ok: false, error: `复制失败: ${err.message}` };
   }
 }

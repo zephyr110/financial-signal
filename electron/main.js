@@ -13,6 +13,7 @@ let mainWindow = null;
 let serverUrl = null;
 let scheduler = null;
 let serverManager = null;
+let tray = null;
 
 const isDev = !app.isPackaged;
 const userData = app.getPath('userData');
@@ -31,6 +32,18 @@ function createWindow() {
     },
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+/** 唤起主窗口:不存在则重建;最小化先 restore;统一 4 处唤起逻辑。 */
+function showMainWindow() {
+  if (!mainWindow) {
+    createWindow();
+    navigate();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
 }
 
 function navigate() {
@@ -53,9 +66,7 @@ function ensureScheduler() {
       notifyNewHighSignals({
         dbPath,
         configFile,
-        onActivate: () => {
-          if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-        },
+        onActivate: showMainWindow,
       }).catch((err) => console.error('[notifier] notify failed:', err.message));
     },
   });
@@ -108,10 +119,7 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    showMainWindow();
   });
 
   app.whenReady().then(async () => {
@@ -139,23 +147,13 @@ if (!gotLock) {
       navigate();
       if (!isDev) startScheduler();
       registerIpc({
-        getConfigFile: () => configFile,
         getDbPath: () => dbPath,
         onImported,
         onFetchNow: runFetchNow,
       });
       try {
-        createTray({
-          onOpen: () => {
-            if (!mainWindow) {
-              createWindow();
-              navigate();
-              return;
-            }
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.show();
-            mainWindow.focus();
-          },
+        tray = createTray({
+          onOpen: showMainWindow,
           onFetchNow: runFetchNow,
           onOpenDataDir: () => {
             fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -163,7 +161,6 @@ if (!gotLock) {
           },
           // onCheckUpdate 留空:自动更新是 Task 12
           onQuit: () => {
-            app.isQuitting = true;
             app.quit();
           },
         });
@@ -176,10 +173,7 @@ if (!gotLock) {
       app.quit();
     }
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
-        navigate();
-      }
+      showMainWindow();
     });
   });
 
@@ -187,8 +181,16 @@ if (!gotLock) {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  // 退出前停掉 standalone 子进程(避免残留 node 进程)
+  // 退出前停掉 standalone 子进程、销毁托盘(避免残留 node 进程/常驻图标)
   app.on('will-quit', () => {
     if (serverManager) serverManager.stop();
+    if (tray) {
+      try {
+        tray.destroy();
+      } catch (err) {
+        // Linux 上 destroy 有已知问题,失败不应阻止退出
+        console.error('[main] failed to destroy tray:', err.message);
+      }
+    }
   });
 }

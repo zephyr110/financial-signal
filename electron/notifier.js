@@ -22,13 +22,18 @@ async function notifyNewHighSignals({
   }
   if (rows.length > 0) {
     for (const row of rows.slice(0, 5)) {
-      if (NotificationImpl.isSupported()) {
-        const n = new NotificationImpl({
-          title: `信号 ${row.signalScore} 分: ${row.title.slice(0, 40)}`,
-          body: row.title,
-        });
-        n.on('click', () => { if (onActivate) onActivate(); });
-        n.show();
+      // 单条失败不能中断循环:记日志后继续,游标照常推进(与 unsupported 语义一致)
+      try {
+        if (NotificationImpl.isSupported()) {
+          const n = new NotificationImpl({
+            title: `信号 ${row.signalScore} 分: ${row.title.slice(0, 40)}`,
+            body: row.title,
+          });
+          n.on('click', () => { if (onActivate) onActivate(); });
+          n.show();
+        }
+      } catch (err) {
+        console.error('[notifier] failed to show notification:', err.message);
       }
     }
   }
