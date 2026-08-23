@@ -85,6 +85,13 @@ async function startScheduler() {
   scheduler.start();
 }
 
+/** 首次启动尚无 db 时不要启动调度器(管线会因缺表失败);真正防止建库的是
+ * /api/health 在文件缺失时不触发 getDb(见 pages/api/health.ts)。用户做出
+ * 选择后 restartAfterDbChange 内会无条件 startScheduler()(此时 db 必已存在)。 */
+function maybeStartScheduler() {
+  if (!isDev && fs.existsSync(dbPath)) startScheduler();
+}
+
 /** 手动抓取:prod 走调度器 runOnce;dev 无调度器轮询,也建实例按需跑一轮。 */
 async function runFetchNow() {
   await ensureScheduler().runOnce();
@@ -157,7 +164,7 @@ if (!gotLock) {
           onCrash: (nextUrl) => {
             serverUrl = nextUrl;
             navigate();
-            startScheduler();
+            maybeStartScheduler();
           },
           // 重启 5 次仍无法恢复:standalone 不可用,退出应用而不是静默瘫痪
           onGiveUp: () => {
@@ -170,10 +177,11 @@ if (!gotLock) {
       serverUrl = url;
       createWindow();
       navigate();
-      // 首次启动尚无 db 时不要抢跑:调度器首个 runOnce 会经 getSettings 触建空库文件,
-      // 使渲染层 getInfo 的 imported=true,欢迎页永不出现、唯一导入入口丢失。
-      // 用户做出选择(导入/全新开始)后 restartAfterDbChange 内已会 startScheduler()。
-      if (!isDev && fs.existsSync(dbPath)) startScheduler();
+      // 首次启动尚无 db 时不启动调度器(管线会因缺表失败);欢迎页门控由
+      // /api/health 在 db 缺失时不触发 getDb 保证——服务端抢先建库的根源
+      // 已被切断(见 pages/api/health.ts)。用户做出选择(导入/全新开始)后
+      // restartAfterDbChange 内会无条件 startScheduler()(此时 db 必已存在)。
+      maybeStartScheduler();
       registerIpc({
         getDbPath: () => dbPath,
         onImported,
