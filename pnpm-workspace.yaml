@@ -1,5 +1,7 @@
 # pnpm v11 settings (allowBuilds lives here, not package.json)
 allowBuilds:
+  electron: true
+  electron-winstaller: false
   msw: true
   # Optional Next.js image optimizer; skip native build if it fails locally
   sharp: false
