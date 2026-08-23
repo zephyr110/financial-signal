@@ -1113,9 +1113,6 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const { startServer, devUrl } = require('./server');
 const { createScheduler } = require('./scheduler');
-const { loadConfig } = require('./store');
-const { isLlmConfigured } = require('./scheduler-core');
-const { getSettings } = require('./app-settings');
 
 let mainWindow = null;
 let serverUrl = null;
