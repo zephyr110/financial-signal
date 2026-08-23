@@ -2,11 +2,15 @@
 const fs = require('fs');
 const path = require('path');
 
-/** 读取 config.json;文件缺失/损坏时返回 defaults。 */
+/** 读取 config.json;文件缺失/损坏/非对象时返回 defaults。 */
 function loadConfig(file, defaults) {
   try {
     const raw = fs.readFileSync(file, 'utf8');
-    return { ...defaults, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return { ...defaults };
+    }
+    return { ...defaults, ...parsed };
   } catch {
     return { ...defaults };
   }

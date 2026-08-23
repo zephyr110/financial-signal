@@ -40,6 +40,16 @@ describe('validateDbFile', () => {
     const r = await validateDbFile(path.join(dir, 'nope.db'))
     expect(r.ok).toBe(false)
   })
+
+  it('rejects a valid sqlite db missing a required table', async () => {
+    const partialPath = path.join(dir, 'partial.db')
+    const partial = createClient({ url: `file:${partialPath}` })
+    await partial.executeMultiple('CREATE TABLE only_one (id INTEGER PRIMARY KEY);')
+    await partial.close()
+    const r = await validateDbFile(partialPath)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('news_archive')
+  })
 })
 
 describe('importDbFile', () => {

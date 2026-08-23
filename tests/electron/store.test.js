@@ -33,6 +33,13 @@ describe('loadConfig', () => {
     const cfg = loadConfig(file, { intervalMs: 1800000 })
     expect(cfg.intervalMs).toBe(1800000)
   })
+
+  it('falls back to defaults on non-object json (string/array)', () => {
+    fs.writeFileSync(file, '"just a string"')
+    expect(loadConfig(file, { intervalMs: 1800000 }).intervalMs).toBe(1800000)
+    fs.writeFileSync(file, '[1,2,3]')
+    expect(loadConfig(file, { intervalMs: 1800000 }).intervalMs).toBe(1800000)
+  })
 })
 
 describe('saveConfig', () => {
