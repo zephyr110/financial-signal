@@ -1,9 +1,13 @@
 'use strict';
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, shell } = require('electron');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const { createServerManager, devUrl } = require('./server');
 const { createScheduler } = require('./scheduler');
+const { createTray } = require('./tray');
+const { registerIpc } = require('./ipc');
+const { notifyNewHighSignals } = require('./notifier');
 
 let mainWindow = null;
 let serverUrl = null;
@@ -36,6 +40,28 @@ function navigate() {
   });
 }
 
+/** 保证调度器存在(dev 下仅按需 runOnce,不 start 定时轮询)。 */
+function ensureScheduler() {
+  if (scheduler) return scheduler;
+  scheduler = createScheduler({
+    baseUrl: serverUrl || devUrl(),
+    dbPath,
+    configFile,
+    onRunStart: (sequence) => console.log(`[scheduler] run: ${sequence.join(' → ')}`),
+    onRunEnd: () => {
+      // 通知失败不能打断调度循环,吞掉错误只记日志
+      notifyNewHighSignals({
+        dbPath,
+        configFile,
+        onActivate: () => {
+          if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+        },
+      }).catch((err) => console.error('[notifier] notify failed:', err.message));
+    },
+  });
+  return scheduler;
+}
+
 async function startScheduler() {
   if (!serverUrl) return;
   // 幂等:已存在则先停再建(崩溃重启后端口变化,调度器必须绑新 URL)
@@ -43,13 +69,38 @@ async function startScheduler() {
     scheduler.stop();
     scheduler = null;
   }
-  scheduler = createScheduler({
-    baseUrl: serverUrl,
-    dbPath,
-    configFile,
-    onRunStart: (sequence) => console.log(`[scheduler] run: ${sequence.join(' → ')}`),
-  });
+  ensureScheduler();
   scheduler.start();
+}
+
+/** 手动抓取:prod 走调度器 runOnce;dev 无调度器轮询,也建实例按需跑一轮。 */
+async function runFetchNow() {
+  await ensureScheduler().runOnce();
+}
+
+/** db 导入成功后:旧 server 的 db 句柄指向旧 inode,必须重启 server 与调度器。 */
+async function onImported() {
+  if (scheduler) {
+    scheduler.stop();
+    scheduler = null;
+  }
+  if (serverManager) {
+    try {
+      serverManager.stop();
+    } catch (err) {
+      console.error('[main] stop server failed:', err.message);
+    }
+    serverUrl = null;
+    try {
+      serverUrl = await serverManager.start();
+    } catch (err) {
+      console.error('[main] failed to restart server after db import:', err.message);
+      app.quit();
+      return;
+    }
+  }
+  navigate();
+  if (!isDev) startScheduler();
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -87,6 +138,39 @@ if (!gotLock) {
       createWindow();
       navigate();
       if (!isDev) startScheduler();
+      registerIpc({
+        getConfigFile: () => configFile,
+        getDbPath: () => dbPath,
+        onImported,
+        onFetchNow: runFetchNow,
+      });
+      try {
+        createTray({
+          onOpen: () => {
+            if (!mainWindow) {
+              createWindow();
+              navigate();
+              return;
+            }
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          },
+          onFetchNow: runFetchNow,
+          onOpenDataDir: () => {
+            fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+            shell.openPath(path.dirname(dbPath));
+          },
+          // onCheckUpdate 留空:自动更新是 Task 12
+          onQuit: () => {
+            app.isQuitting = true;
+            app.quit();
+          },
+        });
+      } catch (err) {
+        // 托盘失败(图标缺失等)不应阻止应用运行
+        console.error('[main] failed to create tray:', err.message);
+      }
     } catch (err) {
       console.error('[main] failed to start server:', err.message);
       app.quit();
