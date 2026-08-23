@@ -35,7 +35,12 @@ function navigate() {
 }
 
 async function startScheduler() {
-  if (!serverUrl || scheduler) return;
+  if (!serverUrl) return;
+  // 幂等:已存在则先停再建(崩溃重启后端口变化,调度器必须绑新 URL)
+  if (scheduler) {
+    scheduler.stop();
+    scheduler = null;
+  }
   scheduler = createScheduler({
     baseUrl: serverUrl,
     dbPath,
@@ -60,8 +65,12 @@ if (!gotLock) {
     try {
       const url = isDev ? devUrl() : await startServer({
         dbPath,
-        // 崩溃重启后端口变化,用新 URL 重新导航
-        onCrash: (nextUrl) => { serverUrl = nextUrl; navigate(); },
+        // 崩溃重启后端口变化:更新 serverUrl、重新导航、重建调度器(绑新端口)
+        onCrash: (nextUrl) => {
+          serverUrl = nextUrl;
+          navigate();
+          if (!isDev) startScheduler();
+        },
       });
       serverUrl = url;
       createWindow();

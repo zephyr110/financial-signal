@@ -10,6 +10,7 @@ let child = null;
 let restarts = 0;
 let currentUrl = null;
 let stopping = false;
+let restartTimer = null;
 
 /** dev 模式返回固定 URL(next dev 由 dev:desktop 脚本管理)。 */
 function devUrl() {
@@ -32,6 +33,9 @@ async function startServer({ dbPath, onCrash }) {
     const line = String(d).trim();
     if (line && !line.startsWith('✓')) process.stdout.write(`[server] ${line}\n`);
   });
+  child.on('error', (err) => {
+    console.error('[server] spawn error:', err.message);
+  });
 
   child.on('exit', (code) => {
     child = null;
@@ -40,16 +44,34 @@ async function startServer({ dbPath, onCrash }) {
       restarts += 1;
       const delay = Math.min(1000 * 2 ** restarts, 30000);
       console.log(`[server] exited(${code}), restart in ${delay}ms (${restarts}/${MAX_RESTARTS})`);
-      setTimeout(() => startServer({ dbPath, onCrash }).then(onCrash).catch(() => {}), delay);
+      restartTimer = setTimeout(() => {
+        restartTimer = null;
+        if (stopping) return; // 已 stopServer,不再重启
+        startServer({ dbPath, onCrash }).then(onCrash).catch(() => {});
+      }, delay);
     } else {
       console.error('[server] too many crashes, giving up');
     }
   });
 
+  // 启动期:首个 child 在变健康前退出 → 立即失败,由重启循环接管
+  // (exit 监听不重复触发重启逻辑,只是额外 resolve 一个 promise)
+  const c = child;
+  const exitBeforeHealthy = new Promise((resolve) => {
+    const onFirstExit = () => {
+      c.removeListener('exit', onFirstExit);
+      resolve();
+    };
+    c.on('exit', onFirstExit);
+  });
+
   const url = `http://127.0.0.1:${port}`;
   currentUrl = url;
-  const healthy = await waitForHealthy(`${url}/api/health`);
-  if (!healthy) throw new Error('standalone server did not become healthy');
+  const healthy = await Promise.race([
+    waitForHealthy(`${url}/api/health`),
+    exitBeforeHealthy.then(() => false),
+  ]);
+  if (!healthy) throw new Error('standalone server exited before becoming healthy');
   return url;
 }
 
@@ -61,13 +83,20 @@ function serverBaseUrl() {
 /** 主动停掉 standalone 子进程(应用退出时调用,不再触发重启)。 */
 function stopServer() {
   stopping = true;
-  currentUrl = null;
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
   const c = child;
   child = null;
-  if (c && !c.killed) {
-    c.kill('SIGTERM');
-    setTimeout(() => { if (!c.killed) c.kill('SIGKILL'); }, 500).unref();
-  }
+  currentUrl = null;
+  if (!c) return;
+  c.kill('SIGTERM');
+  // exitCode 为 null 表示进程尚未退出 → 兜底 SIGKILL
+  // (不能用 c.killed:kill() 一调用它就置 true,不是"已退出"的意思)
+  setTimeout(() => {
+    if (c.exitCode === null) c.kill('SIGKILL');
+  }, 500).unref();
 }
 
 module.exports = { startServer, devUrl, serverBaseUrl, stopServer };

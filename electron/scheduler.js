@@ -1,6 +1,6 @@
 'use strict';
 const http = require('http');
-const { buildJobSequence, isLlmConfigured, isDataStale } = require('./scheduler-core');
+const { buildJobSequence, isLlmConfigured } = require('./scheduler-core');
 const { loadConfig } = require('./store');
 const { getSettings } = require('./app-settings');
 
@@ -18,7 +18,7 @@ function callCron(baseUrl, job) {
   });
 }
 
-/** 创建调度器:每 intervalMs 跑一轮管线;启动时数据过期则立即补跑 fetch。 */
+/** 创建调度器:start() 立即执行一轮管线,之后每 intervalMs 一轮。 */
 function createScheduler({ baseUrl, dbPath, configFile, onRunStart, onRunEnd }) {
   const cfg = loadConfig(configFile, { intervalMs: DEFAULT_INTERVAL_MS, notifyLastRunAt: null });
   let timer = null;
