@@ -11,16 +11,44 @@
 // 重建 symlink,相对目标在复制后的树内仍有效;dangling link(.pnpm/node_modules/semver,
 // 运行时无人解析)照原样保留,无害。
 import { existsSync } from 'fs';
-import { copyFile, lstat, mkdir, readdir, readlink, symlink } from 'fs/promises';
+import { copyFile, lstat, mkdir, readdir, readlink, realpath, symlink } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// Windows 上的链接处理(process.platform === 'win32'):
+// pnpm 对 node_modules 的目录链接用的是 junction,而 junction 存的是【绝对路径】
+// (指向 CI workspace 内的 .next/standalone/node_modules/.pnpm/...)。打包后整棵树
+// 被搬到用户的 Resources/standalone,绝对路径必然失效——重建 junction 等于生成
+// 一串坏链接;普通 Windows symlink 创建则需要 Developer Mode/管理员权限,
+// CI runner 上会直接 EPERM。所以 Windows 上唯一正确且无特权的做法是【物化复制】:
+// 按 realpath 解析链接链后把目标内容整体复制到 dest(等价 dereference)。
+// 代价是 .pnpm 中被多份引用的包会重复落盘,但功能等价、无需任何特权。
+// 目标不存在(dangling link,运行时无人解析,见上方文件头注释)时建空目录兜底,
+// 不让个别 dangling 链接拖垮整个打包。mac/Linux 不经过此分支,保持原样。
 async function copyTree(src, dest) {
   const st = await lstat(src);
   if (st.isSymbolicLink()) {
     const target = await readlink(src);
+    if (process.platform === 'win32') {
+      const absTarget = path.resolve(path.dirname(src), target);
+      let resolved = null;
+      try {
+        resolved = await realpath(absTarget); // 解析链接链(含 junction)
+      } catch {
+        /* dangling link:目标不存在 */
+      }
+      if (resolved) {
+        const resolvedSt = await lstat(resolved);
+        if (resolvedSt.isDirectory()) return copyTree(resolved, dest);
+        if (resolvedSt.isFile()) return copyFile(resolved, dest);
+      }
+      await mkdir(dest, { recursive: true }); // dangling 或未知类型:空目录兜底
+      return;
+    }
+    // mac/Linux:pnpm 相对 symlink(如 ../.pnpm/...),readlink 原样重建,
+    // 相对目标在复制后的树内仍有效,搬移不影响。
     await symlink(target, dest);
     return;
   }
