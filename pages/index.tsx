@@ -40,35 +40,44 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
           if (!info.imported) setShowWelcome(true);
         })
         .catch(() => {
-          // getInfo 失败(IPC 异常等)不阻塞首页渲染,按已导入处理
+          // getInfo 失败(IPC 异常等):按【未导入】处理展示欢迎页——不能按已导入
+          // 放行自动刷新,/api/news 会触发 server 侧 getDb() 抢先建出空库,
+          // 下次启动 getInfo 的 imported 判定恒 true → 欢迎页永远不再出现。
+          // 用户仍可通过欢迎页手动导入/全新开始。
           setWelcomeChecked(true);
+          setShowWelcome(true);
         });
     } else {
       setWelcomeChecked(true); // web 模式无 IPC,直接放行自动刷新
     }
   }, []);
 
-  const handleImport = async () => {
+  const handleDbAction = async (action: "import" | "fresh") => {
     const win = (window as any).desktop;
     if (!win) return;
+    const failMsg = action === "import" ? "导入失败，请重试" : "创建数据库失败，请重试";
     setImporting(true);
     setImportError(null);
-    const r = await win.selectAndImportDb();
-    setImporting(false);
-    if (r?.ok) setShowWelcome(false);
-    else if (!r?.canceled) setImportError(r?.error || "导入失败");
+    try {
+      const r =
+        action === "import"
+          ? await win.selectAndImportDb()
+          : await win.createFreshDb();
+      if (r?.ok) setShowWelcome(false);
+      else if (action === "import" && r?.canceled) return;
+      else setImportError(r?.error || failMsg);
+    } catch (e) {
+      // IPC 异常(如对话框在应用退出时被销毁):按钮卡死在"导入中…"的 bug 来源,
+      // 必须兜底复位
+      console.error(`handleDbAction(${action}) failed:`, e);
+      setImportError(failMsg);
+    } finally {
+      setImporting(false);
+    }
   };
 
-  const handleSkip = async () => {
-    const win = (window as any).desktop;
-    if (!win) return;
-    setImporting(true);
-    setImportError(null);
-    const r = await win.createFreshDb();
-    setImporting(false);
-    if (r?.ok) setShowWelcome(false);
-    else setImportError(r?.error || "创建数据库失败");
-  };
+  const handleImport = () => handleDbAction("import");
+  const handleSkip = () => handleDbAction("fresh");
 
   // ---- pull-to-refresh ----
   const [pullDist, setPullDist] = useState(0);

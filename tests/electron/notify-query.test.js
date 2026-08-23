@@ -84,4 +84,29 @@ describe('queryNewHighSignals', () => {
     const rows = await queryNewHighSignals(db, '2026-08-23T09:00:00Z', 3)
     expect(rows).toHaveLength(3)
   })
+
+  it('composite cursor skips same-second rows already covered (rowid 决胜)', async () => {
+    for (let i = 0; i < 3; i++) await insertNews(`same-sec-${i}`, 5, '2026-08-23 10:00:00')
+    const first = await queryNewHighSignals(db, null)
+    expect(first).toHaveLength(3)
+    // 高水位 = 最新已处理行(最大 rowid):该行及同秒更旧行不再返回
+    const second = await queryNewHighSignals(db, { at: first[0].analyzedAt, id: first[0].rowid, low: null })
+    expect(second).toHaveLength(0)
+    // 同秒新行(rowid 更大)仍返回
+    await insertNews('same-sec-new', 5, '2026-08-23 10:00:00')
+    const third = await queryNewHighSignals(db, { at: first[0].analyzedAt, id: first[0].rowid, low: null })
+    expect(third.map((r) => r.title)).toEqual(['same-sec-new'])
+  })
+
+  it('two-range cursor: 比 high 新的行与比 low 旧的截断尾部同时返回', async () => {
+    await insertNews('new-a', 5, '2026-08-23 12:00:00')
+    await insertNews('new-b', 5, '2026-08-23 11:30:00')
+    await insertNews('tail-a', 5, '2026-08-23 08:00:00')
+    const rows = await queryNewHighSignals(db, {
+      at: '2026-08-23 11:00:00', id: 1,
+      low: { at: '2026-08-23 09:00:00', id: 5 },
+    })
+    expect(rows.map((r) => r.title).sort()).toEqual(['new-a', 'new-b', 'tail-a'])
+    expect(rows[0].title).toBe('new-a') // DESC:新侧在前
+  })
 })

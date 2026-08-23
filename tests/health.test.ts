@@ -47,7 +47,8 @@ afterEach(() => {
 })
 
 describe('GET /api/health', () => {
-  it('db 文件缺失(桌面端首启)→ 200 + db:"missing",不触发 getDb(不抢先建库)', async () => {
+  it('db 文件缺失 + DESKTOP_MODE=1(桌面端首启)→ 200 + db:"missing",不触发 getDb(不抢先建库)', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1')
     vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
     const res = mockRes()
     await handler(mockReq(), res)
@@ -62,6 +63,7 @@ describe('GET /api/health', () => {
   })
 
   it('db 文件缺失同样对 HEAD 生效', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1')
     vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
     const res = mockRes()
     await handler(mockReq('HEAD'), res)
@@ -69,6 +71,19 @@ describe('GET /api/health', () => {
     expect(res._status).toBe(200)
     expect(res._body.db).toBe('missing')
     expect(getDb).not.toHaveBeenCalled()
+  })
+
+  it('db 文件缺失 + 无 DESKTOP_MODE(web 自托管)→ 原行为:getDb 自愈建库', async () => {
+    vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
+    vi.mocked(getDb).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) } as any)
+    vi.mocked(getPipelineHealth).mockResolvedValue({ hours: 24, jobs: [] } as any)
+
+    const res = mockRes()
+    await handler(mockReq(), res)
+
+    expect(getDb).toHaveBeenCalledTimes(1) // 缺文件时桌面端 200 伪装不得泄漏到 web 探活
+    expect(res._status).toBe(200)
+    expect(res._body.db).toBe('ok')
   })
 
   it('db 文件存在 → 原行为:getDb + pipeline 聚合,200 + db:"ok"', async () => {

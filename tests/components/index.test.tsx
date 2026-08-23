@@ -126,4 +126,25 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
     expect(await screen.findByText(/文件格式不正确/)).toBeTruthy()
     expect(screen.getByText(/欢迎使用 Financial Signal/)).toBeTruthy()
   })
+
+  it('getInfo 失败(IPC 异常)→ 按未导入处理渲染欢迎页,不拉取数据', async () => {
+    desktopMock.getInfo.mockRejectedValue(new Error('ipc broken'))
+    render(<Home {...baseProps} />)
+    // 判定失败不能放行自动刷新:/api/news 会触发 server 侧 getDb() 抢先建出空库,
+    // 下次启动 imported 恒 true → 欢迎页永远不再出现
+    expect(await screen.findByText(/欢迎使用 Financial Signal/)).toBeTruthy()
+    expect(global.fetch).not.toHaveBeenCalledWith('/api/news', expect.anything())
+  })
+
+  it('导入时 IPC 抛异常 → 显示错误信息、按钮复位、欢迎页保留', async () => {
+    desktopMock.getInfo.mockResolvedValue({ imported: false })
+    desktopMock.selectAndImportDb.mockRejectedValue(new Error('ipc died'))
+    render(<Home {...baseProps} />)
+    await screen.findByText(/欢迎使用 Financial Signal/)
+    fireEvent.click(screen.getByRole('button', { name: /导入已有数据库/i }))
+    expect(await screen.findByText(/导入失败/)).toBeTruthy()
+    expect(screen.getByText(/欢迎使用 Financial Signal/)).toBeTruthy()
+    // finally 复位 importing:按钮不再卡在"导入中…"
+    expect(screen.getByRole('button', { name: /导入已有数据库/i })).not.toBeDisabled()
+  })
 })

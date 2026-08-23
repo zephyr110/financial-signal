@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -65,5 +65,21 @@ describe('importDbFile', () => {
     const r = await importDbFile(badPath, dest)
     expect(r.ok).toBe(false)
     expect(fs.existsSync(dest)).toBe(false)
+  })
+
+  it('rename 遇 EPERM(目标文件被占用)→ 回退 copyFile 仍成功', async () => {
+    const dest = path.join(dir, 'eperm.db')
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      const err = new Error('EPERM: operation not permitted')
+      err.code = 'EPERM'
+      throw err
+    })
+    try {
+      const r = await importDbFile(goodPath, dest)
+      expect(r.ok).toBe(true)
+      expect(fs.existsSync(dest)).toBe(true)
+    } finally {
+      renameSpy.mockRestore()
+    }
   })
 })

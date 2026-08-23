@@ -70,15 +70,30 @@ describe('checkedOnce 语义(启动静默只查一次,手动不受限)', () => {
   it('手动检查不受 checkedOnce 限制,每次都触发', async () => {
     const initUpdater = await loadInitUpdater()
     initUpdater()
+    await flush() // 等静默检查完成(busy 复位)再手动
     initUpdater({ manual: true })
+    await flush()
     initUpdater({ manual: true })
+    await flush()
     expect(updater.checkCalls).toBe(3)
+  })
+
+  it('重叠调用被跳过:检查在途时静默/手动不重复触发(防双弹窗/双下载)', async () => {
+    const initUpdater = await loadInitUpdater()
+    initUpdater() // 静默检查在途
+    initUpdater({ manual: true }) // 立即手动:进行中 → 跳过
+    expect(updater.checkCalls).toBe(1)
+    await flush()
+    initUpdater({ manual: true }) // 完成后手动 → 正常触发
+    await flush()
+    expect(updater.checkCalls).toBe(2)
   })
 
   it('checkForUpdates 拒绝时被 catch,不抛异常', async () => {
     const initUpdater = await loadInitUpdater()
     updater.checkImpl = () => Promise.reject(new Error('net down'))
     expect(() => initUpdater()).not.toThrow()
+    await flush() // 等失败处理完成(busy 复位)
     expect(() => initUpdater({ manual: true })).not.toThrow()
     await flush()
     expect(updater.checkCalls).toBe(2)
@@ -127,6 +142,16 @@ describe('update-available 处理', () => {
     await flush()
     expect(electronStub.dialog.showMessageBox).toHaveBeenCalledTimes(1)
     expect(updater.downloadCalls).toBe(1)
+  })
+
+  it('静默下载完成后 busy 复位,后续手动检查可再次触发', async () => {
+    const initUpdater = await loadInitUpdater()
+    initUpdater()
+    updater.emit('update-available', { version: '3.0.0' })
+    await flush() // 下载完成,finally 复位 busy/downloading
+    initUpdater({ manual: true })
+    await flush()
+    expect(updater.checkCalls).toBe(2)
   })
 })
 

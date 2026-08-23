@@ -40,8 +40,12 @@ export default function AvatarMenu() {
   const { isMobile } = useSidebar();
   const { theme, setTheme } = useTheme();
   const [username, setUsername] = useState("");
-  // 桌面模式标记(/api/auth/me 返回 desktop:true):本地单用户,隐藏退出登录
-  const [desktop, setDesktop] = useState(false);
+  // 桌面模式标记:与 pages/index.tsx 一致,同步读 preload 注入的 window.desktop
+  // (不再经 /api/auth/me 异步探测——首帧会闪现"退出登录"与空用户名)
+  // 本文件是 .jsx(无类型检查),直接读属性;pages/index.tsx 用 (window as any) 等价
+  const [desktop, setDesktop] = useState(
+    typeof window !== "undefined" && !!window.desktop
+  );
   // 桌面模式显示"桌面模式"而非字面 "desktop",避免像是一个用户名
   const displayName = desktop ? "桌面模式" : username;
   const avatarInitial = displayName ? displayName.charAt(0).toUpperCase() : "";
@@ -49,6 +53,7 @@ export default function AvatarMenu() {
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
+    if (desktop) return; // 桌面模式无会话,me.ts 也不返回 username
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -56,7 +61,7 @@ export default function AvatarMenu() {
         if (d?.desktop) setDesktop(true);
       })
       .catch(() => {});
-  }, []);
+  }, [desktop]);
 
   const logout = async () => {
     if (loggingOut) return;

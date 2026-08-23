@@ -83,4 +83,20 @@ describe('buildServerEnv', () => {
     expect(env.EXTRA_VAR).toBe('x')
     expect(env.NODE_ENV).toBe('custom')
   })
+
+  it('不泄漏宿主 env:TURSO 凭据不进子进程,LLM 配置照常透传', () => {
+    const saved = { turso: process.env.TURSO_DATABASE_URL, llm: process.env.LLM_API_KEY }
+    process.env.TURSO_DATABASE_URL = 'libsql://leak-me.turso.io'
+    process.env.LLM_API_KEY = 'sk-env-llm'
+    try {
+      const env = buildServerEnv({ port: 1 })
+      expect(env.TURSO_DATABASE_URL).toBeUndefined() // 防桌面端静默重定向到用户远程 Turso
+      expect(env.LLM_API_KEY).toBe('sk-env-llm') // 白名单内的 LLM 配置需要传给子进程
+    } finally {
+      if (saved.turso === undefined) delete process.env.TURSO_DATABASE_URL
+      else process.env.TURSO_DATABASE_URL = saved.turso
+      if (saved.llm === undefined) delete process.env.LLM_API_KEY
+      else process.env.LLM_API_KEY = saved.llm
+    }
+  })
 })

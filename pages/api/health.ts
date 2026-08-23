@@ -20,15 +20,18 @@ export default async function handler(req, res) {
 
   const startedAt = Date.now();
 
-  // 0. 本地文件模式(db 文件缺失 = 桌面端首启,库尚未创建):跳过 getDb,
-  // 避免健康检查抢先建库——否则渲染层 getInfo 的 imported 恒 true,
+  // 0. 本地文件模式,且仅限桌面端(db 文件缺失 = 桌面端首启,库尚未创建):
+  // 跳过 getDb,避免健康检查抢先建库——否则渲染层 getInfo 的 imported 恒 true,
   // 首次引导欢迎页永不出现。返回 200(db 未初始化,但进程活着),
   // waitForHealthy 只看状态码,serverManager.start() 照常通过。
+  // 非桌面端(next start 自托管,缺文件)必须保持原行为:getDb 自愈建库,
+  // 缺文件 → 503 让探活服务报警,而不是永久伪装 200。
   // Turso/Vercel 模式无文件概念,该检查自然跳过,行为不变。
   // :memory: 模式不产生文件,同样跳过(保持现有"报告 ok"行为)。
   const localDbPath = process.env.NEWS_DB_PATH;
   if (
-    !process.env.TURSO_DATABASE_URL
+    process.env.DESKTOP_MODE === '1'
+    && !process.env.TURSO_DATABASE_URL
     && localDbPath && !localDbPath.startsWith(':')
     && !fs.existsSync(localDbPath)
   ) {

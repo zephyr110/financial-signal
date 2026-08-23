@@ -1,6 +1,13 @@
 import { getSetting, SETTING_KEYS } from './settings';
 
 /**
+ * 本机 Origin 判定(桌面端专用):127.0.0.1/localhost 任意端口,其余一律非本机。
+ */
+export function isLocalOrigin(origin: unknown): boolean {
+  return typeof origin === 'string' && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
+}
+
+/**
  * Protect cron/admin endpoints with CRON_SECRET.
  * Accepts ?token= or Authorization: Bearer (Vercel Cron sends the latter).
  * Secret resolution order: 设置弹窗（app_settings 表，30s 缓存）→ 环境变量 CRON_SECRET。
@@ -8,14 +15,11 @@ import { getSetting, SETTING_KEYS } from './settings';
  */
 export async function assertCronAuth(req, res) {
   // 桌面端本地调度:主进程调用自身服务,无需 secret。但随机端口监听 127.0.0.1,
-  // 恶意网页可用 fetch 无鉴权触发本地管线(消耗用户 LLM 额度)→ 带 Origin 头且
-  // 非本机页面时拒绝;调度器自己的 http.get 不带 Origin 头,不受影响。
+  // 恶意网页可用 <img>/<link>/表单等子资源请求无鉴权触发本地管线(消耗用户 LLM 额度)。
+  // 浏览器子资源 GET 一律不带 Origin 头 → 必须连"无 Origin"一起拒绝;调度器的
+  // callCron 显式携带本机 Origin 头,不受影响(见 electron/scheduler.js)。
   if (process.env.DESKTOP_MODE === '1') {
-    const origin = req.headers.origin;
-    if (
-      typeof origin === 'string' &&
-      !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
-    ) {
+    if (!isLocalOrigin(req.headers.origin)) {
       res.status(403).json({ error: 'Forbidden origin' });
       return false;
     }

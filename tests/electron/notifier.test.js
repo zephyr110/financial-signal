@@ -68,26 +68,27 @@ function readConfig() {
 }
 
 describe('notifyNewHighSignals', () => {
-  it('shows a notification per new high signal and advances the cursor to the newest', async () => {
+  it('shows a notification per new high signal and advances the high watermark to the newest', async () => {
     await insertNews('old', 5, '2026-08-23 09:00:00')
     await insertNews('new', 5, '2026-08-23 11:00:00')
     const count = await notify()
     expect(count).toBe(2)
     expect(fakeNotification.shown).toHaveLength(2)
     expect(fakeNotification.shown[0].opts.title).toMatch(/信号 5 分/)
-    expect(readConfig().notifyLastRunAt).toBe('2026-08-23 11:00:00')
+    expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 11:00:00', id: 2, low: null })
   })
 
   it('does not re-notify signals already covered by the cursor', async () => {
     await insertNews('first-batch', 5, '2026-08-23 10:00:00')
     await notify()
     expect(fakeNotification.shown).toHaveLength(1)
+    expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 10:00:00', id: 1, low: null })
 
     fakeNotification.shown = []
     const again = await notify()
     expect(again).toBe(0)
     expect(fakeNotification.shown).toHaveLength(0)
-    expect(readConfig().notifyLastRunAt).toBe('2026-08-23 10:00:00')
+    expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 10:00:00', id: 1, low: null })
   })
 
   it('only notifies signals analyzed after the persisted cursor', async () => {
@@ -100,14 +101,58 @@ describe('notifyNewHighSignals', () => {
     expect(count).toBe(1)
     expect(fakeNotification.shown).toHaveLength(1)
     expect(fakeNotification.shown[0].opts.body).toBe('second-batch')
-    expect(readConfig().notifyLastRunAt).toBe('2026-08-23 12:00:00')
+    expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 12:00:00', id: 2, low: null })
   })
 
-  it('caps notifications at 5 per run', async () => {
-    for (let i = 0; i < 7; i++) await insertNews(`batch-${i}`, 5, `2026-08-23 10:0${i}:00`)
+  it('accepts legacy string cursors (pre-composite format, id=0, no low boundary)', async () => {
+    await insertNews('legacy-skip', 5, '2026-08-23 10:00:00')
+    await insertNews('legacy-new', 5, '2026-08-23 12:00:00')
+    fs.writeFileSync(configFile, JSON.stringify({ notifyLastRunAt: '2026-08-23 10:00:00' }))
     const count = await notify()
-    expect(count).toBe(7) // 返回全部条数,展示只推前 5
+    expect(count).toBe(1)
+    expect(fakeNotification.shown[0].opts.body).toBe('legacy-new')
+    expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 12:00:00', id: 2, low: null })
+  })
+
+  it('caps notifications at 5 per run and continues with the tail next run (截断不丢)', async () => {
+    for (let i = 0; i < 7; i++) await insertNews(`batch-${i}`, 5, `2026-08-23 10:0${i}:00`)
+    const first = await notify()
+    expect(first).toBe(5)
     expect(fakeNotification.shown).toHaveLength(5)
+    // 满批:低边界 = 最旧已处理行(10:02, rowid 3);10:01/10:00 两条尾部下轮继续取
+    expect(readConfig().notifyLastRunAt).toEqual({
+      at: '2026-08-23 10:06:00', id: 7,
+      low: { at: '2026-08-23 10:02:00', id: 3 },
+    })
+
+    fakeNotification.shown = []
+    const second = await notify()
+    expect(second).toBe(2) // 截断尾部没有丢
+    expect(fakeNotification.shown.map((n) => n.opts.body)).toEqual(['batch-1', 'batch-0'])
+    // 尾部清空:低边界复位,高水位保持
+    expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 10:06:00', id: 7, low: null })
+  })
+
+  it('does not re-notify same-second rows already covered (rowid 决胜)', async () => {
+    for (let i = 0; i < 3; i++) await insertNews(`same-sec-${i}`, 5, '2026-08-23 10:00:00')
+    const first = await notify()
+    expect(first).toBe(3)
+    expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 10:00:00', id: 3, low: null })
+
+    fakeNotification.shown = []
+    expect(await notify()).toBe(0)
+    expect(fakeNotification.shown).toHaveLength(0)
+  })
+
+  it('same-second truncation: 满批后尾部按 rowid 继续取,不重不漏', async () => {
+    for (let i = 0; i < 7; i++) await insertNews(`sec-${i}`, 5, '2026-08-23 10:00:00')
+    expect(await notify()).toBe(5)
+    expect(readConfig().notifyLastRunAt).toEqual({
+      at: '2026-08-23 10:00:00', id: 7,
+      low: { at: '2026-08-23 10:00:00', id: 3 },
+    })
+    fakeNotification.shown = []
+    expect(await notify()).toBe(2) // rowid 1、2 两条尾部
   })
 
   it('clicking a notification calls onActivate', async () => {
@@ -125,7 +170,7 @@ describe('notifyNewHighSignals', () => {
     const count = await notify()
     expect(count).toBe(1)
     expect(fakeNotification.shown).toHaveLength(0)
-    expect(readConfig().notifyLastRunAt).toBe('2026-08-23 10:00:00')
+    expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 10:00:00', id: 1, low: null })
   })
 
   it('does not advance the cursor when the query fails', async () => {
@@ -158,7 +203,7 @@ describe('notifyNewHighSignals', () => {
       expect(count).toBe(2)
       expect(fakeNotification.shown).toHaveLength(1)
       expect(fakeNotification.shown[0].opts.body).toBe('first-fail')
-      expect(readConfig().notifyLastRunAt).toBe('2026-08-23 11:00:00')
+      expect(readConfig().notifyLastRunAt).toEqual({ at: '2026-08-23 11:00:00', id: 2, low: null })
     } finally {
       errSpy.mockRestore()
     }

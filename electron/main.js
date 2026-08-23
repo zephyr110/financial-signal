@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, dialog } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -20,11 +20,26 @@ let serverUrl = null;
 let scheduler = null;
 let serverManager = null;
 let tray = null;
+// will-quit 后置位:阻止导入链在退出过程中重新拉起 server(幽灵子进程)。
+let appQuitting = false;
 
 const isDev = !app.isPackaged;
 const userData = app.getPath('userData');
-const dbPath = path.join(userData, 'news_archive.db');
+// dev 下 next dev 的 server 落在仓库根 news_archive.db(lib/db.ts 无
+// NEWS_DB_PATH 时的 fallback);主进程也指向同一文件,避免 dev 双库分裂
+// (设置写仓库库、调度器读 userData 库 → LLM 配置永远"未配置")。
+const dbPath = isDev
+  ? path.join(process.cwd(), 'news_archive.db')
+  : path.join(userData, 'news_archive.db');
 const configFile = path.join(userData, 'config.json');
+
+/** 停掉并丢弃调度器(3 处共用:启动替换、换库重启、崩溃后重建)。 */
+function stopScheduler() {
+  if (scheduler) {
+    scheduler.stop();
+    scheduler = null;
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -82,10 +97,7 @@ function ensureScheduler() {
 async function startScheduler() {
   if (!serverUrl) return;
   // 幂等:已存在则先停再建(崩溃重启后端口变化,调度器必须绑新 URL)
-  if (scheduler) {
-    scheduler.stop();
-    scheduler = null;
-  }
+  stopScheduler();
   ensureScheduler();
   scheduler.start();
 }
@@ -99,15 +111,17 @@ function maybeStartScheduler() {
 
 /** 手动抓取:prod 走调度器 runOnce;dev 无调度器轮询,也建实例按需跑一轮。 */
 async function runFetchNow() {
-  await ensureScheduler().runOnce();
+  const r = await ensureScheduler().runOnce();
+  if (r === 'running') console.log('[main] fetch now skipped: 上一轮仍在运行');
 }
 
 /** db 变更(导入/全新创建)后:旧 server 的 db 句柄失效,必须重启 server 与调度器。 */
 async function restartAfterDbChange() {
-  if (scheduler) {
-    scheduler.stop();
-    scheduler = null;
+  if (appQuitting) {
+    console.log('[main] quitting, skip server restart');
+    return;
   }
+  stopScheduler();
   if (serverManager) {
     try {
       serverManager.stop();
@@ -136,6 +150,7 @@ async function onImported() {
 
 /** 全新开始:userData 下创建空 db 文件(表结构由 server 启动时 lib/db.ts initSchema 补齐)。 */
 async function createFreshDb() {
+  if (appQuitting) return { ok: false, error: '应用正在退出' };
   try {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const client = createClient({ url: `file:${dbPath}` });
@@ -156,6 +171,10 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
+    // 单实例锁在 whenReady 之前生效,极早期(win 双击启动时)可能先于 ready
+    // 收到 second-instance → 此时建窗口抛 "Cannot create BrowserWindow
+    // before app is ready" → 未捕获异常杀死正在启动的主进程。
+    if (!app.isReady()) return;
     showMainWindow();
   });
 
@@ -173,16 +192,22 @@ if (!gotLock) {
             navigate();
             maybeStartScheduler();
           },
-          // 重启 5 次仍无法恢复:standalone 不可用,退出应用而不是静默瘫痪
+          // 重启 5 次仍无法恢复:standalone 不可用,弹窗说明后退出,
+          // 而不是无提示闪退(用户无从得知原因/数据目录)
           onGiveUp: () => {
             console.error('[app] standalone server failed to recover, quitting');
+            dialog.showMessageBoxSync({
+              type: 'error',
+              title: '服务启动失败',
+              message: '内置服务多次启动失败,应用将退出。\n\n可尝试:检查数据目录,或重新安装应用。',
+            });
             app.quit();
           },
         });
       }
+      createWindow(); // 先出窗口壳:server 启动(2-5s)期间不阻塞首帧渲染
       const url = isDev ? devUrl() : await serverManager.start();
       serverUrl = url;
-      createWindow();
       navigate();
       // 首次启动尚无 db 时不启动调度器(管线会因缺表失败);欢迎页门控由
       // /api/health 在 db 缺失时不触发 getDb 保证——服务端抢先建库的根源
@@ -214,6 +239,11 @@ if (!gotLock) {
       }
     } catch (err) {
       console.error('[main] failed to start server:', err.message);
+      dialog.showMessageBoxSync({
+        type: 'error',
+        title: '启动失败',
+        message: `内置服务启动失败: ${err.message}`,
+      });
       app.quit();
     }
     app.on('activate', () => {
@@ -227,6 +257,7 @@ if (!gotLock) {
 
   // 退出前停掉 standalone 子进程、销毁托盘(避免残留 node 进程/常驻图标)
   app.on('will-quit', () => {
+    appQuitting = true;
     if (serverManager) serverManager.stop();
     if (tray) {
       try {

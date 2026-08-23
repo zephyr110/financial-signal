@@ -51,7 +51,16 @@ function createServerManager({
       restartTimer = setTimeoutImpl(() => {
         restartTimer = null;
         if (stopping) return;
-        start().then(onCrash).catch(() => {});
+        start().then(onCrash).catch((err) => {
+          // start() 抛错但 child 已 spawn(30s 健康检查超时、进程活着):
+          // 旧代码 catch(() => {}) 把错误吞掉 → 活着的 child 脱管、无人再重启,
+          // 应用永远挂在旧 URL 上。这里 SIGKILL 让 'exit' 事件驱动正常重启计数
+          // (child 仍指向该实例,代际守卫不拦截),次数耗尽后自然走到 onGiveUp。
+          // spawn 失败的场景 child 已为 null,'error' 事件已调度过重启,无需处理。
+          errorLog('[server] start failed, killing unhealthy child:', err.message);
+          const c = child;
+          if (c && c.exitCode === null) c.kill('SIGKILL');
+        });
       }, delay);
     } else {
       errorLog('[server] too many crashes, giving up');

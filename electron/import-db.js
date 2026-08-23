@@ -9,7 +9,16 @@ const REQUIRED_TABLES = ['news_archive', 'app_settings'];
 async function validateDbFile(file) {
   try {
     if (!fs.existsSync(file)) return { ok: false, error: '文件不存在' };
-    const client = createClient({ url: `file:${file}` });
+    // 只读打开:普通打开会把用户的源文件当可写库——WAL 模式会留下 -wal/-shm
+    // 侧车文件、close 时还可能 checkpoint 写回用户的原始文件。
+    // mode=ro 是 SQLite URI 参数,libsql 嵌入式后端支持;个别旧版不支持时
+    // 回退普通打开(校验仍是只读查询,不会写数据)。
+    let client;
+    try {
+      client = createClient({ url: `file:${file}?mode=ro` });
+    } catch {
+      client = createClient({ url: `file:${file}` });
+    }
     try {
       for (const table of REQUIRED_TABLES) {
         const r = await client.execute({
@@ -39,7 +48,22 @@ async function importDbFile(src, dest) {
   try {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(src, tmp);
-    fs.renameSync(tmp, dest);
+    try {
+      fs.renameSync(tmp, dest);
+    } catch (err) {
+      // Windows:SQLite 打开的文件不带 FILE_SHARE_DELETE,rename 必然 EPERM;
+      // 服务器持有的旧句柄允许写共享 → 覆盖复制可行(非原子,重启后生效,
+      // 可接受)。其他平台/错误码则照常抛出。
+      if (process.platform !== 'win32' && err.code !== 'EPERM' && err.code !== 'EBUSY') {
+        throw err;
+      }
+      fs.copyFileSync(tmp, dest);
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        // 清理失败忽略(目标已是新内容,残留 tmp 无害)
+      }
+    }
     return { ok: true };
   } catch (err) {
     try {

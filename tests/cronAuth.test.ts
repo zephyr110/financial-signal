@@ -76,14 +76,15 @@ describe('assertCronAuth', () => {
 })
 
 describe('DESKTOP_MODE', () => {
-  it('bypasses auth when DESKTOP_MODE=1 even without secret', async () => {
+  it('bypasses auth when DESKTOP_MODE=1 even without secret (需本机 Origin)', async () => {
     // VERCEL=1 让"无 secret 即 503"分支生效:若无 DESKTOP_MODE 守卫,此用例必然失败(强判别)
     const prevDesktopMode = process.env.DESKTOP_MODE;
     const prevVercel = process.env.VERCEL;
     process.env.DESKTOP_MODE = '1';
     process.env.VERCEL = '1';
     try {
-      const req = { query: {}, headers: {} };
+      // 调度器/渲染层请求带本机 Origin;无 Origin 的子资源请求(恶意网页 img 等)走另一用例的 403
+      const req = { query: {}, headers: { origin: 'http://127.0.0.1:3010' } };
       const res = { status: () => ({ json: () => {} }) };
       expect(await assertCronAuth(req, res)).toBe(true);
     } finally {
@@ -98,6 +99,13 @@ describe('DESKTOP_MODE', () => {
     vi.stubEnv('DESKTOP_MODE', '1');
     const res = mockRes();
     expect(await assertCronAuth(mockReq({}, { origin: 'https://evil.example' }), res)).toBe(false);
+    expect(res._status).toBe(403);
+  });
+
+  it('blocks requests without an Origin in DESKTOP_MODE (img/link/form 子资源 CSRF)', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1');
+    const res = mockRes();
+    expect(await assertCronAuth(mockReq(), res)).toBe(false);
     expect(res._status).toBe(403);
   });
 

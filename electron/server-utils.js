@@ -39,10 +39,23 @@ function waitForHealthy(url, { timeoutMs = 30000, intervalMs = 300 } = {}) {
   });
 }
 
+// 透传给 child 的白名单。绝不能 spread 整个 process.env:
+// 宿主的 TURSO_DATABASE_URL/TURSO_AUTH_TOKEN 会被 lib/db.ts 的 Turso 分支优先采用,
+// 桌面端本地库被静默重定向到用户远程 Turso 账号(本地文件永不创建/永不更新)。
+const ENV_WHITELIST = [
+  'LLM_API_KEY', 'DEEPSEEK_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL',
+  'LLM_TEMPERATURE', 'LLM_MAX_TOKENS', 'LLM_TIMEOUT_MS',
+  'LLM_INPUT_PRICE', 'LLM_OUTPUT_PRICE', 'LLM_PRICE_CURRENCY',
+];
+
 /** 生成 standalone server 的 spawn 环境变量。 */
 function buildServerEnv({ port, dbPath, extra = {} }) {
+  const env = {};
+  for (const key of ENV_WHITELIST) {
+    if (process.env[key] != null) env[key] = process.env[key];
+  }
   return {
-    ...process.env,
+    ...env,
     PORT: String(port),
     HOSTNAME: '127.0.0.1',
     DESKTOP_MODE: '1',
