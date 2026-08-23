@@ -3,6 +3,7 @@ const { app, BrowserWindow, shell } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { createClient } = require('@libsql/client');
 const { createServerManager, devUrl } = require('./server');
 const { createScheduler } = require('./scheduler');
 const { createTray } = require('./tray');
@@ -89,8 +90,8 @@ async function runFetchNow() {
   await ensureScheduler().runOnce();
 }
 
-/** db 导入成功后:旧 server 的 db 句柄指向旧 inode,必须重启 server 与调度器。 */
-async function onImported() {
+/** db 变更(导入/全新创建)后:旧 server 的 db 句柄失效,必须重启 server 与调度器。 */
+async function restartAfterDbChange() {
   if (scheduler) {
     scheduler.stop();
     scheduler = null;
@@ -105,13 +106,35 @@ async function onImported() {
     try {
       serverUrl = await serverManager.start();
     } catch (err) {
-      console.error('[main] failed to restart server after db import:', err.message);
+      console.error('[main] failed to restart server after db change:', err.message);
       app.quit();
       return;
     }
   }
   navigate();
   if (!isDev) startScheduler();
+}
+
+/** db 导入成功后重启内置 server(旧句柄指向被原子替换前的 inode)。 */
+async function onImported() {
+  await restartAfterDbChange();
+}
+
+/** 全新开始:userData 下创建空 db 文件(表结构由 server 启动时 lib/db.ts initSchema 补齐)。 */
+async function createFreshDb() {
+  try {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const client = createClient({ url: `file:${dbPath}` });
+    try {
+      await client.execute('SELECT 1'); // 触建文件
+    } finally {
+      await client.close();
+    }
+  } catch (err) {
+    return { ok: false, error: `创建数据库失败: ${err.message}` };
+  }
+  await restartAfterDbChange();
+  return { ok: true };
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -149,6 +172,7 @@ if (!gotLock) {
       registerIpc({
         getDbPath: () => dbPath,
         onImported,
+        onFreshDb: createFreshDb,
         onFetchNow: runFetchNow,
       });
       try {

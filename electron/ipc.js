@@ -4,11 +4,23 @@ const fs = require('fs');
 const path = require('path');
 const { importDbFile } = require('./import-db');
 
-// 导入串行化:连续两次导入时,onImported(停旧 server→启动新 server)依次执行,
-// 避免并发 stop/start 交错导致 start 抛错 → app.quit 或孤儿 standalone 进程。
+// 串行化:连续两次 db 变更(导入/全新创建)都会重启 server(停旧→启新),
+// 依次执行避免并发 stop/start 交错导致 start 抛错 → app.quit 或孤儿 standalone 进程。
 let importChain = Promise.resolve();
 
-function registerIpc({ getDbPath, onImported, onFetchNow }) {
+/** 把一次"重启 server"的 db 变更排队到串行链上执行;invoke 在完成后才 resolve。 */
+function enqueueRestart(task, label) {
+  const p = importChain
+    .then(task)
+    .catch((e) => {
+      console.error(`[main] ${label} restart failed:`, e);
+      return { ok: false, error: `${label} 重启失败: ${e.message}` };
+    });
+  importChain = p.catch(() => {});
+  return p;
+}
+
+function registerIpc({ getDbPath, onImported, onFreshDb, onFetchNow }) {
   ipcMain.handle('app:select-and-import-db', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: '选择要导入的 news_archive.db',
@@ -20,13 +32,15 @@ function registerIpc({ getDbPath, onImported, onFetchNow }) {
     const dest = getDbPath();
     const r = await importDbFile(src, dest);
     if (r.ok && onImported) {
-      const p = importChain
-        .then(() => onImported())
-        .catch((e) => console.error('[main] import restart failed:', e));
-      importChain = p.catch(() => {});
-      await p; // invoke 在 server 重启完成后才 resolve
+      await enqueueRestart(() => onImported(), 'import');
     }
     return r;
+  });
+
+  ipcMain.handle('app:create-fresh-db', async () => {
+    if (!onFreshDb) return { ok: false, error: '桌面功能不可用' };
+    const r = await enqueueRestart(() => onFreshDb(), 'fresh-db');
+    return r || { ok: true };
   });
 
   ipcMain.handle('app:open-data-dir', async () => {

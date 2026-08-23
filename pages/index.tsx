@@ -6,6 +6,7 @@ import { TopbarRefreshButton } from "../components/app-topbar";
 import ErrorBanner from "../components/ErrorBanner";
 import EmptyState from "../components/EmptyState";
 import TodaySignalSummary from "../components/TodaySignalSummary";
+import WelcomeScreen from "../components/WelcomeScreen";
 import { RefreshCw } from "lucide-react";
 
 const PULL_THRESHOLD = 56;
@@ -19,6 +20,42 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
   const [fetching, setFetching] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [mounted, setMounted] = useState(false);
+
+  // ---- 首次启动引导（仅桌面端、userData 无 db 时展示）----
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const win = (window as any).desktop;
+    if (win?.getInfo) {
+      win.getInfo().then((info: any) => {
+        if (!info.imported) setShowWelcome(true);
+      });
+    }
+  }, []);
+
+  const handleImport = async () => {
+    const win = (window as any).desktop;
+    if (!win) return;
+    setImporting(true);
+    setImportError(null);
+    const r = await win.selectAndImportDb();
+    setImporting(false);
+    if (r?.ok) setShowWelcome(false);
+    else if (!r?.canceled) setImportError(r?.error || "导入失败");
+  };
+
+  const handleSkip = async () => {
+    const win = (window as any).desktop;
+    if (!win) return;
+    setImporting(true);
+    setImportError(null);
+    const r = await win.createFreshDb();
+    setImporting(false);
+    if (r?.ok) setShowWelcome(false);
+    else setImportError(r?.error || "创建数据库失败");
+  };
 
   // ---- pull-to-refresh ----
   const [pullDist, setPullDist] = useState(0);
@@ -120,6 +157,18 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
   }, []);
 
   const pullProgress = Math.min(pullDist / PULL_THRESHOLD, 1);
+
+  // 首次启动且未导入/创建 db 时,整页替换为欢迎引导(web 模式 window.desktop 不存在,恒 false)
+  if (showWelcome) {
+    return (
+      <WelcomeScreen
+        onImport={handleImport}
+        onSkip={handleSkip}
+        importing={importing}
+        error={importError}
+      />
+    );
+  }
 
   return (
     <>
