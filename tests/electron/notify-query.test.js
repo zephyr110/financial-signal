@@ -49,22 +49,38 @@ async function insertNews(title, score, analyzedAt) {
 
 describe('queryNewHighSignals', () => {
   it('returns scored news with signal >= 4 after since', async () => {
-    await insertNews('high-a', 5, '2026-08-23T10:00:00Z')
-    await insertNews('low-b', 2, '2026-08-23T10:00:00Z')
+    await insertNews('high-a', 5, '2026-08-23 10:00:00')
+    await insertNews('low-b', 2, '2026-08-23 10:00:00')
     const rows = await queryNewHighSignals(db, '2026-08-23T09:00:00Z')
     expect(rows).toHaveLength(1)
     expect(rows[0].title).toBe('high-a')
     expect(rows[0].signalScore).toBe(5)
+    expect(typeof rows[0].newsId).toBe('number')
+    expect(typeof rows[0].analyzedAt).toBe('string')
+  })
+
+  it('compares against space-format analyzed_at (real sqlite datetime)', async () => {
+    // datetime('now') 写入的是空格格式;since 是 ISO 格式,归一化后应正确比较
+    await insertNews('space-format-row', 5, '2026-08-23 10:00:00')
+    const rows = await queryNewHighSignals(db, '2026-08-23T09:00:00Z')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].title).toBe('space-format-row')
+  })
+
+  it('excludes a row analyzed exactly at since (strictly greater)', async () => {
+    await insertNews('exact-boundary', 5, '2026-08-23 09:00:00')
+    const rows = await queryNewHighSignals(db, '2026-08-23T09:00:00Z')
+    expect(rows).toHaveLength(0)
   })
 
   it('excludes rows analyzed at or before since', async () => {
-    await insertNews('old-a', 5, '2026-08-23T08:00:00Z')
+    await insertNews('old-a', 5, '2026-08-23 08:00:00')
     const rows = await queryNewHighSignals(db, '2026-08-23T09:00:00Z')
     expect(rows).toHaveLength(0)
   })
 
   it('caps at limit', async () => {
-    for (let i = 0; i < 5; i++) await insertNews(`batch-${i}`, 5, `2026-08-23T10:0${i}:00Z`)
+    for (let i = 0; i < 5; i++) await insertNews(`batch-${i}`, 5, `2026-08-23 10:0${i}:00`)
     const rows = await queryNewHighSignals(db, '2026-08-23T09:00:00Z', 3)
     expect(rows).toHaveLength(3)
   })
