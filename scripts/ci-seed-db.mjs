@@ -3,10 +3,12 @@
  * 构建期 seed 库:本地/CI 无数据文件时生成含关键表的空库,
  * 使 prebuild 的 verify-data.mjs 通过(桌面端构建不依赖远端 Turso)。
  * 用法:NEWS_DB_PATH=./seed/news_archive.db node scripts/ci-seed-db.mjs
- * 注意:pipeline_run / pipeline_cursor 的列定义必须与 lib/db.ts initSchema 逐列保持一致。
- * 运行时 initSchema 用 CREATE TABLE IF NOT EXISTS,已存在的错误表结构不会被修复,
- * 因此 seed 中这两张表建错会让管线在空库上直接抛 no such column。
- * 其余 5 张表为 verify-data 要求的关键表;initSchema 会在运行时补齐本脚本未建的表。
+ * 7 张表(news_archive / analysis_result / event_threads / market_data /
+ * backtest_result / pipeline_run / pipeline_cursor)的列定义与 lib/db.ts
+ * initSchema 逐列一致(含 CHECK 约束):运行时 CREATE TABLE IF NOT EXISTS
+ * 不会修复已存在的错误表结构,seed 建错会让管线在空库上直接抛 no such column。
+ * 本脚本未建的表(event_log / agent_session / agent_message / agent_share /
+ * app_account / app_session / app_settings)由运行时 initSchema 补齐。
  */
 import { createClient } from '@libsql/client';
 import fs from 'fs';
@@ -27,8 +29,8 @@ await client.executeMultiple(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     news_id INTEGER NOT NULL UNIQUE REFERENCES news_archive(id),
     signal_score INTEGER NOT NULL CHECK(signal_score BETWEEN 1 AND 5),
-    category TEXT NOT NULL, impact_level TEXT NOT NULL,
-    industries TEXT, companies TEXT, sentiment TEXT NOT NULL,
+    category TEXT NOT NULL, impact_level TEXT NOT NULL CHECK(impact_level IN ('critical','significant','moderate','minor','noise')),
+    industries TEXT, companies TEXT, sentiment TEXT NOT NULL CHECK(sentiment IN ('positive','negative','neutral','mixed')),
     summary TEXT NOT NULL, deep_analysis TEXT, tags TEXT, related_ids TEXT,
     event_thread_id TEXT, analyzed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -40,7 +42,7 @@ await client.executeMultiple(`
   );
   CREATE TABLE IF NOT EXISTS market_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL,
+    code TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('industry','index')),
     trade_date TEXT NOT NULL, close REAL, change_pct REAL, volume REAL,
     UNIQUE(code, trade_date)
   );
@@ -58,7 +60,7 @@ await client.executeMultiple(`
     status          TEXT    NOT NULL,  -- running | success | failed
     items_processed INTEGER,
     error           TEXT,
-    started_at      TEXT    NOT NULL DEFAULT (datetime('now')),  -- 列定义同 lib/db.ts;seed 额外加默认值,允许缺省插入
+    started_at      TEXT    NOT NULL,  -- ISO 格式(与 news_archive.published_at 一致),同 lib/db.ts 无默认值
     finished_at     TEXT
   );
   CREATE TABLE IF NOT EXISTS pipeline_cursor (
