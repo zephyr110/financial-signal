@@ -5,7 +5,7 @@ describe('fetchLiveNews', () => {
   it('returns an array', async () => {
     const items = await fetchLiveNews()
     expect(Array.isArray(items)).toBe(true)
-  })
+  }, 30000)
 
   it('returns items with expected shape', async () => {
     const items = await fetchLiveNews()

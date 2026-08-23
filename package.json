@@ -8,8 +8,8 @@
   "scripts": {
     "dev": "next dev --webpack",
     "dev:desktop": "cross-env DESKTOP_MODE=1 concurrently -k -n web,app \"next dev --webpack -p 3010 -H 127.0.0.1\" \"electron .\"",
-    "build:desktop": "pnpm build && node scripts/copy-standalone.mjs && electron-builder",
-    "dist:dir": "pnpm build && node scripts/copy-standalone.mjs && electron-builder --dir",
+    "build:desktop": "node scripts/ci-seed-db.mjs && cross-env NEWS_DB_PATH=./seed/news_archive.db pnpm build && node scripts/copy-standalone.mjs && electron-builder",
+    "dist:dir": "node scripts/ci-seed-db.mjs && cross-env NEWS_DB_PATH=./seed/news_archive.db pnpm build && node scripts/copy-standalone.mjs && electron-builder --dir",
     "prebuild": "node scripts/verify-data.mjs",
     "build": "next build",
     "start": "next start",
