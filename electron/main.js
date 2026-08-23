@@ -1,10 +1,17 @@
 'use strict';
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
-
-const DEV_URL = 'http://127.0.0.1:3010';
+const { startServer, devUrl, stopServer } = require('./server');
+const { createScheduler } = require('./scheduler');
 
 let mainWindow = null;
+let serverUrl = null;
+let scheduler = null;
+
+const isDev = !app.isPackaged;
+const userData = app.getPath('userData');
+const dbPath = path.join(userData, 'news_archive.db');
+const configFile = path.join(userData, 'config.json');
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,24 +27,64 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-function loadUrlWithRetry(url, attempts = 60) {
-  createWindow();
-  const tryLoad = (n) => {
-    if (!mainWindow) return;
-    mainWindow.loadURL(url).catch(() => {
-      if (n > 0) setTimeout(() => tryLoad(n - 1), 500);
-    });
-  };
-  tryLoad(attempts);
+function navigate() {
+  if (!mainWindow) return;
+  mainWindow.loadURL(serverUrl || devUrl()).catch(() => {
+    setTimeout(navigate, 500);
+  });
 }
 
-app.whenReady().then(() => {
-  loadUrlWithRetry(DEV_URL);
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) loadUrlWithRetry(DEV_URL);
+async function startScheduler() {
+  if (!serverUrl || scheduler) return;
+  scheduler = createScheduler({
+    baseUrl: serverUrl,
+    dbPath,
+    configFile,
+    onRunStart: (sequence) => console.log(`[scheduler] run: ${sequence.join(' → ')}`),
   });
-});
+  scheduler.start();
+}
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(async () => {
+    try {
+      const url = isDev ? devUrl() : await startServer({
+        dbPath,
+        // 崩溃重启后端口变化,用新 URL 重新导航
+        onCrash: (nextUrl) => { serverUrl = nextUrl; navigate(); },
+      });
+      serverUrl = url;
+      createWindow();
+      navigate();
+      if (!isDev) startScheduler();
+    } catch (err) {
+      console.error('[main] failed to start server:', err.message);
+      app.quit();
+    }
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+        navigate();
+      }
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+
+  // 退出前停掉 standalone 子进程(避免残留 node 进程)
+  app.on('will-quit', () => {
+    stopServer();
+  });
+}
