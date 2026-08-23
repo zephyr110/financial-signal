@@ -20,6 +20,7 @@ function waitForHealthy(url, { timeoutMs = 30000, intervalMs = 300 } = {}) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve) => {
     const tryOnce = () => {
+      let retried = false;
       const req = http.get(url, (res) => {
         res.resume();
         if (res.statusCode >= 200 && res.statusCode < 400) return resolve(true);
@@ -27,10 +28,12 @@ function waitForHealthy(url, { timeoutMs = 30000, intervalMs = 300 } = {}) {
       });
       req.on('error', retry);
       req.setTimeout(2000, () => { req.destroy(); retry(); });
-    };
-    const retry = () => {
-      if (Date.now() >= deadline) return resolve(false);
-      setTimeout(tryOnce, intervalMs);
+      function retry() {
+        if (retried) return;
+        retried = true;
+        if (Date.now() >= deadline) return resolve(false);
+        setTimeout(tryOnce, intervalMs);
+      }
     };
     tryOnce();
   });
