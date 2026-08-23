@@ -41,7 +41,7 @@ jobs:
           NEWS_DB_PATH: ${{ github.workspace }}/seed/news_archive.db
       - run: node scripts/copy-standalone.mjs
       - name: Package
-        # 无 tag 手动触发时 publish 会因无 release 而失败,artifact 仍会上传;tag 触发是主流程
+        # 无 tag 手动触发时 publish 会因无 release 而失败(该 step 失败 → artifact 不会上传);tag 触发是主流程
         run: npx electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
