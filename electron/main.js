@@ -106,9 +106,11 @@ async function restartAfterDbChange() {
     try {
       serverUrl = await serverManager.start();
     } catch (err) {
+      // 重启失败要抛给调用方(ipc.js enqueueRestart 会转成 {ok:false} 响应给渲染层),
+      // 否则导入/全新创建 handler 会误报成功;app.quit 行为保留
       console.error('[main] failed to restart server after db change:', err.message);
       app.quit();
-      return;
+      throw err;
     }
   }
   navigate();
@@ -168,7 +170,10 @@ if (!gotLock) {
       serverUrl = url;
       createWindow();
       navigate();
-      if (!isDev) startScheduler();
+      // 首次启动尚无 db 时不要抢跑:调度器首个 runOnce 会经 getSettings 触建空库文件,
+      // 使渲染层 getInfo 的 imported=true,欢迎页永不出现、唯一导入入口丢失。
+      // 用户做出选择(导入/全新开始)后 restartAfterDbChange 内已会 startScheduler()。
+      if (!isDev && fs.existsSync(dbPath)) startScheduler();
       registerIpc({
         getDbPath: () => dbPath,
         onImported,

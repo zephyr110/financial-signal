@@ -29,9 +29,14 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
   useEffect(() => {
     const win = (window as any).desktop;
     if (win?.getInfo) {
-      win.getInfo().then((info: any) => {
-        if (!info.imported) setShowWelcome(true);
-      });
+      win
+        .getInfo()
+        .then((info: any) => {
+          if (!info.imported) setShowWelcome(true);
+        })
+        .catch(() => {
+          // getInfo 失败(IPC 异常等)不阻塞首页渲染,按已导入处理
+        });
     }
   }, []);
 
@@ -108,14 +113,18 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
   }, [ssgToday]);
 
   // Only auto-refresh if SSG returned no data (cold start)
+  // 欢迎页展示期间不拉取数据:fetch /api/news 会触发 server 侧 getDb() 建库,
+  // 与 getInfo 的 imported 判定竞态(抢先建出的空库使欢迎页永不出现)。
+  // showWelcome 进依赖:变为 true 时 cleanup 会 abort 掉在途请求,彻底封死竞态窗口。
   useEffect(() => {
+    if (showWelcome) return;
     if (!ssgToday || ssgToday.length === 0) {
       doRefresh();
     }
     return () => {
       if (abortRef.current) abortRef.current.abort();
     };
-  }, [doRefresh, ssgToday]);
+  }, [doRefresh, ssgToday, showWelcome]);
 
   // ---- touch handlers ----
   const onTouchStart = useCallback((e) => {

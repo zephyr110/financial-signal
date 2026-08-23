@@ -1,0 +1,118 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import Home from '../../pages/index'
+
+// 首页渲染链路(AppShell/AppSidebar/avatar-menu)用到 next/router 与 next-themes,
+// 测试环境无完整 Next.js 运行时,给最小实现即可
+vi.mock('next/router', () => ({
+  useRouter: () => ({ pathname: '/', asPath: '/', replace: vi.fn(), push: vi.fn() }),
+}))
+
+vi.mock('next-themes', () => ({
+  useTheme: () => ({ theme: 'light', setTheme: vi.fn(), resolvedTheme: 'light' }),
+}))
+
+// jsdom 无 window.matchMedia(ui/sidebar 的 use-mobile 钩子需要),给个最小桩
+if (!window.matchMedia) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  })
+}
+
+const baseProps = {
+  todayItems: [] as any[],
+  pastDates: [] as any[],
+  today: '',
+  error: null as string | null,
+}
+
+// jsdom 不会注入 preload 桥,测试里用 defineProperty 模拟 window.desktop
+let desktopMock: any
+const originalFetch = global.fetch
+
+beforeEach(() => {
+  desktopMock = {
+    getInfo: vi.fn(),
+    selectAndImportDb: vi.fn(),
+    createFreshDb: vi.fn(),
+  }
+  Object.defineProperty(window, 'desktop', { value: desktopMock, configurable: true })
+  // 自动刷新 effect 会 fetch /api/news(AppShell 还会 fetch /api/auth/me),统一 mock 掉
+  global.fetch = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ todayItems: [], pastDates: [] }),
+  })) as any
+})
+
+afterEach(() => {
+  delete (window as any).desktop
+  global.fetch = originalFetch
+  vi.restoreAllMocks()
+})
+
+describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
+  it('getInfo imported=false 时渲染欢迎页(导入入口)', async () => {
+    desktopMock.getInfo.mockResolvedValue({ imported: false })
+    render(<Home {...baseProps} />)
+    expect(await screen.findByText(/欢迎使用 Financial Signal/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /导入已有数据库/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /全新开始/i })).toBeTruthy()
+  })
+
+  it('getInfo imported=true 时不渲染欢迎页', async () => {
+    desktopMock.getInfo.mockResolvedValue({ imported: true })
+    render(<Home {...baseProps} />)
+    await waitFor(() => expect(desktopMock.getInfo).toHaveBeenCalled())
+    expect(screen.queryByText(/欢迎使用 Financial Signal/)).toBeNull()
+    expect(screen.getByText(/实时财经快讯/)).toBeTruthy()
+  })
+
+  it('web 模式(window.desktop 不存在)不渲染欢迎页', async () => {
+    delete (window as any).desktop
+    render(<Home {...baseProps} />)
+    // 等自动刷新 effect 跑完,确认没有误依赖 getInfo 渲染欢迎页
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled())
+    expect(screen.queryByText(/欢迎使用 Financial Signal/)).toBeNull()
+  })
+
+  it('点"全新开始"调用 createFreshDb,成功后欢迎页消失', async () => {
+    desktopMock.getInfo.mockResolvedValue({ imported: false })
+    desktopMock.createFreshDb.mockResolvedValue({ ok: true })
+    render(<Home {...baseProps} />)
+    await screen.findByText(/欢迎使用 Financial Signal/)
+    fireEvent.click(screen.getByRole('button', { name: /全新开始/i }))
+    await waitFor(() => expect(desktopMock.createFreshDb).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByText(/欢迎使用 Financial Signal/)).toBeNull())
+  })
+
+  it('导入取消({ok:false, canceled:true})不显示错误、欢迎页保留', async () => {
+    desktopMock.getInfo.mockResolvedValue({ imported: false })
+    desktopMock.selectAndImportDb.mockResolvedValue({ ok: false, canceled: true })
+    render(<Home {...baseProps} />)
+    await screen.findByText(/欢迎使用 Financial Signal/)
+    fireEvent.click(screen.getByRole('button', { name: /导入已有数据库/i }))
+    await waitFor(() => expect(desktopMock.selectAndImportDb).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/导入失败/)).toBeNull()
+    expect(screen.getByText(/欢迎使用 Financial Signal/)).toBeTruthy()
+  })
+
+  it('导入失败时显示错误信息、欢迎页保留', async () => {
+    desktopMock.getInfo.mockResolvedValue({ imported: false })
+    desktopMock.selectAndImportDb.mockResolvedValue({ ok: false, error: '文件格式不正确' })
+    render(<Home {...baseProps} />)
+    await screen.findByText(/欢迎使用 Financial Signal/)
+    fireEvent.click(screen.getByRole('button', { name: /导入已有数据库/i }))
+    expect(await screen.findByText(/文件格式不正确/)).toBeTruthy()
+    expect(screen.getByText(/欢迎使用 Financial Signal/)).toBeTruthy()
+  })
+})
