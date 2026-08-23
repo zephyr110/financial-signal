@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { SidebarMenuButton, SidebarMenuItem } from "./ui/sidebar";
+import { SidebarMenuButton, SidebarMenuItem, useSidebar } from "./ui/sidebar";
 import SettingsDialog from "./settings-dialog";
 import { cn } from "@/lib/utils";
 
@@ -37,8 +37,10 @@ const THEME_MODES = [
  */
 export default function AvatarMenu() {
   const router = useRouter();
+  const { isMobile } = useSidebar();
   const { theme, setTheme } = useTheme();
-  const [username, setUsername] = useState("…");
+  const [username, setUsername] = useState("");
+  const avatarInitial = username ? username.charAt(0).toUpperCase() : "";
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -68,16 +70,16 @@ export default function AvatarMenu() {
           <DropdownMenuTrigger
             render={
               <SidebarMenuButton
-                tooltip={username}
+                tooltip={username || "账户"}
                 className="h-10 w-full gap-2.5 py-2.5 data-open:bg-sidebar-accent"
               >
                 <Avatar size="sm" className="size-8 shrink-0">
-                  <AvatarFallback className="bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground uppercase">
-                    {username.slice(0, 1)}
+                  <AvatarFallback className="bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">
+                    {avatarInitial}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
-                  <p className="truncate text-sm font-medium">{username}</p>
+                  <p className="truncate text-sm font-medium">{username || "…"}</p>
                 </div>
                 <ChevronRight
                   size={14}
@@ -86,20 +88,20 @@ export default function AvatarMenu() {
               </SidebarMenuButton>
             }
           />
-          <DropdownMenuContent align="start" side="right" sideOffset={8} className="w-64 p-2">
-            {/* 用户信息卡 */}
-            <div className="rounded-lg bg-muted/50 px-3 py-2.5">
-              <div className="flex items-center gap-2.5">
-                <Avatar className="size-10 shrink-0">
-                  <AvatarFallback className="bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground uppercase">
-                    {username.slice(0, 1)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1 leading-snug">
-                  <p className="truncate text-sm font-semibold">{username}</p>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">财经信号 · 研究助手</p>
-                </div>
-              </div>
+          <DropdownMenuContent
+            align="start"
+            side={isMobile ? "top" : "right"}
+            sideOffset={isMobile ? 6 : 8}
+            className={cn("p-2", isMobile ? "w-(--anchor-width) max-w-[calc(100vw-1rem)]" : "w-64")}
+          >
+            {/* 用户信息 */}
+            <div className="flex items-center gap-2.5 rounded-lg bg-muted px-3 py-2.5">
+              <Avatar className="size-10 shrink-0">
+                <AvatarFallback className="bg-primary text-sm font-bold text-primary-foreground">
+                  {avatarInitial}
+                </AvatarFallback>
+              </Avatar>
+              <p className="min-w-0 flex-1 truncate text-sm font-medium">{username || "…"}</p>
             </div>
 
             <DropdownMenuSeparator className="mx-0 my-2" />
@@ -109,7 +111,7 @@ export default function AvatarMenu() {
               <p className="px-1.5 text-xs font-medium text-muted-foreground">
                 主题
               </p>
-              <div className="inline-flex w-full rounded-lg bg-muted/50 p-1">
+              <div className="inline-flex w-full rounded-lg bg-muted p-1">
                 {THEME_MODES.map(([mode, Icon, label]) => (
                   <button
                     key={mode}

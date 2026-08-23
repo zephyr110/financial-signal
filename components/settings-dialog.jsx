@@ -201,7 +201,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       >
         {/* 左侧导航（移动端为顶部横排） */}
         <nav
-          className="flex shrink-0 flex-row gap-0.5 overflow-x-auto border-b bg-muted/40 p-2 sm:w-44 sm:flex-col sm:overflow-visible sm:border-r sm:border-b-0 sm:px-3 sm:pt-4 sm:pb-3"
+          className="flex shrink-0 flex-row gap-0.5 overflow-x-auto border-b bg-muted p-2 sm:w-44 sm:flex-col sm:overflow-visible sm:border-r sm:border-b-0 sm:px-3 sm:pt-4 sm:pb-3"
           aria-label="设置"
         >
           {PANELS.map((item) => {
