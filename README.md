@@ -73,6 +73,18 @@ pnpm test       # 39 tests
 pnpm typecheck  # tsc --noEmit
 ```
 
+## Desktop App (Electron)
+
+离线自给自足的桌面端:内置抓取 + LLM 分析管线、本地 SQLite、托盘通知与自动更新,不依赖远程服务器。
+
+- **开发**: `pnpm dev:desktop`(next dev + Electron 窗口)
+- **打包(本地 mac)**: `NEWS_DB_PATH=./seed/news_archive.db pnpm dist:dir`
+- **发布**: push `v*` tag,CI 三平台打包上传 GitHub Releases。mac 包当前未签名(CI 无签名证书),首次打开会被 Gatekeeper 拦截:右键应用 → 打开,或 `xattr -cr "/Applications/Financial Signal.app"`;正式分发需配置 Apple Developer 证书 + notarization
+- **数据目录**: macOS `~/Library/Application Support/financial-signal/`、Windows `%APPDATA%/financial-signal`、Linux `~/.config/financial-signal`
+- **首次启动**: 可导入现有 `news_archive.db` 或全新开始;在设置弹窗配置 LLM key 后分析管线自动启用
+
+桌面端新增代码集中在 `electron/` 与 `scripts/`,Web 侧仅 `proxy.ts`/`cronAuth.ts` 增加 DESKTOP_MODE 放行、`next.config.js` 增加 standalone 输出。
+
 ## Deployment
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zephyr110/financial-signal)

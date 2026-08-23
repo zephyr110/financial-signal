@@ -1,0 +1,48 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本标签(如 v2.1.0),同时 push 该 v* tag;仅手动触发而无 tag 时 electron-builder publish 会失败"
+        required: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # 构建期需要含关键表的 db(不依赖远端 Turso)
+      - run: node scripts/ci-seed-db.mjs
+        env:
+          NEWS_DB_PATH: ${{ github.workspace }}/seed/news_archive.db
+      - run: pnpm build
+        env:
+          NEWS_DB_PATH: ${{ github.workspace }}/seed/news_archive.db
+      - run: node scripts/copy-standalone.mjs
+      - name: Package
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 无签名证书时跳过 mac notarization
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/**
