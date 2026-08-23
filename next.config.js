@@ -5,6 +5,8 @@ const nextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // 桌面端:产出自包含服务器(electron 主进程拉起 .next/standalone/server.js)
+  output: 'standalone',
 };
 
 module.exports = nextConfig;
