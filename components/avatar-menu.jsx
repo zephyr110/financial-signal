@@ -40,7 +40,11 @@ export default function AvatarMenu() {
   const { isMobile } = useSidebar();
   const { theme, setTheme } = useTheme();
   const [username, setUsername] = useState("");
-  const avatarInitial = username ? username.charAt(0).toUpperCase() : "";
+  // 桌面模式标记(/api/auth/me 返回 desktop:true):本地单用户,隐藏退出登录
+  const [desktop, setDesktop] = useState(false);
+  // 桌面模式显示"桌面模式"而非字面 "desktop",避免像是一个用户名
+  const displayName = desktop ? "桌面模式" : username;
+  const avatarInitial = displayName ? displayName.charAt(0).toUpperCase() : "";
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -49,6 +53,7 @@ export default function AvatarMenu() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.username) setUsername(d.username);
+        if (d?.desktop) setDesktop(true);
       })
       .catch(() => {});
   }, []);
@@ -70,7 +75,7 @@ export default function AvatarMenu() {
           <DropdownMenuTrigger
             render={
               <SidebarMenuButton
-                tooltip={username || "账户"}
+                tooltip={displayName || "账户"}
                 className="h-10 w-full gap-2.5 py-2.5 data-open:bg-sidebar-accent"
               >
                 <Avatar size="sm" className="size-8 shrink-0">
@@ -79,7 +84,7 @@ export default function AvatarMenu() {
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
-                  <p className="truncate text-sm font-medium">{username || "…"}</p>
+                  <p className="truncate text-sm font-medium">{displayName || "…"}</p>
                 </div>
                 <ChevronRight
                   size={14}
@@ -101,7 +106,7 @@ export default function AvatarMenu() {
                   {avatarInitial}
                 </AvatarFallback>
               </Avatar>
-              <p className="min-w-0 flex-1 truncate text-sm font-medium">{username || "…"}</p>
+              <p className="min-w-0 flex-1 truncate text-sm font-medium">{displayName || "…"}</p>
             </div>
 
             <DropdownMenuSeparator className="mx-0 my-2" />
@@ -150,15 +155,17 @@ export default function AvatarMenu() {
                 <GithubIcon />
                 GitHub
               </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                className="cursor-pointer gap-2.5 rounded-md px-2.5 py-2 hover:bg-destructive/10 dark:hover:bg-destructive/20 data-highlighted:bg-destructive/10 dark:data-highlighted:bg-destructive/20"
-                onClick={logout}
-                disabled={loggingOut}
-              >
-                <LogOut size={16} className="shrink-0 opacity-60" />
-                退出登录
-              </DropdownMenuItem>
+              {!desktop && (
+                <DropdownMenuItem
+                  variant="destructive"
+                  className="cursor-pointer gap-2.5 rounded-md px-2.5 py-2 hover:bg-destructive/10 dark:hover:bg-destructive/20 data-highlighted:bg-destructive/10 dark:data-highlighted:bg-destructive/20"
+                  onClick={logout}
+                  disabled={loggingOut}
+                >
+                  <LogOut size={16} className="shrink-0 opacity-60" />
+                  退出登录
+                </DropdownMenuItem>
+              )}
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -169,6 +176,7 @@ export default function AvatarMenu() {
         onOpenChange={setSettingsOpen}
         username={username}
         onAccountChanged={setUsername}
+        desktop={desktop}
       />
     </>
   );

@@ -23,7 +23,9 @@ const PANELS = [
   { id: "account", label: "账号", icon: UserRound, title: "账号设置", desc: "修改登录名与密码（需验证当前密码）" },
 ];
 
-export default function SettingsDialog({ open, onOpenChange, username, onAccountChanged }) {
+export default function SettingsDialog({ open, onOpenChange, username, onAccountChanged, desktop = false }) {
+  // 桌面模式为本地单用户,账号(改登录名/密码)面板无意义,整块隐藏
+  const panels = desktop ? PANELS.filter((p) => p.id !== "account") : PANELS;
   // 表单状态（初始值在 open 时从 GET /api/settings 拉取）
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -191,7 +193,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     </p>
   );
 
-  const activePanel = PANELS.find((p) => p.id === panel) ?? PANELS[0];
+  const activePanel = panels.find((p) => p.id === panel) ?? panels[0];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -204,7 +206,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
           className="flex shrink-0 flex-row gap-0.5 overflow-x-auto border-b bg-muted p-2 sm:w-44 sm:flex-col sm:overflow-visible sm:border-r sm:border-b-0 sm:px-3 sm:pt-4 sm:pb-3"
           aria-label="设置"
         >
-          {PANELS.map((item) => {
+          {panels.map((item) => {
             const Icon = item.icon;
             const active = panel === item.id;
             return (
