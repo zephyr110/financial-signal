@@ -81,7 +81,10 @@ async function copyTree(src, dest) {
  * node_modules 是找不到的)。仅 darwin 需要:win/linux 产物与 runner 同架构,自然命中。
  */
 async function ensureLibsqlBindingForArch(dest, targetArch) {
-  const target = String(targetArch);
+  // electron-builder 26.x 的 context.arch 是 Arch 枚举数字(0=ia32,1=x64,2=armv7l,3=arm64,4=universal),
+  // 不是字符串;直接 String() 会得到 "1" → 拼出 @libsql/darwin-1 → npm 404。
+  const ARCH_NAMES = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' };
+  const target = ARCH_NAMES[targetArch] ?? String(targetArch);
   if (process.platform !== 'darwin') {
     if (target !== process.arch) {
       console.warn(`[after-pack] 非 darwin 跨架构产物(${process.arch}→${target})未补 @libsql 绑定`);
@@ -105,11 +108,15 @@ async function ensureLibsqlBindingForArch(dest, targetArch) {
   const targetBinding = `darwin-${target}`;
   const targetDir = `@libsql+${targetBinding}@${version}`;
   if (existsSync(path.join(pnpmDir, targetDir))) return; // 已在树中(重复打包等)
-  // 从 registry 拉取目标绑定(CI 有网络;失败必须中止——宁可构建失败,不产坏包)
+  // 从 registry 拉取目标绑定(CI 有网络;失败必须中止——宁可构建失败,不产坏包)。
+  // 必须 --force:npm 会按包内 os/cpu 字段拒绝跨架构安装(EBADPLATFORM,
+  // arm64 runner 拉 darwin-x64 / x64 主机拉 darwin-arm64 都会触发);
+  // 该包是固定的纯绑定包,force 跳过平台校验无副作用。
   const tmp = await mkdtemp(path.join(tmpdir(), 'libsql-binding-'));
   try {
     execFileSync('npm', [
       'install', '--prefix', tmp, '--no-save', '--ignore-scripts', '--no-audit', '--no-fund',
+      '--force',
       `@libsql/${targetBinding}@${version}`,
     ], { stdio: 'pipe' });
   } catch (err) {
