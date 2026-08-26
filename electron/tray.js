@@ -1,19 +1,26 @@
 'use strict';
-const { Tray, Menu, app } = require('electron');
+const { Tray, Menu, app, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { resolveStandaloneDir } = require('./libsql-client');
 
 let tray = null;
 
+/** public 内资源:优先 standalone(打包后),回退仓库 public(dev)。 */
+function resolvePublic(name) {
+  const standaloneAsset = path.join(resolveStandaloneDir(), 'public', name);
+  return fs.existsSync(standaloneAsset)
+    ? standaloneAsset
+    : path.join(__dirname, '..', 'public', name);
+}
+
 function createTray({ onOpen, onFetchNow, onOpenDataDir, onCheckUpdate, onQuit }) {
-  // __dirname 在 asar 内,public 经 copy-standalone 落在 standalone/public(打包后
-  // 在 Resources/standalone/public,asar 外真实磁盘)——必须用 resolveStandaloneDir。
-  // dev 未 build 过时 standalone 不存在,回退仓库 public(dev 布局恒可用)。
-  const standaloneIcon = path.join(resolveStandaloneDir(), 'public', 'logo.png');
-  const icon = fs.existsSync(standaloneIcon)
-    ? standaloneIcon
-    : path.join(__dirname, '..', 'public', 'logo.png');
+  // 菜单栏图标必须是 template 图(16pt/@2x,纯黑 + alpha):macOS 自动适配深浅色
+  // 与菜单栏尺寸;直接塞 logo.png(676×781 彩色大图)会以异常尺寸渲染。
+  // createFromPath 自动配对同名 @2x;文件名带 Template 后缀 + 显式 setTemplateImage
+  // 双保险(macOS 菜单栏按 template 处理,黑/深色菜单栏自动反色)。
+  const icon = nativeImage.createFromPath(resolvePublic('trayTemplate.png'));
+  icon.setTemplateImage(true);
   tray = new Tray(icon);
   tray.setToolTip('Financial Signal');
   const menu = Menu.buildFromTemplate([
