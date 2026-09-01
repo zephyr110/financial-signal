@@ -7,9 +7,30 @@
  * 本脚本在 build 前快速探测，给出清晰的可操作报错。
  *
  * 用法：node scripts/verify-data.mjs （由 package.json "prebuild" 自动执行）
- * 退出码：0 = 通过；1 = DB 不可达或关键表缺失（阻止 build）
+ * 退出码：0 = 通过，或 DB 不可达但已降级警告（不阻止 build）；
+ *         1 = VERIFY_DATA_STRICT=1 且 DB 不可达/关键表缺失（阻止 build）。
+ * 降级原因：pages 下的 getStaticPaths 已对 DB 不可达优雅退化（try/catch → 空路径 +
+ * blocking fallback），next build 本身不需要 DB；prebuild 硬失败会让整个部署
+ * 死于 DB 不可达（如 Turso 免费额度用尽/未配置），与解耦设计矛盾。
+ * 需要强制校验 DB 的部署流程设 VERIFY_DATA_STRICT=1。
  */
 import { createClient } from '@libsql/client';
+
+const STRICT = process.env.VERIFY_DATA_STRICT === '1';
+
+// DB 问题统一降级：默认警告不阻断构建；严格模式（VERIFY_DATA_STRICT=1）才 exit 1。
+function dbProblem(reason, hint) {
+  console.warn(`[verify-data] ⚠ ${reason}`);
+  console.warn(`[verify-data]   ${hint}`);
+  console.warn(
+    '[verify-data]   构建继续:pages 的 getStaticPaths 已对 DB 不可达退化(空路径 + blocking fallback)。'
+  );
+  if (STRICT) {
+    console.error('[verify-data] ✗ 严格模式(VERIFY_DATA_STRICT=1)下视为失败');
+    process.exit(1);
+  }
+  process.exit(0);
+}
 
 // 与 lib/db.ts resolveClientConfig 保持一致的连接解析
 function resolveClientConfig() {
@@ -43,9 +64,10 @@ async function main() {
   try {
     await client.execute({ sql: 'SELECT 1', args: [] });
   } catch (err) {
-    console.error(`[verify-data] ✗ 无法连接数据库: ${err.message}`);
-    console.error('[verify-data]   检查 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 是否配置且可达。');
-    process.exit(1);
+    dbProblem(
+      `无法连接数据库: ${err.message}`,
+      '检查 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 是否配置且可达(如 Turso 免费额度用尽)。'
+    );
   }
   console.log('[verify-data] ✓ 数据库连接正常');
 
@@ -63,9 +85,10 @@ async function main() {
     }
   }
   if (missing.length > 0) {
-    console.error(`[verify-data] ✗ 缺失关键表: ${missing.join(', ')}`);
-    console.error('[verify-data]   首次部署需先建库；确认 DB 指向了正确的 Turso 实例。');
-    process.exit(1);
+    dbProblem(
+      `缺失关键表: ${missing.join(', ')}`,
+      '首次部署需先建库;确认 DB 指向了正确的 Turso 实例。'
+    );
   }
   console.log(`[verify-data] ✓ ${REQUIRED_TABLES.length} 张关键表齐全`);
 
@@ -89,6 +112,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[verify-data] ✗ 预检异常:', err.message);
-  process.exit(1);
+  // 覆盖 resolveClientConfig 抛错(如 Vercel 上未配置 TURSO_DATABASE_URL)等同步路径
+  dbProblem(`预检异常: ${err.message}`, '检查 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 配置。');
 });
