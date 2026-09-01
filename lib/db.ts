@@ -51,7 +51,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
 
 async function migrate(db) {
   const r = await db.execute({ sql: 'PRAGMA user_version', args: [] });
-  let current = Number(r.rows[0]?.user_version || 0);
+  const current = Number(r.rows[0]?.user_version || 0);
   const latest = MIGRATIONS[MIGRATIONS.length - 1].version;
   if (current >= latest) return;
   for (const m of MIGRATIONS) {

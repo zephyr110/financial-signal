@@ -111,7 +111,7 @@ function protectStrings(x: string, quote: '"' | "'"): { text: string; strings: s
  *  成功即返回；全部失败返回 null。 */
 export function repairJson(raw: string): string | null {
   if (!raw) return null;
-  let s = extractJson(raw) ?? raw.trim();
+  const s = extractJson(raw) ?? raw.trim();
   if (!s) return null;
 
   const tryParse = (x: string): boolean => {

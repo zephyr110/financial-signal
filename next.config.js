@@ -9,6 +9,11 @@ const nextConfig = {
   output: 'standalone',
   // dev 模式:Electron 窗口从 http://127.0.0.1:3010 加载,放行 HMR/字体等 dev 资源
   allowedDevOrigins: ['localhost', '127.0.0.1'],
+  // 构建期不跑 eslint:接入 eslint 后 next build 会开始检查并可能因历史存量问题
+  // 阻塞部署;lint 由独立 `pnpm lint`(警告渐进清零)把关,部署稳定性优先
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 };
 
 module.exports = nextConfig;
