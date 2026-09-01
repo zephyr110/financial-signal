@@ -6,7 +6,7 @@ AI 驱动的财经新闻聚合与政策-行业信号分析引擎。
 
 仓库：[github.com/zephyr110/financial-signal](https://github.com/zephyr110/financial-signal)
 
-**在线 Demo：** [https://financial-news-nine.vercel.app](https://financial-news-nine.vercel.app)
+**在线 Demo：** [https://financial-signal.vercel.app/](https://financial-signal.vercel.app/)
 
 ## 系统架构
 

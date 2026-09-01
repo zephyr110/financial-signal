@@ -1,6 +1,6 @@
 {
   "name": "financial-signal",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "新浪全球实时财经新闻 RSS — Next.js + ISR 自动更新",
   "private": true,
   "main": "electron/main.js",
@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "prepare": "husky",
-    "icons": "python3 scripts/generate-icons.py",
+    "icons": "node scripts/generate-icons.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

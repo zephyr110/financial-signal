@@ -617,170 +617,176 @@ export default function AgentPage() {
                         <Bot className="h-4 w-4" />
                       </span>
                     )}
+                    {/* 用户消息：气泡 + 底部外侧操作行；助手消息：正文区 */}
                     <div
                       className={cn(
                         "max-w-[85%] text-sm",
-                        isUser
-                          ? // 用户气泡：primary 蓝（明暗主题自适应）+ 右上角直角，其余三角保持圆角
-                            "leading-relaxed rounded-tl-2xl rounded-bl-2xl rounded-br-2xl rounded-tr-none bg-primary px-4 py-2.5 text-primary-foreground shadow-sm"
-                          : "leading-7 text-foreground"
+                        isUser && "flex flex-col items-end gap-1"
                       )}
                     >
-                      {isUser && isEditing ? (
-                        <div className="flex flex-col">
-                          <Textarea
-                            value={editingDraft}
-                            onChange={(e) => setEditingDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                              if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                void sendEdit(m, editingDraft);
-                              } else if (e.key === "Escape") {
-                                setEditingId(null);
-                                setEditingDraft("");
-                              }
-                            }}
-                            rows={Math.max(2, m.content.split("\n").length)}
-                            maxLength={2000}
-                            autoFocus
-                            className="min-h-0 resize-y border-0 bg-transparent px-0 py-0 text-primary-foreground shadow-none focus-visible:ring-0 placeholder:text-primary-foreground/60"
-                          />
-                          <div className="mt-2 flex items-center justify-end gap-1.5">
+                      <div
+                        className={cn(
+                          isUser
+                            ? // 用户气泡：右上直角；收紧内边距避免短句两侧留白过大
+                              "leading-relaxed rounded-tl-2xl rounded-bl-2xl rounded-br-2xl rounded-tr-none bg-primary px-3 py-2 text-primary-foreground shadow-sm"
+                            : "leading-7 text-foreground"
+                        )}
+                      >
+                        {isUser && isEditing ? (
+                          <div className="flex flex-col">
+                            <Textarea
+                              value={editingDraft}
+                              onChange={(e) => setEditingDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  void sendEdit(m, editingDraft);
+                                } else if (e.key === "Escape") {
+                                  setEditingId(null);
+                                  setEditingDraft("");
+                                }
+                              }}
+                              rows={Math.max(2, m.content.split("\n").length)}
+                              maxLength={2000}
+                              autoFocus
+                              className="min-h-0 resize-y border-0 bg-transparent px-0 py-0 text-primary-foreground shadow-none focus-visible:ring-0 placeholder:text-primary-foreground/60"
+                            />
+                            <div className="mt-2 flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingId(null);
+                                  setEditingDraft("");
+                                }}
+                                className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] text-primary-foreground/80 transition-colors hover:bg-primary-foreground/10"
+                              >
+                                <X className="size-3.5" />
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void sendEdit(m, editingDraft)}
+                                disabled={loading || !editingDraft.trim()}
+                                className="inline-flex h-6 items-center gap-1 rounded-md bg-primary-foreground px-2 text-[11px] font-medium text-primary transition-opacity hover:opacity-90 disabled:opacity-40"
+                              >
+                                <Send className="size-3.5" />
+                                发送
+                              </button>
+                            </div>
+                          </div>
+                        ) : isUser ? (
+                          <div className="whitespace-pre-wrap">{m.content}</div>
+                        ) : null}
+                        {!isUser && (
+                          <>
+                            <div className="markdown-body">
+                              <ReactMarkdown
+                                remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                                components={MARKDOWN_COMPONENTS}
+                              >
+                                {m.content}
+                              </ReactMarkdown>
+                            </div>
+                            {/* 操作行：复制 + 分享（靠左） */}
+                            <div className="mt-2 flex items-center justify-start gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => void copyMessage(m.id, m.content)}
+                                className={cn(
+                                  "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground",
+                                  "transition-colors hover:bg-accent hover:text-foreground"
+                                )}
+                                aria-label="复制回复"
+                              >
+                                {copiedId === m.id ? (
+                                  <>
+                                    <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                                    已复制
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="size-3.5" />
+                                    复制
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void shareConversation()}
+                                className={cn(
+                                  "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground",
+                                  "transition-colors hover:bg-accent hover:text-foreground"
+                                )}
+                                aria-label="分享会话"
+                                title="生成会话分享链接"
+                              >
+                                {copiedId === "share" ? (
+                                  <>
+                                    <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                                    已复制
+                                  </>
+                                ) : (
+                                  <>
+                                    <Share2 className="size-3.5" />
+                                    分享
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </>
+                        )}
+                        {m.toolLog && m.toolLog.length > 0 && (
+                          <div className="mt-2.5 space-y-1.5 border-t border-foreground/10 pt-2.5">
+                            {m.toolLog.map((t, i) => (
+                              <ToolLogRow key={i} t={t} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* 用户气泡操作：底部外侧横排（桌面 hover 显示；触屏常显） */}
+                      {isUser && !isEditing && (
+                        <div className="flex flex-row items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover-none:opacity-100">
+                          {editable && (
                             <button
                               type="button"
                               onClick={() => {
-                                setEditingId(null);
-                                setEditingDraft("");
+                                setEditingDraft(m.content);
+                                setEditingId(m.id);
                               }}
-                              className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] text-primary-foreground/80 transition-colors hover:bg-primary-foreground/10"
-                            >
-                              <X className="size-3.5" />
-                              取消
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void sendEdit(m, editingDraft)}
-                              disabled={loading || !editingDraft.trim()}
-                              className="inline-flex h-6 items-center gap-1 rounded-md bg-primary-foreground px-2 text-[11px] font-medium text-primary transition-opacity hover:opacity-90 disabled:opacity-40"
-                            >
-                              <Send className="size-3.5" />
-                              发送
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="whitespace-pre-wrap">{m.content}</div>
-                      )}
-                      {!isUser && (
-                        <>
-                          <div className="markdown-body">
-                            <ReactMarkdown
-                              remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-                              components={MARKDOWN_COMPONENTS}
-                            >
-                              {m.content}
-                            </ReactMarkdown>
-                          </div>
-                          {/* 操作行：复制 + 分享（靠左） */}
-                          <div className="mt-2 flex items-center justify-start gap-0.5">
-                            <button
-                              type="button"
-                              onClick={() => void copyMessage(m.id, m.content)}
+                              disabled={loading}
                               className={cn(
                                 "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground",
-                                "transition-colors hover:bg-accent hover:text-foreground"
+                                "transition-colors hover:bg-accent hover:text-foreground",
+                                loading && "opacity-40"
                               )}
-                              aria-label="复制回复"
+                              aria-label="编辑消息"
                             >
-                              {copiedId === m.id ? (
-                                <>
-                                  <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                                  已复制
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="size-3.5" />
-                                  复制
-                                </>
-                              )}
+                              <Pencil className="size-3.5" />
+                              编辑
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => void shareConversation()}
-                              className={cn(
-                                "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground",
-                                "transition-colors hover:bg-accent hover:text-foreground"
-                              )}
-                              aria-label="分享会话"
-                              title="生成会话分享链接"
-                            >
-                              {copiedId === "share" ? (
-                                <>
-                                  <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                                  已复制
-                                </>
-                              ) : (
-                                <>
-                                  <Share2 className="size-3.5" />
-                                  分享
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </>
-                      )}
-                      {m.toolLog && m.toolLog.length > 0 && (
-                        <div className="mt-2.5 pt-2.5 border-t border-foreground/10 space-y-1.5">
-                          {m.toolLog.map((t, i) => (
-                            <ToolLogRow key={i} t={t} />
-                          ))}
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void copyMessage(m.id, m.content)}
+                            className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            aria-label="复制消息"
+                          >
+                            {copiedId === m.id ? (
+                              <>
+                                <Check className="size-3.5 text-emerald-500" />
+                                已复制
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="size-3.5" />
+                                复制
+                              </>
+                            )}
+                          </button>
                         </div>
                       )}
                     </div>
-                    {/* 用户气泡操作按钮：在气泡外部右侧、底部对齐
-                        （桌面 hover 显示；触屏 hover 不可用则常显） */}
-                    {isUser && !isEditing && (
-                      <div className="flex shrink-0 flex-col justify-end gap-0.5 self-end opacity-0 transition-opacity group-hover:opacity-100 hover-none:opacity-100">
-                        {editable && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingDraft(m.content);
-                              setEditingId(m.id);
-                            }}
-                            disabled={loading}
-                            className={cn(
-                              "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground",
-                              "transition-colors hover:bg-accent hover:text-foreground",
-                              loading && "opacity-40"
-                            )}
-                            aria-label="编辑消息"
-                          >
-                            <Pencil className="size-3.5" />
-                            编辑
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => void copyMessage(m.id, m.content)}
-                          className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                          aria-label="复制消息"
-                        >
-                          {copiedId === m.id ? (
-                            <>
-                              <Check className="size-3.5 text-emerald-500" />
-                              已复制
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="size-3.5" />
-                              复制
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
                   </div>
                 );
               })}

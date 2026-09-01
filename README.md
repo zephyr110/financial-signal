@@ -4,7 +4,7 @@ AI-powered financial news aggregation & policy-industry signal analysis engine.
 
 Repository: [github.com/zephyr110/financial-signal](https://github.com/zephyr110/financial-signal)
 
-**Live Demo:** [https://financial-news-nine.vercel.app](https://financial-news-nine.vercel.app)
+**Live Demo:** [https://financial-signal.vercel.app/](https://financial-signal.vercel.app/)
 
 ## System Architecture
 
