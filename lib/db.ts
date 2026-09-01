@@ -30,13 +30,41 @@ export async function getDb() {
     client = createClient(resolveClientConfig());
   }
   if (!schemaReady) {
-    schemaReady = initSchema(client);
+    schemaReady = migrate(client);
   }
   await schemaReady;
   return client;
 }
 
-async function initSchema(db) {
+// ────────────────────────────────────────────────────────────
+// 版本化 schema 迁移（替代 ad-hoc ALTER 猜列）。
+// - 版本号存 PRAGMA user_version（libsql 原生持久化，事务内/executeMultiple 均可）
+// - 每个迁移的 up() 必须幂等：老库缺列/已存在都能安全重跑（启动中断后从断点续跑）
+// - 新库 user_version=0 → 依序执行全部迁移；老库只跑缺失版本
+// ────────────────────────────────────────────────────────────
+
+const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<void> }> = [
+  { version: 1, name: '基线表结构(建表+索引)', up: baselineSchema },
+  { version: 2, name: 'news_archive.docurl 列', up: migrationAddDocurl },
+  { version: 3, name: 'event_threads.dedup_key + 历史去重', up: migrationThreadDedup },
+];
+
+async function migrate(db) {
+  const r = await db.execute({ sql: 'PRAGMA user_version', args: [] });
+  let current = Number(r.rows[0]?.user_version || 0);
+  const latest = MIGRATIONS[MIGRATIONS.length - 1].version;
+  if (current >= latest) return;
+  for (const m of MIGRATIONS) {
+    if (m.version <= current) continue;
+    await m.up(db);
+    await db.execute({ sql: `PRAGMA user_version = ${m.version}`, args: [] });
+    console.log(`[db] schema migration v${m.version} (${m.name}) applied`);
+  }
+}
+
+/** v1：基线表结构（全部 CREATE TABLE IF NOT EXISTS + 索引；建表语句含 docurl 列定义，
+ *  老库已存在的表由 IF NOT EXISTS 跳过，缺列由 v2 补）。 */
+async function baselineSchema(db) {
   await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS news_archive (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,16 +80,6 @@ async function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_news_published ON news_archive(published_at);
     CREATE INDEX IF NOT EXISTS idx_news_source    ON news_archive(source);
-  `);
-
-  // 迁移：老库补充 docurl 列（列已存在时 ALTER 抛错，静默跳过）
-  try {
-    await db.execute({ sql: 'ALTER TABLE news_archive ADD COLUMN docurl TEXT', args: [] });
-  } catch {
-    // column already exists
-  }
-
-  await db.executeMultiple(`
 
     CREATE TABLE IF NOT EXISTS analysis_result (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +111,7 @@ async function initSchema(db) {
       confidence    TEXT    NOT NULL,  -- high|medium
       industries    TEXT,              -- JSON: ["industry", ...]
       watch_points  TEXT,              -- JSON: ["point", ...]
-      dedup_key     TEXT,              -- 幂等键：规范化 title（P1.2）
+      dedup_key     TEXT,              -- 幂等键：规范化 title（v3 迁移）
       created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -126,8 +144,6 @@ async function initSchema(db) {
     );
 
     -- 领域事件日志（append-only，spec §10.2 原则2"模型可见即记录"）
-    -- 记录分析管道全链路：news.ingested → signal.scored → entity.mapped → thread.linked
-    -- 信号评分可完整回溯：为什么这条新闻得 4 分、何时被打标、归属哪个事件线索。
     CREATE TABLE IF NOT EXISTS event_log (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       event_type TEXT    NOT NULL,
@@ -141,7 +157,6 @@ async function initSchema(db) {
     DROP INDEX IF EXISTS idx_event_entity;
 
     -- 数据管线任务状态机（P1.1）：每次 cron 调用的生命周期
-    -- status: running → success | failed；batch_id 相同视为同一批次的重试（retry_count 递增）
     CREATE TABLE IF NOT EXISTS pipeline_run (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       job_name        TEXT    NOT NULL,  -- fetch | analyze | deep-analyze | event-threads | fetch-market
@@ -207,11 +222,28 @@ async function initSchema(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+}
 
-  // 迁移：event_threads 补充 dedup_key 幂等键（P1.2）。
-  // 必须在建表（上面 executeMultiple）之后执行；每步独立幂等，
-  // 单步失败不阻塞后续（列已存在/表不存在时静默跳过）。
-  // 注：libsql 字符串形式 execute 在本地 file: 库上会 native panic，统一用单对象形式。
+/** v2：老库补 docurl 列（新库 v1 建表已含；列已存在时静默跳过）。 */
+async function migrationAddDocurl(db) {
+  const cols = await db.execute({ sql: 'PRAGMA table_info(news_archive)', args: [] });
+  if (!cols.rows.some((c) => c.name === 'docurl')) {
+    await db.execute({ sql: 'ALTER TABLE news_archive ADD COLUMN docurl TEXT', args: [] });
+  }
+}
+
+/** v3：event_threads 补 dedup_key 幂等键（P1.2）+ 历史去重 + 回填 + 唯一索引。
+ * 每步独立幂等：列已存在/表不存在/唯一索引已建时静默跳过，老库重跑安全。
+ * 注：libsql 字符串形式 execute 在本地 file: 库上会 native panic，统一用单对象形式。 */
+async function migrationThreadDedup(db) {
+  const cols = await db.execute({ sql: 'PRAGMA table_info(event_threads)', args: [] });
+  if (cols.rows.some((c) => c.name === 'dedup_key')) {
+    // 列已存在（新库或已迁移过）→ 确保唯一索引存在即可
+    try {
+      await db.execute({ sql: 'CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_dedup ON event_threads(dedup_key)', args: [] });
+    } catch { /* 历史重复数据尚未清理,等去重步骤 */ }
+    return;
+  }
   try {
     await db.execute({ sql: 'ALTER TABLE event_threads ADD COLUMN dedup_key TEXT', args: [] });
   } catch { /* column already exists */ }
@@ -412,7 +444,7 @@ export async function getArchivedNews({ daysBack = 7, limit = 500 } = {}) {
   const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
   const result = await db.execute({
     sql: `
-      SELECT id, source, source_id, title, content, published_at
+      SELECT id, source, source_id, title, content, published_at, docurl
       FROM news_archive
       WHERE published_at >= ?
       ORDER BY published_at DESC
@@ -850,6 +882,37 @@ export async function appendAgentMessage(sessionId: number, role: string, conten
 }
 
 /**
+ * 上下文压缩的原子落库：在一个事务里追加摘要消息并删除被压缩的旧消息。
+ * 避免"摘要已落库但旧消息未删"（下次加载仍超预算、重复付费压缩）或
+ * "旧消息已删但摘要未落库"（历史永久丢失）的中间态。
+ * 仅删除该会话 id <= upToMessageId 的旧消息；摘要与保留的最近消息 id 更大，不受影响。
+ */
+export async function compactAgentMessages(
+  sessionId: number,
+  upToMessageId: number,
+  summaryContent: string,
+): Promise<number> {
+  const db = await getDb();
+  const tx = await db.transaction('write');
+  try {
+    const ins = await tx.execute({
+      sql: 'INSERT INTO agent_message (session_id, role, content) VALUES (?, ?, ?)',
+      args: [sessionId, 'user', summaryContent],
+    });
+    const summaryId = Number(ins.lastInsertRowid);
+    await tx.execute({
+      sql: 'DELETE FROM agent_message WHERE session_id = ? AND id <= ?',
+      args: [sessionId, upToMessageId],
+    });
+    await tx.commit();
+    return summaryId;
+  } catch (err) {
+    try { await tx.rollback(); } catch { /* 已失效的事务 */ }
+    throw err;
+  }
+}
+
+/**
  * 编辑会话消息（编辑重发语义）：替换内容并删除其后全部消息。
  * 消息不存在或不属于该会话时返回 false。
  */
@@ -1019,12 +1082,12 @@ export async function getRelatedSignals(
   const args: (string | number)[] = [];
 
   for (const ind of industries) {
-    conditions.push("a.industries LIKE ? ESCAPE '\\'");
-    args.push(`%${ind}%`);
+    conditions.push('EXISTS (SELECT 1 FROM json_each(a.industries) WHERE json_each.value = ?)');
+    args.push(ind);
   }
   for (const comp of companies) {
-    conditions.push("a.companies LIKE ? ESCAPE '\\'");
-    args.push(`%${comp}%`);
+    conditions.push('EXISTS (SELECT 1 FROM json_each(a.companies) WHERE json_each.value = ?)');
+    args.push(comp);
   }
 
   if (conditions.length === 0) return [];
@@ -1102,8 +1165,8 @@ export async function searchSignals({
           n.content LIKE ? ESCAPE '\\'
           OR a.summary LIKE ? ESCAPE '\\'
           OR a.deep_analysis LIKE ? ESCAPE '\\'
-          OR a.industries LIKE ? ESCAPE '\\'
-          OR a.companies LIKE ? ESCAPE '\\'
+          OR EXISTS (SELECT 1 FROM json_each(a.industries) WHERE json_each.value LIKE ? ESCAPE '\\')
+          OR EXISTS (SELECT 1 FROM json_each(a.companies) WHERE json_each.value LIKE ? ESCAPE '\\')
         )
     `,
     args: [since, safeMin, likePattern, likePattern, likePattern, likePattern, likePattern],
@@ -1123,8 +1186,8 @@ export async function searchSignals({
           n.content LIKE ? ESCAPE '\\'
           OR a.summary LIKE ? ESCAPE '\\'
           OR a.deep_analysis LIKE ? ESCAPE '\\'
-          OR a.industries LIKE ? ESCAPE '\\'
-          OR a.companies LIKE ? ESCAPE '\\'
+          OR EXISTS (SELECT 1 FROM json_each(a.industries) WHERE json_each.value LIKE ? ESCAPE '\\')
+          OR EXISTS (SELECT 1 FROM json_each(a.companies) WHERE json_each.value LIKE ? ESCAPE '\\')
         )
       ORDER BY a.signal_score DESC, n.published_at DESC
       LIMIT ? OFFSET ?
@@ -1383,6 +1446,25 @@ export async function getEventLog(eventType?: string, limit = 100) {
     payload: parseJsonOrNull(r.payload as string), // 对象 payload 不被丢成 []
     created_at: r.created_at,
   }));
+}
+
+/**
+ * 事件日志保留策略:清理超过 retentionDays 的埋点行。
+ * append-only 表若无保留策略会无限膨胀;调用方(写路径 /api/events)
+ * 每小时至多触发一次,不阻塞主流程。
+ */
+export async function pruneEventLog(retentionDays = 90) {
+  const safeDays = Number.isFinite(retentionDays) ? Math.max(retentionDays, 30) : 90;
+  try {
+    const db = await getDb();
+    await db.execute({
+      sql: 'DELETE FROM event_log WHERE julianday(created_at) < julianday(\'now\', ?)',
+      args: [`-${safeDays} days`],
+    });
+  } catch (err) {
+    // 清理失败不允许影响埋点写入
+    console.error('[event-log] prune failed:', err.message);
+  }
 }
 
 /**
