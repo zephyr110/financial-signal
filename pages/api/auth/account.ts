@@ -1,4 +1,4 @@
-import { getSessionUser, changeAccount, SESSION_COOKIE } from '../../../lib/auth';
+import { getSessionUser, changeAccount, clearSessionCookie, SESSION_COOKIE } from '../../../lib/auth';
 
 /** POST /api/auth/account { currentPassword, username?, password? } → 修改登录名/密码。 */
 export default async function handler(req: any, res: any) {
@@ -19,6 +19,9 @@ export default async function handler(req: any, res: any) {
     password: password != null ? String(password) : undefined,
   });
   if (!result.ok) return res.status(400).json({ error: result.error || '修改失败' });
+  // B1 吊销了全部会话(含发起请求者自己)→ 同步清除响应 cookie,
+  // 否则浏览器留着已失效的 httpOnly cookie,前端无从清除,下次请求 401
   res.setHeader('Cache-Control', 'no-store');
-  res.status(200).json({ ok: true, username: newUsername?.trim() || username });
+  res.setHeader('Set-Cookie', clearSessionCookie());
+  res.status(200).json({ ok: true, sessionRevoked: true, username: newUsername?.trim() || username });
 }

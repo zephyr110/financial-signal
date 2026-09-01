@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import { CheckCircle2, Clock, Cpu, Database, Info, Loader2, RotateCcw, Save, UserRound, XIcon } from "lucide-react";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
@@ -52,6 +53,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const router = useRouter();
 
   // 打开时拉取当前配置（仅在打开/关闭转换时重置；账号改名回调更新 username prop 时保持 okMsg 可见）
   const prevOpen = useRef(false);
@@ -172,6 +174,16 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         setError(d.error || "修改失败，请重试");
+        return;
+      }
+      const d = await res.json().catch(() => ({}));
+      if (d.sessionRevoked) {
+        // 改密/改名已吊销全部会话(含本会话)——先提示,再跳登录页重新登录
+        setOkMsg("账号信息已更新，请重新登录");
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        setTimeout(() => router.replace("/login"), 1200);
         return;
       }
       setOkMsg("账号信息已更新");

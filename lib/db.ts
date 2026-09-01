@@ -1,4 +1,5 @@
 import { createClient } from '@libsql/client';
+import crypto from 'crypto';
 import path from 'path';
 
 /**
@@ -6,6 +7,12 @@ import path from 'path';
  * On Vercel, TURSO_DATABASE_URL is required (no ephemeral /tmp fallback).
  */
 function resolveClientConfig() {
+  // 测试必须隔离在本地文件库:测试含破坏性操作(改密/清会话/去重 DELETE),
+  // 若开发机 shell 导出了 TURSO_DATABASE_URL(生产标配),不经此分支会直连共享库
+  if (process.env.NODE_ENV === 'test') {
+    const filePath = process.env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db');
+    return { url: `file:${filePath}` };
+  }
   const url = process.env.TURSO_DATABASE_URL;
   if (url) {
     return {
@@ -22,6 +29,11 @@ function resolveClientConfig() {
   return { url: `file:${filePath}` };
 }
 
+/** 远程 Turso(URL 非 file:)vs 本地文件库——迁移起点/PRAGMA 行为据此分支。 */
+function isTursoConfig(): boolean {
+  return !resolveClientConfig().url.startsWith('file:');
+}
+
 let client;
 let schemaReady;
 
@@ -29,10 +41,19 @@ export async function getDb() {
   if (!client) {
     client = createClient(resolveClientConfig());
   }
-  if (!schemaReady) {
-    schemaReady = migrate(client);
+  let m = schemaReady;
+  if (!m) {
+    m = migrate(client);
+    schemaReady = m;
   }
-  await schemaReady;
+  try {
+    await m;
+  } catch (err) {
+    // 迁移失败可重试:瞬时网络错误/并发 ALTER 竞态不应把实例永久毒化
+    // (仅当仍是我们观察的同一个 promise 时才重置,避免清掉并发请求刚建的新迁移)
+    if (schemaReady === m) schemaReady = undefined;
+    throw err;
+  }
   return client;
 }
 
@@ -60,21 +81,38 @@ async function migrate(db) {
     args: [],
   });
   // 起点取 PRAGMA 与版本表较大者:本地老库 PRAGMA 仍存 1-3(可直接跳到缺失版本),
-  // Turso 库 PRAGMA 读恒 0(且不可写)→ 从 v1 依序补跑,各 up 幂等
+  // Turso 库 PRAGMA 恒 0(读也是每冷启动实例一趟往返)→ 直接跳过读取,从表记录起步
   let pragmaVersion = 0;
-  try {
-    const r = await db.execute({ sql: 'PRAGMA user_version', args: [] });
-    pragmaVersion = Number(r.rows[0]?.user_version || 0);
-  } catch { /* 远程库不支持 PRAGMA 读时按 0 */ }
+  if (!isTursoConfig()) {
+    try {
+      const r = await db.execute({ sql: 'PRAGMA user_version', args: [] });
+      pragmaVersion = Number(r.rows[0]?.user_version || 0);
+    } catch (err) {
+      // 本地文件读 PRAGMA 不应失败;真失败时不能静默——降级按 0 并留痕可排查
+      console.warn('[db] PRAGMA user_version 读取失败,按 0 处理:', (err as Error).message);
+    }
+  }
+  let tableVersion = 0;
   const vRows = await db.execute({
     sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations',
     args: [],
   });
-  const current = Math.max(pragmaVersion, Number(vRows.rows[0]?.v || 0));
+  tableVersion = Number(vRows.rows[0]?.v || 0);
+  // 老库(旧 PRAGMA 机制)首次升级:把 1..PRAGMA 回填进版本表,此后单一记录源,
+  // 避免"表只记 {4}、PRAGMA 3 永不推进"的双轨错位
+  if (pragmaVersion > tableVersion) {
+    for (let v = tableVersion + 1; v <= pragmaVersion; v++) {
+      await db.execute({
+        sql: 'INSERT OR REPLACE INTO schema_migrations (version) VALUES (?)',
+        args: [v],
+      });
+    }
+    tableVersion = pragmaVersion;
+  }
   const latest = MIGRATIONS[MIGRATIONS.length - 1].version;
-  if (current >= latest) return;
+  if (tableVersion >= latest) return;
   for (const m of MIGRATIONS) {
-    if (m.version <= current) continue;
+    if (m.version <= tableVersion) continue;
     await m.up(db);
     await db.execute({
       sql: 'INSERT OR REPLACE INTO schema_migrations (version) VALUES (?)',
@@ -246,29 +284,29 @@ async function baselineSchema(db) {
   `);
 }
 
-/** v2：老库补 docurl 列（新库 v1 建表已含；列已存在时静默跳过）。 */
+/** v2：老库补 docurl 列（新库 v1 建表已含；列已存在时静默跳过）。
+ * 并发冷启动时多实例同时补列,后到者会撞 duplicate column name——与 v3 一样
+ * try/catch 兜住(SQLite 无 ADD COLUMN IF NOT EXISTS)。 */
 async function migrationAddDocurl(db) {
   const cols = await db.execute({ sql: 'PRAGMA table_info(news_archive)', args: [] });
   if (!cols.rows.some((c) => c.name === 'docurl')) {
-    await db.execute({ sql: 'ALTER TABLE news_archive ADD COLUMN docurl TEXT', args: [] });
+    try {
+      await db.execute({ sql: 'ALTER TABLE news_archive ADD COLUMN docurl TEXT', args: [] });
+    } catch { /* 并发实例已先补列 */ }
   }
 }
 
 /** v3：event_threads 补 dedup_key 幂等键（P1.2）+ 历史去重 + 回填 + 唯一索引。
- * 每步独立幂等：列已存在/表不存在/唯一索引已建时静默跳过，老库重跑安全。
+ * 每步独立幂等：列已存在/表不存在/唯一索引已建时静默跳过，老库重跑安全——
+ * 不设 early-return：列已存在时仍继续去重/回填（中断后从断点续跑，断点续跑契约）。
  * 注：libsql 字符串形式 execute 在本地 file: 库上会 native panic，统一用单对象形式。 */
 async function migrationThreadDedup(db) {
   const cols = await db.execute({ sql: 'PRAGMA table_info(event_threads)', args: [] });
-  if (cols.rows.some((c) => c.name === 'dedup_key')) {
-    // 列已存在（新库或已迁移过）→ 确保唯一索引存在即可
+  if (!cols.rows.some((c) => c.name === 'dedup_key')) {
     try {
-      await db.execute({ sql: 'CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_dedup ON event_threads(dedup_key)', args: [] });
-    } catch { /* 历史重复数据尚未清理,等去重步骤 */ }
-    return;
+      await db.execute({ sql: 'ALTER TABLE event_threads ADD COLUMN dedup_key TEXT', args: [] });
+    } catch { /* column already exists */ }
   }
-  try {
-    await db.execute({ sql: 'ALTER TABLE event_threads ADD COLUMN dedup_key TEXT', args: [] });
-  } catch { /* column already exists */ }
   // 合并历史重复：同规范化标题只保留最新一行（首次迁移时执行一次）
   try {
     await db.execute({
@@ -293,12 +331,16 @@ async function migrationThreadDedup(db) {
 
 /** v4：app_session 加 user_id（会话按用户关联,后续可单独吊销某账号会话）。
  * 已发布的迁移不可改(v1 建表保持原样),新库同样走 v1+v4 得到一致结构。
- * 旧行 user_id 为 NULL → JOIN 匹配不到 → 旧明文 token 会话自然失效(单账号,重登一次即可)。
- * SQLite 的 ADD COLUMN 不带 REFERENCES 子句(默认 NULL,合法)。 */
+ * 旧行 user_id 为 NULL → JOIN 匹配不到 → 旧明文 token 会话自然失效(单账号,重登一次即可);
+ * 死行由 getSessionUser 的过期清理按 user_id IS NULL 慢慢清除(见 auth.ts)。
+ * SQLite 的 ADD COLUMN 不带 REFERENCES 子句(默认 NULL,合法)。
+ * 并发冷启动时后到的 ALTER 会撞 duplicate column name——与 v3 一样 try/catch 兜住。 */
 async function migrationSessionUserId(db) {
   const cols = await db.execute({ sql: 'PRAGMA table_info(app_session)', args: [] });
   if (!cols.rows.some((c) => c.name === 'user_id')) {
-    await db.execute({ sql: 'ALTER TABLE app_session ADD COLUMN user_id INTEGER', args: [] });
+    try {
+      await db.execute({ sql: 'ALTER TABLE app_session ADD COLUMN user_id INTEGER', args: [] });
+    } catch { /* 并发实例已先补列 */ }
   }
 }
 
@@ -986,6 +1028,7 @@ export async function getAgentMessages(sessionId: number) {
 /**
  * 创建会话分享（幂等：同一会话复用已有 token）。
  * token 为公开链接凭据（128 位随机串），任何持有者可只读访问该会话。
+ * B5 同款加固:固定 randomBytes 熵源,无 Date.now+Math.random 弱熵 fallback。
  */
 export async function createAgentShare(sessionId: number): Promise<string> {
   const db = await getDb();
@@ -994,8 +1037,7 @@ export async function createAgentShare(sessionId: number): Promise<string> {
     args: [sessionId],
   });
   if (existing.rows[0]?.token) return String(existing.rows[0].token);
-  const token =
-    (globalThis.crypto?.randomUUID?.() || `${Date.now()}${Math.random().toString(36).slice(2)}`).replace(/-/g, '');
+  const token = crypto.randomBytes(16).toString('hex');
   await db.execute({
     sql: 'INSERT INTO agent_share (token, session_id) VALUES (?, ?)',
     args: [token, sessionId],

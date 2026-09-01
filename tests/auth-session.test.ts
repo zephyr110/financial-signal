@@ -1,29 +1,31 @@
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
-import crypto from 'crypto'
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
+import { hashToken } from '../lib/auth'
 
 /**
  * 会话认证安全加固测试（B1/B2/B5/B6）：
  *  - B2:会话 token 存库前 SHA-256 哈希(明文只出现在 cookie),DB 泄露不可直接冒用
  *  - B1:changeAccount 改密/改名后全部会话吊销(已泄露会话不得继续有效)
- *  - B5:token 为 128 位熵的 64 位 hex(无弱熵 fallback)
+ *  - B5:token 为 64 hex 字符(256 位熵)的 randomBytes 输出(无弱熵 fallback)
  *  - B6:ensureDefaultAccount 幂等(并发首启不重复建账号/不 500)
  * 每个用例独立 DB 文件 + vi.resetModules 重载 lib/db、lib/auth。
+ * 隔离:显式删除 Turso 环境变量(双保险——lib/db 在 NODE_ENV=test 下也强制本地文件),
+ * 本套测试含破坏性操作(改密/清会话),严禁连到开发机 shell 导出的共享 Turso 库。
  */
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auth-session-test-'))
 
 async function loadAuth(file: string) {
+  delete process.env.TURSO_DATABASE_URL
+  delete process.env.TURSO_AUTH_TOKEN
   process.env.NEWS_DB_PATH = file
   vi.resetModules()
   const dbMod = await import('../lib/db')
   const authMod = await import('../lib/auth')
   return { dbMod, authMod }
 }
-
-const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 
 describe('会话认证加固', () => {
   beforeEach(() => {
@@ -33,6 +35,9 @@ describe('会话认证加固', () => {
   afterEach(() => {
     delete process.env.ADMIN_INITIAL_PASSWORD
     delete process.env.NEWS_DB_PATH
+  })
+  afterAll(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 
   it('B5+B2:login 签发 64 位 hex token,DB 存 SHA-256 哈希而非明文,并关联 user_id', async () => {
@@ -46,7 +51,7 @@ describe('会话认证加固', () => {
 
     const rows = await db.execute({ sql: 'SELECT token, user_id FROM app_session', args: [] })
     expect(rows.rows).toHaveLength(1)
-    expect(String(rows.rows[0].token)).toBe(sha256(token!))
+    expect(String(rows.rows[0].token)).toBe(hashToken(token!))
     expect(String(rows.rows[0].token)).not.toBe(token) // 明文不得落库
     expect(String(rows.rows[0].user_id)).toBe('1') // 关联到 admin 账号
   })
