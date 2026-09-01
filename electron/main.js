@@ -41,6 +41,34 @@ function stopScheduler() {
   }
 }
 
+/**
+ * 应用自身页面判定:仅信任内置 server 的 baseUrl(dev 固定 3010 / prod 随机端口),
+ * 其余 URL(外站、file:、同机其他本地服务)一律视为外部。
+ * 用前缀匹配而非主机名,防止窗口被导航到 localhost 上其他恶意本地服务。
+ */
+function isAppUrl(url) {
+  const base = serverUrl || devUrl();
+  if (!base || typeof url !== 'string') return false;
+  return (
+    url === base ||
+    url.startsWith(base + '/') ||
+    url.startsWith(base + '?') ||
+    url.startsWith(base + '#')
+  );
+}
+
+/** 外部链接交系统浏览器打开(仅 http/https);其余 scheme 直接拒绝。 */
+function openExternal(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      shell.openExternal(url);
+    }
+  } catch {
+    // 非法 URL:忽略
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -51,6 +79,20 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
     },
+  });
+  // 安全:渲染层 target="_blank"/window.open 一律不再开子窗口(Electron 子窗口会
+  // 继承 webPreferences 并注入 preload → 外部站点可拿到 window.desktop 全部 IPC
+  // 通道,烧 LLM 额度/泄露 db 路径)。外部链接交给系统浏览器。
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternal(url);
+    return { action: 'deny' };
+  });
+  // 主窗口自身永不离开应用 origin:导航到外部 URL 一律拦截并转系统浏览器。
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isAppUrl(url)) {
+      event.preventDefault();
+      openExternal(url);
+    }
   });
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -170,6 +212,15 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
+  // 崩溃兜底:主进程未捕获异常/拒绝不再静默闪退——记录上下文后继续
+  // (单条 handler 抛错不应杀死整个应用;退出路径由 will-quit 统一清理)。
+  process.on('uncaughtException', (err) => {
+    console.error('[main] uncaughtException:', err);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('[main] unhandledRejection:', reason);
+  });
+
   app.on('second-instance', () => {
     // 单实例锁在 whenReady 之前生效,极早期(win 双击启动时)可能先于 ready
     // 收到 second-instance → 此时建窗口抛 "Cannot create BrowserWindow

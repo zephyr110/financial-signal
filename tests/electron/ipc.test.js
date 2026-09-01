@@ -27,6 +27,21 @@ const { registerIpc } = await import('../../electron/ipc')
 let dir, dbPath
 const deps = { onImported: null, onFreshDb: null }
 
+/** 模拟本应用页面发来的 IPC event(受信 sender)。 */
+function trustedEvent() {
+  return {
+    senderFrame: { url: 'http://127.0.0.1:3010/' },
+    sender: { getURL: () => 'http://127.0.0.1:3010/' },
+  }
+}
+/** 模拟第三方页面发来的 IPC event(非受信 sender)。 */
+function untrustedEvent() {
+  return {
+    senderFrame: { url: 'https://evil.example.com/' },
+    sender: { getURL: () => 'https://evil.example.com/' },
+  }
+}
+
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipc-test-'))
   dbPath = path.join(dir, 'news_archive.db')
@@ -48,24 +63,28 @@ afterEach(() => {
 
 describe('app:get-info imported 谓词(I1)', () => {
   it('prod:db 不存在 → imported=false', async () => {
-    const r = await handlers['app:get-info']()
+    const r = await handlers['app:get-info'](trustedEvent())
     expect(r.imported).toBe(false)
   })
 
   it('prod:0 字节空库(未初始化)→ imported=false(关键:抢先建出的空库不能跳过欢迎页)', async () => {
     fs.writeFileSync(dbPath, '')
-    const r = await handlers['app:get-info']()
+    const r = await handlers['app:get-info'](trustedEvent())
     expect(r.imported).toBe(false)
   })
 
   it('prod:含必要表的 db → imported=true', async () => {
     const db = createClient({ url: `file:${dbPath}` })
     await db.executeMultiple(`
-      CREATE TABLE news_archive (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT);
+      CREATE TABLE news_archive (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL, source_id TEXT NOT NULL,
+        title TEXT, content TEXT NOT NULL, published_at TEXT NOT NULL
+      );
       CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
     `)
     await db.close()
-    const r = await handlers['app:get-info']()
+    const r = await handlers['app:get-info'](trustedEvent())
     expect(r.imported).toBe(true)
   })
 
@@ -81,7 +100,7 @@ describe('app:get-info imported 谓词(I1)', () => {
       onFetchNow: null,
     })
     fs.writeFileSync(dbPath, '') // dev 下空文件也视为已导入(dev 无 server 建表,文件只可能来自 createFreshDb)
-    const r = await handlers['app:get-info']()
+    const r = await handlers['app:get-info'](trustedEvent())
     expect(r.imported).toBe(true)
   })
 })
@@ -90,13 +109,13 @@ describe('db 变更后重启失败的错误传播(I1b)', () => {
   it('createFreshDb 后重启失败 → {ok:false, error},且后续导入仍可执行', async () => {
     // 第一次:onFreshDb 抛错(模拟 restartAfterDbChange 重启失败后 app.quit)
     deps.onFreshDb = async () => { throw new Error('restart boom') }
-    const r1 = await handlers['app:create-fresh-db']()
+    const r1 = await handlers['app:create-fresh-db'](trustedEvent())
     expect(r1.ok).toBe(false)
     expect(r1.error).toContain('restart boom')
 
     // 第二次:重启恢复,importChain 未被失败挂死,仍返回 {ok:true}
     deps.onFreshDb = async () => { await Promise.resolve(); return { ok: true } }
-    const r2 = await handlers['app:create-fresh-db']()
+    const r2 = await handlers['app:create-fresh-db'](trustedEvent())
     expect(r2.ok).toBe(true)
   })
 
@@ -105,7 +124,11 @@ describe('db 变更后重启失败的错误传播(I1b)', () => {
     const src = path.join(dir, 'src.db')
     const db = createClient({ url: `file:${src}` })
     await db.executeMultiple(`
-      CREATE TABLE news_archive (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT);
+      CREATE TABLE news_archive (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL, source_id TEXT NOT NULL,
+        title TEXT, content TEXT NOT NULL, published_at TEXT NOT NULL
+      );
       CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
     `)
     await db.close()
@@ -115,7 +138,7 @@ describe('db 变更后重启失败的错误传播(I1b)', () => {
     })
     deps.onImported = async () => { throw new Error('server down') }
 
-    const r1 = await handlers['app:select-and-import-db']()
+    const r1 = await handlers['app:select-and-import-db'](trustedEvent())
     expect(r1.ok).toBe(false)
     expect(r1.error).toContain('server down')
     // 文件本身已原子替换到位(失败在重启阶段,不在复制阶段)
@@ -123,7 +146,38 @@ describe('db 变更后重启失败的错误传播(I1b)', () => {
 
     // 链未挂死:后续 fresh-db 正常
     deps.onImported = null
-    const r2 = await handlers['app:create-fresh-db']()
+    const r2 = await handlers['app:create-fresh-db'](trustedEvent())
     expect(r2.ok).toBe(true)
+  })
+})
+
+describe('IPC sender 校验(I3):非本应用页面一律拒绝', () => {
+  it('untrusted sender 的 get-info 返回 Forbidden,不泄露 dbPath', async () => {
+    const r = await handlers['app:get-info'](untrustedEvent())
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('Forbidden')
+    expect(r.dbPath).toBeUndefined()
+  })
+
+  it('untrusted sender 的 fetch-now 被拒绝(不触发 LLM 管线)', async () => {
+    const onFetchNow = vi.fn()
+    electronStub.app.isPackaged = false
+    vi.resetModules()
+    const { registerIpc: registerTrusted } = await import('../../electron/ipc')
+    registerTrusted({
+      getDbPath: () => dbPath,
+      onImported: () => Promise.resolve(),
+      onFreshDb: () => Promise.resolve({ ok: true }),
+      onFetchNow,
+    })
+    const r = await handlers['app:fetch-now'](untrustedEvent())
+    expect(r.ok).toBe(false)
+    expect(onFetchNow).not.toHaveBeenCalled()
+  })
+
+  it('缺失 event(异常路径)按不信任处理', async () => {
+    const r = await handlers['app:get-info']()
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('Forbidden')
   })
 })
