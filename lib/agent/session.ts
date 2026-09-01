@@ -5,7 +5,7 @@
  *  - 上下文自动压缩：消息总量超过预算时，把最旧消息用 LLM 压成一条 system 摘要，
  *    保留最近消息完整（Mini-Agent 式 token 控制）
  */
-import { getAgentMessages, appendAgentMessage } from '../db';
+import { getAgentMessages, compactAgentMessages } from '../db';
 import { chatCompletion } from '../llm/client';
 import { LLM_CONFIG } from '../llm/config';
 import type { AgentMessage } from './types';
@@ -51,6 +51,7 @@ async function summarizeMessages(messages: AgentMessage[]): Promise<string> {
 export async function loadAgentContext(sessionId: number): Promise<AgentMessage[]> {
   const rows = await getAgentMessages(sessionId);
   const messages: AgentMessage[] = rows.map((r) => ({
+    id: r.id,
     role: r.role,
     content: r.content,
     ...(r.meta?.toolCall ? { toolCall: r.meta.toolCall } : {}),
@@ -66,9 +67,11 @@ export async function loadAgentContext(sessionId: number): Promise<AgentMessage[
 
   try {
     const summary = await summarizeMessages(toSummarize);
-    const compressed: AgentMessage = { role: 'user', content: `（历史对话已压缩）${summary}` };
-    // 摘要持久化回 DB：下次加载直接命中摘要，避免每次循环都重复压缩（spec §10.2 原则2 模型可见即记录）
-    await appendAgentMessage(sessionId, compressed.role, compressed.content);
+    const summaryContent = `（历史对话已压缩）${summary}`;
+    // 原子落库:追加摘要 + 删除被压缩的旧消息(事务内完成)。
+    // 摘要 id 大于所有被删消息 id,保留的最近消息(id 更大)不受影响。
+    const summaryId = await compactAgentMessages(sessionId, toSummarize[toSummarize.length - 1].id, summaryContent);
+    const compressed: AgentMessage = { id: summaryId, role: 'user', content: summaryContent };
     return [compressed, ...keep];
   } catch (err) {
     console.warn('[agent] Context summarization failed, keeping full history:', err.message);

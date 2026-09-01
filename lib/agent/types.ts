@@ -10,6 +10,8 @@
 export type Role = 'user' | 'assistant' | 'system';
 
 export interface AgentMessage {
+  /** 数据库行 id（加载自 agent_message；内存构造的摘要消息由压缩落库后回填） */
+  id?: number;
   role: Role;
   content: string;
   /** assistant 消息的工具调用记录（用于展示/审计） */
