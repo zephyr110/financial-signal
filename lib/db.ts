@@ -38,9 +38,12 @@ export async function getDb() {
 
 // ────────────────────────────────────────────────────────────
 // 版本化 schema 迁移（替代 ad-hoc ALTER 猜列）。
-// - 版本号存 PRAGMA user_version（libsql 原生持久化，事务内/executeMultiple 均可）
+// - 版本号记录在 schema_migrations 表（version 主键）：Turso 远程库禁止
+//   `PRAGMA user_version = N` 写入（SQL_PARSE_ERROR），表记录跨 Turso/本地通用
+// - 起点 = max(PRAGMA 读, 版本表)——本地老库（PRAGMA 仍存 1-3）直接跳到缺失版本；
+//   Turso 库 PRAGMA 恒 0，从 v1 依序补跑（各 up 均幂等，老表 IF NOT EXISTS 跳过）
 // - 每个迁移的 up() 必须幂等：老库缺列/已存在都能安全重跑（启动中断后从断点续跑）
-// - 新库 user_version=0 → 依序执行全部迁移；老库只跑缺失版本
+// - 新库版本 0 → 依序执行全部迁移；老库只跑缺失版本
 // ────────────────────────────────────────────────────────────
 
 const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<void> }> = [
@@ -51,14 +54,32 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
 ];
 
 async function migrate(db) {
-  const r = await db.execute({ sql: 'PRAGMA user_version', args: [] });
-  const current = Number(r.rows[0]?.user_version || 0);
+  // 版本记录表(迁移机制自身的表;PRAGMA 写在 Turso 被拒,统一用表记录)
+  await db.execute({
+    sql: "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))",
+    args: [],
+  });
+  // 起点取 PRAGMA 与版本表较大者:本地老库 PRAGMA 仍存 1-3(可直接跳到缺失版本),
+  // Turso 库 PRAGMA 读恒 0(且不可写)→ 从 v1 依序补跑,各 up 幂等
+  let pragmaVersion = 0;
+  try {
+    const r = await db.execute({ sql: 'PRAGMA user_version', args: [] });
+    pragmaVersion = Number(r.rows[0]?.user_version || 0);
+  } catch { /* 远程库不支持 PRAGMA 读时按 0 */ }
+  const vRows = await db.execute({
+    sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations',
+    args: [],
+  });
+  const current = Math.max(pragmaVersion, Number(vRows.rows[0]?.v || 0));
   const latest = MIGRATIONS[MIGRATIONS.length - 1].version;
   if (current >= latest) return;
   for (const m of MIGRATIONS) {
     if (m.version <= current) continue;
     await m.up(db);
-    await db.execute({ sql: `PRAGMA user_version = ${m.version}`, args: [] });
+    await db.execute({
+      sql: 'INSERT OR REPLACE INTO schema_migrations (version) VALUES (?)',
+      args: [m.version],
+    });
     console.log(`[db] schema migration v${m.version} (${m.name}) applied`);
   }
 }

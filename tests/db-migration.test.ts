@@ -52,8 +52,8 @@ describe('schema migration (PRAGMA user_version)', () => {
     const { getDb } = await loadDb(newFile)
     const db = await getDb()
 
-    const r = await db.execute({ sql: 'PRAGMA user_version', args: [] })
-    expect(Number(r.rows[0].user_version)).toBe(4)
+    const r = await db.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
+    expect(Number(r.rows[0].v)).toBe(4)
 
     const tables = await db.execute({
       sql: "SELECT name FROM sqlite_master WHERE type='table'",
@@ -80,8 +80,8 @@ describe('schema migration (PRAGMA user_version)', () => {
     const { getDb } = await loadDb(oldFile)
     const db = await getDb()
 
-    const r = await db.execute({ sql: 'PRAGMA user_version', args: [] })
-    expect(Number(r.rows[0].user_version)).toBe(4)
+    const r = await db.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
+    expect(Number(r.rows[0].v)).toBe(4)
 
     const newsCols = await db.execute({ sql: 'PRAGMA table_info(news_archive)', args: [] })
     expect(newsCols.rows.some((c) => c.name === 'docurl')).toBe(true)
@@ -115,12 +115,12 @@ describe('schema migration (PRAGMA user_version)', () => {
       args: [],
     })
 
-    // 重新加载(新模块实例 + 同一文件)→ user_version 已最新,迁移跳过
+    // 重新加载(新模块实例 + 同一文件)→ 版本已最新,迁移跳过
     vi.resetModules()
     const mod2 = await import('../lib/db')
     const db2 = await mod2.getDb()
-    const r = await db2.execute({ sql: 'PRAGMA user_version', args: [] })
-    expect(Number(r.rows[0].user_version)).toBe(4)
+    const r = await db2.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
+    expect(Number(r.rows[0].v)).toBe(4)
 
     const rows = await db2.execute({ sql: 'SELECT COUNT(*) as n FROM event_threads', args: [] })
     expect(Number(rows.rows[0].n)).toBe(1)
