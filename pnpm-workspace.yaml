@@ -5,3 +5,13 @@ allowBuilds:
   msw: true
   # Optional Next.js image optimizer; skip native build if it fails locally
   sharp: false
+
+# 依赖版本锁定：Vercel 的 pnpm supply-chain 策略(minimumReleaseAge)拒绝发布过新的包。
+# eslint-config-next 16.3.x 及其 typescript-eslint 8.69.0 / ignore@7.0.8 发布于部署当天,
+# 会被 [ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION] 拒绝。强制解析到发布更早的稳定版本：
+overrides:
+  typescript-eslint: 8.30.0
+  '@typescript-eslint/*': 8.30.0
+  # 仅影响依赖 ignore@^7 的包(typescript-eslint 系);eslint 本体依赖 ignore@^5 不受影响
+  'ignore@^7': 7.0.6
+
