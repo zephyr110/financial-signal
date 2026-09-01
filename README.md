@@ -50,13 +50,15 @@ Sina / 10jqka / Wallstreetcn APIs
 | Eastmoney | ⬜ Degraded | API deprecated (404) |
 | CLS (财联社) | ⬜ Degraded | Requires auth signature |
 
-## GitHub Actions
+## Scheduled Pipelines (three complementary paths)
 
-Hourly scheduled pipeline (`13 */4 * * *`):
-
-```
-fetch → analyze → deep-analyze → event-threads → fetch-market
-```
+1. **GitHub Actions** (`.github/workflows/cron.yml`): daily fallback at 21:17 UTC (05:17 Beijing) running the full pipeline:
+   ```
+   fetch → analyze → deep-analyze → event-threads → fetch-market
+   ```
+   Manual trigger via `workflow_dispatch` is supported.
+2. **Vercel Cron** (`vercel.json`): daily `fetch` + `analyze` (Vercel Cron is limited to two endpoints).
+3. **QStash (optional, production)**: for high-frequency scheduling (e.g. every 30 min), each of the five endpoints runs independently — incremental semantics plus unique constraints make reruns idempotent; `deep-analyze` / `event-threads` / `fetch-market` self-throttle to every 6h.
 
 Manual trigger also available via `workflow_dispatch`.
 

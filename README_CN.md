@@ -52,15 +52,18 @@ AI 驱动的财经新闻聚合与政策-行业信号分析引擎。
 | 东方财富 | ⬜ 降级 | API 失效 (404) |
 | 财联社 | ⬜ 降级 | 需鉴权签名 |
 
-## GitHub Actions
+## 定时调度（三路互补）
 
-每 4 小时定时执行 (`13 */4 * * *`)：
-
-```
-fetch → analyze → deep-analyze → event-threads → fetch-market
-```
-
-支持手动触发 (`workflow_dispatch`)。
+1. **GitHub Actions**（`.github/workflows/cron.yml`）：每日 21:17 UTC（北京时间次日 05:17）兜底执行全管线，
+   防止外部调度遗漏：
+   ```
+   fetch → analyze → deep-analyze → event-threads → fetch-market
+   ```
+   支持手动触发 (`workflow_dispatch`)。
+2. **Vercel Cron**（`vercel.json`）：每日执行 `fetch` 与 `analyze`（Vercel Cron 上限两个端点）。
+3. **QStash（生产可选）**：高频调度（如每 30 分钟）时 5 个端点各自独立触发，
+   增量语义 + 唯一约束保证幂等可安全重跑；`deep-analyze`/`event-threads`/`fetch-market`
+   内部自带 6h 节流，不会被高频调度推爆。
 
 需配置 GitHub Secrets：`APP_URL`、`CRON_SECRET`。
 
