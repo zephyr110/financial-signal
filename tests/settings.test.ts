@@ -72,12 +72,20 @@ describe('/api/settings', () => {
     expect(res._body.error).toBe('Forbidden origin')
   })
 
-  it('桌面模式 POST 本机 Origin → 200 并落库', async () => {
+  it('桌面模式 POST 本机 Origin(端口匹配 Host)→ 200 并落库', async () => {
     vi.stubEnv('DESKTOP_MODE', '1')
     const res = mockRes()
-    await handler(mockReq('POST', { headers: { origin: 'http://127.0.0.1:3010' }, body: { llmModel: 'deepseek-chat' } }), res)
+    await handler(mockReq('POST', { headers: { origin: 'http://127.0.0.1:3010', host: '127.0.0.1:3010' }, body: { llmModel: 'deepseek-chat' } }), res)
     expect(res._status).toBe(200)
     expect(res._body).toEqual({ ok: true })
+  })
+
+  it('桌面模式 POST 本机 Origin 但端口不匹配 Host → 403(同机其他本地服务)', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1')
+    const res = mockRes()
+    await handler(mockReq('POST', { headers: { origin: 'http://127.0.0.1:9999', host: '127.0.0.1:3010' }, body: { llmModel: 'gpt-x' } }), res)
+    expect(res._status).toBe(403)
+    expect(res._body.error).toBe('Forbidden origin')
   })
 
   it('web 模式 POST 恶意 Origin + 有效会话 → 200(web 只走会话鉴权,Origin 不参与)', async () => {

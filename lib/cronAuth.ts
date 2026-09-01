@@ -1,10 +1,23 @@
 import { getSetting, SETTING_KEYS } from './settings';
 
 /**
- * 本机 Origin 判定(桌面端专用):127.0.0.1/localhost 任意端口,其余一律非本机。
+ * 本机 Origin 判定(桌面端专用):Origin 必须为 127.0.0.1/localhost 的 http(s),
+ * 且端口必须与本请求的 Host 一致——仅靠"localhost 任意端口"会让同机其他本地
+ * 服务(不同端口)跨源打穿 cron/设置/agent 端点(消耗用户 LLM 额度)。
+ * host 形如 "127.0.0.1:3010"(或带默认端口的 "localhost")。
  */
-export function isLocalOrigin(origin: unknown): boolean {
-  return typeof origin === 'string' && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
+export function isLocalOrigin(origin: unknown, host?: unknown): boolean {
+  if (typeof origin !== 'string') return false;
+  try {
+    const o = new URL(origin);
+    if (o.protocol !== 'http:' && o.protocol !== 'https:') return false;
+    if (o.hostname !== '127.0.0.1' && o.hostname !== 'localhost') return false;
+    const h = String(host || '');
+    const hostPort = h.includes(':') ? h.slice(h.lastIndexOf(':') + 1) : '80';
+    return o.port === hostPort;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -19,7 +32,7 @@ export async function assertCronAuth(req, res) {
   // 浏览器子资源 GET 一律不带 Origin 头 → 必须连"无 Origin"一起拒绝;调度器的
   // callCron 显式携带本机 Origin 头,不受影响(见 electron/scheduler.js)。
   if (process.env.DESKTOP_MODE === '1') {
-    if (!isLocalOrigin(req.headers.origin)) {
+    if (!isLocalOrigin(req.headers.origin, req.headers.host)) {
       res.status(403).json({ error: 'Forbidden origin' });
       return false;
     }

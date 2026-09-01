@@ -1,4 +1,5 @@
 import { listAgentSessions, getAgentMessages, deleteAgentSession, agentSessionExists } from '../../lib/db';
+import { isLocalOrigin } from '../../lib/cronAuth';
 
 /**
  * 研究 Agent — 会话历史 API
@@ -6,9 +7,14 @@ import { listAgentSessions, getAgentMessages, deleteAgentSession, agentSessionEx
  * GET /api/agent-sessions          → 会话列表 [{ id, title, created_at, updated_at }]
  * GET /api/agent-sessions?id=N     → 会话全部消息 [{ id, role, content, meta, created_at }]
  * DELETE /api/agent-sessions?id=N  → 删除会话及其消息
+ *
+ * 桌面模式（proxy 放行全部）下 DELETE 为破坏性操作,校验本机 Origin 防跨站删除。
  */
 export default async function handler(req, res) {
   if (req.method === 'DELETE') {
+    if (process.env.DESKTOP_MODE === '1' && !isLocalOrigin(req.headers.origin, req.headers.host)) {
+      return res.status(403).json({ error: 'Forbidden origin' });
+    }
     const { id } = req.query;
     if (id == null) return res.status(400).json({ error: '缺少 sessionId' });
     const sid = Number(id);

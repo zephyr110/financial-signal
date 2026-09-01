@@ -83,8 +83,8 @@ describe('DESKTOP_MODE', () => {
     process.env.DESKTOP_MODE = '1';
     process.env.VERCEL = '1';
     try {
-      // 调度器/渲染层请求带本机 Origin;无 Origin 的子资源请求(恶意网页 img 等)走另一用例的 403
-      const req = { query: {}, headers: { origin: 'http://127.0.0.1:3010' } };
+      // 调度器/渲染层请求带本机 Origin(端口与本请求 Host 一致);无 Origin 的子资源请求(恶意网页 img 等)走另一用例的 403
+      const req = { query: {}, headers: { origin: 'http://127.0.0.1:3010', host: '127.0.0.1:3010' } };
       const res = { status: () => ({ json: () => {} }) };
       expect(await assertCronAuth(req, res)).toBe(true);
     } finally {
@@ -109,11 +109,19 @@ describe('DESKTOP_MODE', () => {
     expect(res._status).toBe(403);
   });
 
-  it('allows local page Origins in DESKTOP_MODE (127.0.0.1 / localhost, any port)', async () => {
+  it('allows local page Origins in DESKTOP_MODE when port matches Host', async () => {
     vi.stubEnv('DESKTOP_MODE', '1');
     const res = mockRes();
-    expect(await assertCronAuth(mockReq({}, { origin: 'http://127.0.0.1:3010' }), res)).toBe(true);
-    expect(await assertCronAuth(mockReq({}, { origin: 'http://localhost:3010' }), res)).toBe(true);
+    expect(await assertCronAuth(mockReq({}, { origin: 'http://127.0.0.1:3010', host: '127.0.0.1:3010' }), res)).toBe(true);
+    expect(await assertCronAuth(mockReq({}, { origin: 'http://localhost:3010', host: '127.0.0.1:3010' }), res)).toBe(true);
+  });
+
+  it('blocks local Origin whose port differs from Host (同机其他本地服务)', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1');
+    const res = mockRes();
+    // 恶意本地服务在 9999 端口,向 3010 端口发跨源请求 → 端口不匹配,拒绝
+    expect(await assertCronAuth(mockReq({}, { origin: 'http://localhost:9999', host: '127.0.0.1:3010' }), res)).toBe(false);
+    expect(res._status).toBe(403);
   });
 
   it('web mode ignores Origin (behavior unchanged)', async () => {

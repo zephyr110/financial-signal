@@ -18,7 +18,7 @@ export default async function handler(req: any, res: any) {
     // 但 proxy.ts 在 DESKTOP_MODE 下放行全部请求,POST 需自行防跨站:渲染层
     // fetch POST 必带本机 Origin;恶意网页 form-POST 改 llmBaseUrl 可把已存
     // 的 API key 转发到攻击者地址 → 有 Origin 且非本机时拒绝。
-    if (!isLocalOrigin(req.headers.origin)) {
+    if (!isLocalOrigin(req.headers.origin, req.headers.host)) {
       return res.status(403).json({ error: 'Forbidden origin' });
     }
   }
