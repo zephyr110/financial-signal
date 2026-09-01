@@ -1,5 +1,15 @@
 'use strict';
-const { Notification } = require('electron');
+// electron 仅在主进程可用;测试环境(缺二进制)下 require('electron') 会触发
+// install-electron 下载二进制(挂起/污染),必须先用 process.versions.electron 门控,
+// 非 Electron 环境保持 null —— 测试通过 NotificationImpl 参数注入桩实现。
+let ElectronNotification = null;
+if (process.versions.electron) {
+  try {
+    ElectronNotification = require('electron').Notification;
+  } catch {
+    // Electron 主进程内理论上不会失败;兜底保持 null
+  }
+}
 const { createClient } = require('./libsql-client');
 const { queryNewHighSignals } = require('./notify-query');
 const { loadConfig, saveConfig } = require('./store');
@@ -39,8 +49,12 @@ async function notifyNewHighSignals({
   dbPath,
   configFile,
   onActivate,
-  NotificationImpl = Notification, // 测试注入用,默认 Electron 主进程 Notification
+  NotificationImpl = ElectronNotification, // 测试注入用,默认 Electron 主进程 Notification(测试环境为 null)
 }) {
+  if (!NotificationImpl) {
+    console.warn('[notifier] Electron Notification unavailable (non-Electron env) — skipping notifications');
+    return 0;
+  }
   const cfg = loadConfig(configFile, { notifyLastRunAt: null });
   const prev = parseCursor(cfg.notifyLastRunAt);
   const client = createClient({ url: `file:${dbPath}` });

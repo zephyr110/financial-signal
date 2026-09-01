@@ -11,14 +11,12 @@ const { createRequire } = require('module');
  * dev / 测试 / standalone 未构建时回退根 node_modules。
  */
 function resolveStandaloneDir() {
-  let isPackaged = false;
-  try {
-    const electron = require('electron');
-    isPackaged = Boolean(electron.app) && electron.app.isPackaged;
-  } catch {
-    // 非 electron 环境(vitest):回退 dev 布局
-  }
-  return isPackaged && process.resourcesPath
+  // 用 process.versions.electron 检测运行环境,而非 require('electron'):
+  // 在 vitest/普通 node 下 require('electron') 会因缺二进制挂起/抛错,
+  // 顶层调用链(server.js 等)在测试里会被整体拖死;该字段仅 Electron 主进程存在。
+  const isElectron = Boolean(process.versions.electron);
+  const isPackaged = isElectron && process.resourcesPath && require('electron').app.isPackaged;
+  return isPackaged
     ? path.join(process.resourcesPath, 'standalone')
     : path.join(__dirname, '..', '.next', 'standalone');
 }
