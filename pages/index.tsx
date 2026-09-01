@@ -8,6 +8,8 @@ import EmptyState from "../components/EmptyState";
 import TodaySignalSummary from "../components/TodaySignalSummary";
 import WelcomeScreen from "../components/WelcomeScreen";
 import { RefreshCw } from "lucide-react";
+import { getNewsByDate, getAvailableDates, getDb } from "../lib/db";
+import { todayKey } from "../lib/format";
 
 const PULL_THRESHOLD = 56;
 
@@ -184,6 +186,17 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
     pullDistRef.current = 0;
   }, []);
 
+  // React 合成 onTouchMove 在根节点以 passive 方式注册,preventDefault 无效且告警,
+  // 移动端下拉刷新会被系统滚动打断。必须用原生非 passive 监听才能阻止滚动。
+  const pullAreaRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = pullAreaRef.current;
+    if (!el) return;
+    const handler = (e: TouchEvent) => onTouchMove(e);
+    el.addEventListener("touchmove", handler, { passive: false });
+    return () => el.removeEventListener("touchmove", handler);
+  }, [onTouchMove]);
+
   const pullProgress = Math.min(pullDist / PULL_THRESHOLD, 1);
 
   // 首次启动且未导入/创建 db 时,整页替换为欢迎引导(web 模式 window.desktop 不存在,恒 false)
@@ -220,8 +233,8 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
         actions={<TopbarRefreshButton onClick={doRefresh} refreshing={fetching} />}
       >
       <div
+        ref={pullAreaRef}
         onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         onTouchCancel={onTouchCancel}
         className="bg-background"
@@ -298,25 +311,71 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
 
 export async function getStaticProps() {
   try {
-    // Build the absolute URL for server-side fetch
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    const res = await fetch(`${baseUrl}/api/news?includeSignals=1`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    // 直连 DB 组装首页数据(与 /api/news 同构,但不在构建/ISR 时自回环 HTTP,
+    // 避免未配 NEXT_PUBLIC_BASE_URL 时构建期必失败;客户端刷新按钮仍走 /api/news 拿实时补数据)
+    const today = todayKey();
+    const todayRows = await getNewsByDate(today, 200);
+    const todayItems = todayRows.map((row: any) => ({
+      id: row.id,
+      rich_text: row.content,
+      published_at: row.published_at,
+      source: row.source,
+      title: row.title,
+    }));
+    await attachSignalData(todayItems);
+
+    const allDates = await getAvailableDates(7);
+    const pastDates = allDates.filter((d) => d !== today);
+
     return {
       props: {
-        todayItems: data.todayItems || [],
-        pastDates: data.pastDates || [],
-        today: data.today || '',
+        todayItems,
+        pastDates,
+        today,
         error: null,
       },
       revalidate: 300,
     };
   } catch (e) {
-    console.error("Failed to fetch news:", e);
+    console.error("Failed to load news:", e);
     return {
       props: { todayItems: [], pastDates: [], today: '', error: "暂时无法获取最新新闻，请稍后刷新页面" },
       revalidate: 60,
     };
+  }
+}
+
+/** 为带 DB id 的条目附加分析信号信息(LEFT JOIN analysis_result)。 */
+async function attachSignalData(items: any[]) {
+  const ids = items
+    .map((item: any) => item.id)
+    .filter((id: any) => typeof id === 'number' && id > 0);
+  if (ids.length === 0) return;
+
+  const db = await getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  const result = await db.execute({
+    sql: `
+      SELECT a.id as analysis_id, a.news_id, a.signal_score, a.category
+      FROM analysis_result a
+      WHERE a.news_id IN (${placeholders})
+    `,
+    args: ids,
+  });
+
+  const signalMap = new Map<number, any>();
+  for (const row of result.rows) {
+    const r = row as any;
+    signalMap.set(r.news_id, {
+      id: r.analysis_id,
+      signal_score: r.signal_score,
+      category: r.category,
+    });
+  }
+
+  for (const item of items) {
+    if (item.id > 0 && signalMap.has(item.id)) {
+      item.analysis = signalMap.get(item.id);
+    }
   }
 }

@@ -173,13 +173,30 @@ for (const p of providers) registerNewsSource(p);
 
 // --- Main Archive Function ---
 
+// 实时补数据的内存缓存:首页 /api/news 每次请求都会 fetchLiveNews,
+// 无缓存时每次请求都打上游信源(订阅器/多客户端会打爆上游)。60s TTL 内复用。
+const LIVE_CACHE_TTL_MS = 60_000;
+let liveCache: { at: number; items: any[] } = { at: 0, items: [] };
+
 /**
  * Fetch live news from all active sources without DB insertion.
  * Used by getStaticProps and /api/news for real-time supplement.
+ * 60s TTL 内存缓存:同一实例内高频请求不再重复抓上游;抓取失败时
+ * 回退到缓存(即使已过期),尽力保证首页可用。
  */
 export async function fetchLiveNews() {
+  const now = Date.now();
+  if (now - liveCache.at < LIVE_CACHE_TTL_MS) return liveCache.items;
+
   const active = getActiveNewsSources();
-  const results = await Promise.all(active.map((p) => p.fetch()));
+  let results;
+  try {
+    results = await Promise.all(active.map((p) => p.fetch()));
+  } catch (err) {
+    console.error('[archive] live fetch failed, using stale cache:', err.message);
+    if (liveCache.items.length > 0) return liveCache.items;
+    throw err;
+  }
 
   // Merge and normalize to a common format (matching what frontend expects)
   const all = [];
@@ -191,6 +208,7 @@ export async function fetchLiveNews() {
 
   // Sort by time desc
   all.sort((a, b) => (b.published_at || '').localeCompare(a.published_at || ''));
+  liveCache = { at: now, items: all };
   return all;
 }
 
