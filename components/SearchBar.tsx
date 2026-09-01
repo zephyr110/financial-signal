@@ -47,6 +47,11 @@ export default function SearchBar({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 最新筛选值快照:防抖回调执行时可能已过了多次渲染,闭包里的旧值会让
+  // 旧防抖覆盖新筛选(输入过程中改分数/时间窗)。定时器触发时一律读 ref。
+  const filtersRef = useRef({ query: "", minScore: 1, hoursBack: 720 });
+  filtersRef.current = { query, minScore, hoursBack };
+
   const triggerSearch = useCallback(
     (q: string, score: number, hours: number) => {
       if (q.trim().length < 2) return;
@@ -64,7 +69,9 @@ export default function SearchBar({
 
     if (val.trim().length >= 2) {
       debounceRef.current = setTimeout(() => {
-        triggerSearch(val, minScore, hoursBack);
+        debounceRef.current = null;
+        const f = filtersRef.current;
+        triggerSearch(f.query, f.minScore, f.hoursBack);
       }, 300);
     }
   };
@@ -77,6 +84,8 @@ export default function SearchBar({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 中文输入法组合期间(拼音选词)的 Enter 不应触发搜索
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter" && query.trim().length >= 2) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       triggerSearch(query, minScore, hoursBack);
@@ -86,6 +95,11 @@ export default function SearchBar({
   const handleScoreChange = (val: number) => {
     setMinScore(val);
     setShowScoreDropdown(false);
+    // 立即搜索并作废 pending 防抖,避免旧防抖随后用旧筛选值再触发一次
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
     if (query.trim().length >= 2) {
       triggerSearch(query, val, hoursBack);
     }
@@ -94,6 +108,10 @@ export default function SearchBar({
   const handleTimeChange = (val: number) => {
     setHoursBack(val);
     setShowTimeDropdown(false);
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
     if (query.trim().length >= 2) {
       triggerSearch(query, minScore, val);
     }

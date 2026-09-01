@@ -69,14 +69,20 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const [searchNextCursor, setSearchNextCursor] = useState<number | null>(null);
   const searchParamsRef = useRef<{ minScore: number; hoursBack: number }>({ minScore: 1, hoursBack: 720 });
+  // 竞态守卫:新搜索/刷新作废在途请求与过期响应(旧响应不得覆盖新状态)
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchGenRef = useRef(0);
+  const listGenRef = useRef(0);
 
   const doRefresh = useCallback(async (signal) => {
     setFetching(true);
     setError(null);
+    const gen = ++listGenRef.current;
     try {
       const res = await fetch(`/api/analysis?hoursBack=24&trendHours=${trendHours}`, signal ? { signal } : {});
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (gen !== listGenRef.current) return; // 已被更新的刷新/加载取代
       setItems((data.items || []).map(item => ({
         ...item,
         industries: item.industries ? safeParse(item.industries) : [],
@@ -112,6 +118,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
+    const gen = listGenRef.current;
     try {
       // Score filter uses server-side filtering; card filter uses client-side
       const minScoreParam = scoreFilter || 1;
@@ -119,6 +126,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (gen !== listGenRef.current) return; // 期间发生过刷新/筛选变更,丢弃旧分页
       setItems(prev => [...prev, ...(data.items || []).map((item: any) => ({
         ...item,
         industries: item.industries ? safeParse(item.industries) : [],
@@ -131,10 +139,16 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore, trendHours]);
+  }, [nextCursor, loadingMore, trendHours, scoreFilter]);
 
   // ── Search handlers ──
   const handleSearch = useCallback(async (params: { query: string; minScore: number; hoursBack: number }) => {
+    // 新搜索作废在途请求;代际号让迟到响应无法覆盖新搜索结果
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const gen = ++searchGenRef.current;
+
     searchParamsRef.current = { minScore: params.minScore, hoursBack: params.hoursBack };
     setSearchQuery(params.query);
     setIsSearchActive(true);
@@ -143,30 +157,36 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
 
     try {
       const url = `/api/search?q=${encodeURIComponent(params.query)}&minScore=${params.minScore}&hoursBack=${params.hoursBack}&limit=20`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (gen !== searchGenRef.current) return;
       setSearchResults(data.items || []);
       setSearchTotal(data.total || 0);
       setSearchNextCursor(data.nextCursor || null);
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       console.error("Search failed:", e);
-      setSearchResults([]);
-      setSearchTotal(0);
+      if (gen === searchGenRef.current) {
+        setSearchResults([]);
+        setSearchTotal(0);
+      }
     } finally {
-      setSearchLoading(false);
+      if (gen === searchGenRef.current) setSearchLoading(false);
     }
   }, []);
 
   const handleSearchLoadMore = useCallback(async () => {
     if (!searchNextCursor || searchLoadingMore || !searchQuery) return;
     setSearchLoadingMore(true);
+    const gen = searchGenRef.current;
     try {
       const { minScore, hoursBack } = searchParamsRef.current;
       const url = `/api/search?q=${encodeURIComponent(searchQuery)}&minScore=${minScore}&hoursBack=${hoursBack}&cursor=${searchNextCursor}&limit=20`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (gen !== searchGenRef.current) return; // 新搜索已发起,丢弃旧分页
       setSearchResults((prev) => [...prev, ...(data.items || [])]);
       setSearchNextCursor(data.nextCursor || null);
     } catch (e) {
@@ -340,21 +360,25 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
                         <span className="text-xs text-muted-foreground">收盘</span>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1">
-                        {marketToday.map((m: any) => (
-                          <span key={m.name} className="text-xs flex items-center gap-1">
-                            <span className="text-muted-foreground">{m.name}</span>
-                            <span
-                              className={
-                                Number(m.change_pct) >= 0
-                                  ? "text-red-600 dark:text-red-400"
-                                  : "text-emerald-600 dark:text-emerald-400"
-                              }
-                            >
-                              {Number(m.change_pct) >= 0 ? "+" : ""}
-                              {Number(m.change_pct).toFixed(2)}%
+                        {marketToday.map((m: any) => {
+                          const raw = m.change_pct;
+                          const hasPct = raw != null && Number.isFinite(Number(raw));
+                          const pct = Number(raw);
+                          return (
+                            <span key={m.name} className="text-xs flex items-center gap-1">
+                              <span className="text-muted-foreground">{m.name}</span>
+                              <span
+                                className={
+                                  hasPct && pct >= 0
+                                    ? "text-red-600 dark:text-red-400"
+                                    : "text-emerald-600 dark:text-emerald-400"
+                                }
+                              >
+                                {hasPct ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—"}
+                              </span>
                             </span>
-                          </span>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}

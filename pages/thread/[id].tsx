@@ -291,20 +291,21 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
                         </span>
                         <div className="flex flex-wrap gap-x-4 gap-y-1">
                           {thread.market.map((m: any) => {
-                            const pct = Number(m.change_pct);
+                            const raw = m.change_pct;
+                            const hasPct = raw != null && Number.isFinite(Number(raw));
+                            const pct = Number(raw);
                             return (
                               <span key={m.name} className="text-xs flex items-center gap-1">
                                 <span className="text-muted-foreground">{m.name}</span>
                                 {/* A股惯例：红涨绿跌 */}
                                 <span
                                   className={
-                                    pct >= 0
+                                    hasPct && pct >= 0
                                       ? "text-red-600 dark:text-red-400"
                                       : "text-emerald-600 dark:text-emerald-400"
                                   }
                                 >
-                                  {pct >= 0 ? "+" : ""}
-                                  {pct.toFixed(2)}%
+                                  {hasPct ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—"}
                                 </span>
                               </span>
                             );

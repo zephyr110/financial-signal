@@ -113,6 +113,7 @@ export default function NewsList({ todayItems, pastDates }: Props) {
             </button>
             {/* grid-rows 0fr→1fr：任意内容高度都能完整展开（max-h 固定值会裁剪长列表） */}
             <div
+              inert={todayCollapsed || undefined}
               className={cn(
                 "grid transition-all duration-300 ease-in-out",
                 todayCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
@@ -176,6 +177,7 @@ export default function NewsList({ todayItems, pastDates }: Props) {
               </button>
 
               <div
+                inert={(!isCollapsed && state && !state.loading && groups.length > 0) ? undefined : true}
                 className={cn(
                   "grid transition-all duration-300 ease-in-out",
                   !isCollapsed && state && !state.loading && groups.length > 0

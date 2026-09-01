@@ -19,6 +19,12 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // 登录后跳转目标防开放重定向:仅允许站内相对路径(以 / 开头且非 //host)
+  const safeNext = (next: string): string => {
+    if (!next.startsWith("/") || next.startsWith("//")) return "/";
+    return next;
+  };
+
   // 已登录则直接进入
   useEffect(() => {
     fetch("/api/auth/me")
@@ -46,7 +52,7 @@ export default function LoginPage() {
         return;
       }
       const next = typeof router.query.next === "string" ? router.query.next : "/";
-      router.replace(next);
+      router.replace(safeNext(next));
     } catch {
       setError("网络错误，请稍后重试");
     } finally {

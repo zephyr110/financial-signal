@@ -449,6 +449,8 @@ export default function AgentPage() {
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // 中文输入法组合期间(拼音选词)的 Enter 不应发送
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         send();
@@ -630,6 +632,7 @@ export default function AgentPage() {
                             value={editingDraft}
                             onChange={(e) => setEditingDraft(e.target.value)}
                             onKeyDown={(e) => {
+                              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                               if (e.key === "Enter" && !e.shiftKey) {
                                 e.preventDefault();
                                 void sendEdit(m, editingDraft);

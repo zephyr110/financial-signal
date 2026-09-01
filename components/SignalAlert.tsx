@@ -3,6 +3,7 @@ import { Bell, BellOff, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "signal-alert-enabled";
+const LAST_NOTIFIED_KEY = "signal-alert-last-id";
 
 /**
  * 重要信号浏览器通知。
@@ -12,18 +13,21 @@ const STORAGE_KEY = "signal-alert-enabled";
  * 用户点击后才请求权限（手势满足后首次请求成功率最高）。
  *
  * items 由调用方传入（分析页为 watchedItems，天然按关注行业定向）。
+ * 已提醒的最大信号 id 持久化到 localStorage：刷新页面不会对同一批信号重复弹通知。
  */
 export default function SignalAlert({ items }: { items: any[] }) {
   const [enabled, setEnabled] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const lastNotifiedRef = useRef(0);
 
-  // 初始状态：读取本地开关 + 当前权限
+  // 初始状态：读取本地开关 + 当前权限 + 已提醒游标
   useEffect(() => {
     if (typeof Notification === "undefined") return;
     setPermission(Notification.permission);
     try {
       if (localStorage.getItem(STORAGE_KEY) === "1") setEnabled(true);
+      const saved = Number(localStorage.getItem(LAST_NOTIFIED_KEY) || 0);
+      if (Number.isFinite(saved) && saved > 0) lastNotifiedRef.current = saved;
     } catch {
       // localStorage 不可用则默认关闭
     }
@@ -42,6 +46,11 @@ export default function SignalAlert({ items }: { items: any[] }) {
     lastNotifiedRef.current = latestId;
 
     showNotification(critical);
+    try {
+      localStorage.setItem(LAST_NOTIFIED_KEY, String(latestId));
+    } catch {
+      // 持久化失败不影响本次提醒
+    }
   }, [items, enabled, permission]);
 
   const handleToggle = useCallback(() => {

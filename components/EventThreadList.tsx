@@ -82,6 +82,7 @@ function EventThreadCard({ thread }) {
       </button>
 
       <div
+        inert={open ? undefined : true}
         className={cn(
           "grid transition-all duration-300 ease-in-out",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
