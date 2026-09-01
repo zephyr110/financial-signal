@@ -7,15 +7,24 @@ import { validateDbFile, importDbFile } from '../../electron/import-db'
 
 let dir, goodPath, badPath
 
-beforeEach(async () => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'import-test-'))
-  goodPath = path.join(dir, 'good.db')
-  const db = createClient({ url: `file:${goodPath}` })
+/** 造一个结构齐全的合法源库。 */
+async function createGoodDb(p) {
+  const db = createClient({ url: `file:${p}` })
   await db.executeMultiple(`
-    CREATE TABLE news_archive (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT);
+    CREATE TABLE news_archive (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL, source_id TEXT NOT NULL,
+      title TEXT, content TEXT NOT NULL, published_at TEXT NOT NULL
+    );
     CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
   `)
   await db.close()
+}
+
+beforeEach(async () => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'import-test-'))
+  goodPath = path.join(dir, 'good.db')
+  await createGoodDb(goodPath)
   badPath = path.join(dir, 'bad.db')
   fs.writeFileSync(badPath, 'this is not a sqlite database at all')
 })
@@ -49,6 +58,50 @@ describe('validateDbFile', () => {
     const r = await validateDbFile(partialPath)
     expect(r.ok).toBe(false)
     expect(r.error).toContain('news_archive')
+  })
+
+  it('rejects a db with required tables but missing required columns (旧结构库)', async () => {
+    const oldPath = path.join(dir, 'old-structure.db')
+    const old = createClient({ url: `file:${oldPath}` })
+    // news_archive 缺 source/source_id/content/published_at —— 老库常见形态
+    await old.executeMultiple(`
+      CREATE TABLE news_archive (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT);
+      CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
+    `)
+    await old.close()
+    const r = await validateDbFile(oldPath)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('news_archive')
+    expect(r.error).toContain('source')
+  })
+
+  it('checkpoints WAL before copy: -wal 中的已提交数据不丢失', async () => {
+    const walSrc = path.join(dir, 'wal-src.db')
+    const db = createClient({ url: `file:${walSrc}` })
+    await db.executeMultiple(`
+      CREATE TABLE news_archive (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL, source_id TEXT NOT NULL,
+        title TEXT, content TEXT NOT NULL, published_at TEXT NOT NULL
+      );
+      CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);
+    `)
+    await db.execute('PRAGMA journal_mode=WAL')
+    // 写入后不关闭连接 → 数据留在 -wal 中,主文件不含该行
+    await db.execute({
+      sql: 'INSERT INTO news_archive (source, source_id, title, content, published_at) VALUES (?, ?, ?, ?, ?)',
+      args: ['sina', 's1', 't', 'c', '2026-08-23T00:00:00Z'],
+    })
+    await db.close()
+
+    const dest = path.join(dir, 'wal-copied.db')
+    const r = await importDbFile(walSrc, dest)
+    expect(r.ok).toBe(true)
+    // 复制出的库必须能查到 WAL 中那条已提交数据
+    const check = createClient({ url: `file:${dest}` })
+    const res = await check.execute({ sql: 'SELECT COUNT(*) as n FROM news_archive', args: [] })
+    await check.close()
+    expect(Number(res.rows[0].n)).toBe(1)
   })
 })
 

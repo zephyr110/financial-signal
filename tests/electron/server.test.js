@@ -165,6 +165,20 @@ describe('createServerManager', () => {
     expect(onGiveUp).not.toHaveBeenCalled()
   })
 
+  it('deduplicates restart scheduling when error+exit both fire (restartTimer 守卫)', async () => {
+    const { manager, spawn, children } = setup({ waitForHealthy: () => new Promise(() => {}) })
+    const p = manager.start()
+    await vi.advanceTimersByTimeAsync(0)
+    // 同一实例先 'error' 后 'exit'(spawn 失败的典型事件序)
+    children[0].emit('error', new Error('spawn ENOENT'))
+    children[0].emit('exit', 1, null)
+    await expect(p).rejects.toThrow()
+    await vi.advanceTimersByTimeAsync(2000)
+    // 只重启一次(去重),restarts 只累计 1
+    expect(spawn).toHaveBeenCalledTimes(2)
+    expect(spawn.mock.calls[0]).toBeTruthy()
+  })
+
   it('can start again after stop (idempotent lifecycle)', async () => {
     const { manager, spawn } = setup()
     expect(manager.getUrl()).toBeNull()

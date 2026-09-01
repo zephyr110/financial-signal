@@ -41,9 +41,12 @@ function createServerManager({
   let currentUrl = null;
   let lastSpawnError = null;
 
-  /** 崩溃/spawn 失败后的统一退避重启;次数耗尽时通知 onGiveUp。 */
+  /** 崩溃/spawn 失败后的统一退避重启;次数耗尽时通知 onGiveUp。
+   * 去重:已有待触发的重启定时器时不再重复调度(同一实例的 'error'+'exit'
+   * 或双事件竞争可能连调两次,提前耗尽 MAX_RESTARTS)。 */
   function scheduleRestart(code, signal) {
     if (stopping) return;
+    if (restartTimer) return; // 已有待触发的重启,忽略重复调度
     if (restarts < MAX_RESTARTS) {
       restarts += 1;
       const delay = Math.min(BASE_RETRY_MS * 2 ** restarts, MAX_RETRY_MS);
