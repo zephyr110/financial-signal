@@ -19,3 +19,6 @@ bk.md
 
 # 构建期 seed 库(不入库)
 seed/
+
+# pnpm 本地 store 兜底(全局 store 不可写时的回退产物,不入库)
+.pnpm-store/
