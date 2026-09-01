@@ -3,7 +3,8 @@
  *
  * WatchlistService 接口抽象：v2 账号体系只需换实现（R3 缓解），
  * 数据模型（type, id, addedAt）与未来后端表一一对应。
- * 事件名约定：watchlist_add（含 toggle 移除，payload.action = add|remove）。
+ * 事件名约定：添加报 watchlist_add、移除报 watchlist_remove（各自独立计数，
+ * 避免移除动作污染 value.ts 的"添加率"指标）。
  */
 import { track } from './track';
 
@@ -79,14 +80,15 @@ export function isWatched(type: WatchlistType, id: string): boolean {
   return readAll().some((i) => i.type === type && i.id === id);
 }
 
-/** 切换跟踪状态；返回新状态。自动上报 watchlist_add 埋点。 */
+/** 切换跟踪状态；返回新状态。添加上报 watchlist_add,移除上报 watchlist_remove
+ *  —— 之前移除也报 watchlist_add,导致 value.ts 的"添加率"被系统性高估。 */
 export function toggleWatchlist(type: WatchlistType, id: string): boolean {
   const items = readAll();
   const idx = items.findIndex((i) => i.type === type && i.id === id);
   const now = idx >= 0;
   const next = now ? items.filter((_, i) => i !== idx) : [...items, { type, id, addedAt: new Date().toISOString() }];
   writeAll(next.slice(0, MAX_ITEMS));
-  track('watchlist_add', { type, id, action: now ? 'remove' : 'add' });
+  track(now ? 'watchlist_remove' : 'watchlist_add', { type, id, action: now ? 'remove' : 'add' });
   notify();
   return !now;
 }
@@ -94,7 +96,7 @@ export function toggleWatchlist(type: WatchlistType, id: string): boolean {
 export function removeWatchlist(type: WatchlistType, id: string): void {
   const next = readAll().filter((i) => !(i.type === type && i.id === id));
   writeAll(next);
-  track('watchlist_add', { type, id, action: 'remove' });
+  track('watchlist_remove', { type, id, action: 'remove' });
   notify();
 }
 

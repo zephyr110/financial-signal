@@ -7,7 +7,7 @@
  * - session id 存 localStorage（30 天滚动续期），用于去重/独立访问统计
  *
  * 事件命名约定（白名单见 /api/events）：signal_click / thread_expand /
- * industry_drill / watchlist_add / search_query
+ * industry_drill / watchlist_add / watchlist_remove / search_query
  */
 
 const SESSION_KEY = 'fn_session_id';

@@ -117,7 +117,7 @@ export async function analyzeUnanalyzedNews(batchSize = 5, maxBatches = 2) {
   const unanalyzed = await getUnanalyzedNews(batchSize * maxBatches);
   if (unanalyzed.length === 0) {
     console.log('[analyze] No unanalyzed news.');
-    return { analyzed: 0, errors: 0, hasMore: false, cursor: 0 };
+    return { analyzed: 0, errors: 0, hasMore: false };
   }
 
   console.log(`[analyze] Provider: ${describeProvider()}`);
@@ -182,12 +182,11 @@ export async function analyzeUnanalyzedNews(batchSize = 5, maxBatches = 2) {
 
   console.log(`[analyze] Done: ${analyzed} analyzed, ${errors} errors`);
 
-  // 记录本批最大 id 供观测（DESC 取数下无严格游标语义，仅留痕）
-  const lastId = unanalyzed[unanalyzed.length - 1].id;
-  await setPipelineCursor('analyze', Number(lastId) || 0);
-  // 拉满窗口说明可能还有更多（hasMore → 调度层可立即再触发）
+  // analyze 段无游标语义:取数靠 published_at 窗口 + LEFT JOIN 幂等(新新闻优先),
+  // pipeline_cursor 的 analyze 键只写不读,属死代码,已移除(setPipelineCursor 仅 deep-analyze 使用)。
+  // 拉满窗口说明可能还有更多(hasMore → 调度层可立即再触发)
   const hasMore = unanalyzed.length === batchSize * maxBatches;
-  return { analyzed, errors, hasMore, cursor: Number(lastId) || 0 };
+  return { analyzed, errors, hasMore };
 }
 
 // ============================================================

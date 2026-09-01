@@ -9,6 +9,14 @@ import { LLM_CONFIG, getChatCompletionsUrl, getEffectiveLlmConfig, PRICING } fro
 
 export const usageLog = [];
 
+/** usageLog 保留上限:桌面端长驻进程会无限累计,数组必须封顶防内存增长。 */
+const USAGE_LOG_MAX = 1000;
+
+function pushUsage(entry) {
+  usageLog.push(entry);
+  if (usageLog.length > USAGE_LOG_MAX) usageLog.splice(0, usageLog.length - USAGE_LOG_MAX);
+}
+
 /**
  * OpenAI-compatible chat completion.
  *
@@ -64,7 +72,7 @@ export async function chatCompletion({ systemPrompt = undefined, userMessage = u
         model: cfg.model,
         usage: json.usage,
       };
-      usageLog.push(entry);
+      pushUsage(entry);
       const content = json.choices?.[0]?.message?.content || '';
       return { content, usage: json.usage, model: cfg.model };
     }
@@ -104,7 +112,7 @@ export async function chatCompletion({ systemPrompt = undefined, userMessage = u
       }
     }
 
-    usageLog.push({
+    pushUsage({
       timestamp: new Date().toISOString(),
       model: cfg.model,
       usage,
