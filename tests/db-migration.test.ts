@@ -53,7 +53,7 @@ describe('schema migration (PRAGMA user_version)', () => {
     const db = await getDb()
 
     const r = await db.execute({ sql: 'PRAGMA user_version', args: [] })
-    expect(Number(r.rows[0].user_version)).toBe(3)
+    expect(Number(r.rows[0].user_version)).toBe(4)
 
     const tables = await db.execute({
       sql: "SELECT name FROM sqlite_master WHERE type='table'",
@@ -69,6 +69,9 @@ describe('schema migration (PRAGMA user_version)', () => {
     expect(newsCols.rows.some((c) => c.name === 'docurl')).toBe(true)
     const threadCols = await db.execute({ sql: 'PRAGMA table_info(event_threads)', args: [] })
     expect(threadCols.rows.some((c) => c.name === 'dedup_key')).toBe(true)
+    // v4:app_session.user_id 列(新库由 v1 建表 + v4 ALTER 得到)
+    const sessionCols = await db.execute({ sql: 'PRAGMA table_info(app_session)', args: [] })
+    expect(sessionCols.rows.some((c) => c.name === 'user_id')).toBe(true)
   })
 
   it('老库升级:补 docurl/dedup_key 列、历史重复标题去重、回填幂等键、版本号推进', async () => {
@@ -78,13 +81,16 @@ describe('schema migration (PRAGMA user_version)', () => {
     const db = await getDb()
 
     const r = await db.execute({ sql: 'PRAGMA user_version', args: [] })
-    expect(Number(r.rows[0].user_version)).toBe(3)
+    expect(Number(r.rows[0].user_version)).toBe(4)
 
     const newsCols = await db.execute({ sql: 'PRAGMA table_info(news_archive)', args: [] })
     expect(newsCols.rows.some((c) => c.name === 'docurl')).toBe(true)
 
     const threadCols = await db.execute({ sql: 'PRAGMA table_info(event_threads)', args: [] })
     expect(threadCols.rows.some((c) => c.name === 'dedup_key')).toBe(true)
+    // v4:老库(无 app_session 表)迁移后同样带 user_id 列
+    const sessionCols = await db.execute({ sql: 'PRAGMA table_info(app_session)', args: [] })
+    expect(sessionCols.rows.some((c) => c.name === 'user_id')).toBe(true)
 
     // 同标题(规范化后)只保留一行
     const threads = await db.execute({ sql: 'SELECT title, dedup_key FROM event_threads ORDER BY id', args: [] })
@@ -114,7 +120,7 @@ describe('schema migration (PRAGMA user_version)', () => {
     const mod2 = await import('../lib/db')
     const db2 = await mod2.getDb()
     const r = await db2.execute({ sql: 'PRAGMA user_version', args: [] })
-    expect(Number(r.rows[0].user_version)).toBe(3)
+    expect(Number(r.rows[0].user_version)).toBe(4)
 
     const rows = await db2.execute({ sql: 'SELECT COUNT(*) as n FROM event_threads', args: [] })
     expect(Number(rows.rows[0].n)).toBe(1)

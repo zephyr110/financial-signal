@@ -47,6 +47,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 1, name: '基线表结构(建表+索引)', up: baselineSchema },
   { version: 2, name: 'news_archive.docurl 列', up: migrationAddDocurl },
   { version: 3, name: 'event_threads.dedup_key + 历史去重', up: migrationThreadDedup },
+  { version: 4, name: 'app_session.user_id(会话按用户关联+token 存哈希)', up: migrationSessionUserId },
 ];
 
 async function migrate(db) {
@@ -267,6 +268,17 @@ async function migrationThreadDedup(db) {
   try {
     await db.execute({ sql: 'CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_dedup ON event_threads(dedup_key)', args: [] });
   } catch { /* dedup_key 列尚未存在 */ }
+}
+
+/** v4：app_session 加 user_id（会话按用户关联,后续可单独吊销某账号会话）。
+ * 已发布的迁移不可改(v1 建表保持原样),新库同样走 v1+v4 得到一致结构。
+ * 旧行 user_id 为 NULL → JOIN 匹配不到 → 旧明文 token 会话自然失效(单账号,重登一次即可)。
+ * SQLite 的 ADD COLUMN 不带 REFERENCES 子句(默认 NULL,合法)。 */
+async function migrationSessionUserId(db) {
+  const cols = await db.execute({ sql: 'PRAGMA table_info(app_session)', args: [] });
+  if (!cols.rows.some((c) => c.name === 'user_id')) {
+    await db.execute({ sql: 'ALTER TABLE app_session ADD COLUMN user_id INTEGER', args: [] });
+  }
 }
 
 function rowId(value) {

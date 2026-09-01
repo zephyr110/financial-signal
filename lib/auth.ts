@@ -13,6 +13,12 @@ import { getDb } from './db';
 export const SESSION_COOKIE = 'fs_session';
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** 会话 token 存库前哈希（SHA-256）：DB 泄露时无法直接冒用会话；旧版明文
+ * token 行在 v4 迁移后因 user_id 为 NULL 而自然失效（JOIN 匹配不到）。 */
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
 /** 随机 16 字符初始密码（128 位熵，URL-safe base64url 编码）。 */
 function randomPassword(): string {
   return crypto.randomBytes(12).toString('base64url');
@@ -31,8 +37,10 @@ export async function ensureDefaultAccount(): Promise<void> {
     const explicit = process.env.ADMIN_INITIAL_PASSWORD;
     const initialPassword = explicit || randomPassword();
     const { hash, salt } = hashPassword(initialPassword);
+    // B6:并发首启两个请求同时 COUNT=0 时,第二个 INSERT 撞 UNIQUE(username)
+    // 会被 OR IGNORE 静默吞掉(而非 500)——种子账号只建一次
     await db.execute({
-      sql: 'INSERT INTO app_account (username, password_hash, salt) VALUES (?, ?, ?)',
+      sql: 'INSERT OR IGNORE INTO app_account (username, password_hash, salt) VALUES (?, ?, ?)',
       args: [username, hash, salt],
     });
     if (!explicit) {
@@ -63,7 +71,7 @@ export async function login(username: string, password: string): Promise<string 
   await ensureDefaultAccount();
   const db = await getDb();
   const row = await db.execute({
-    sql: 'SELECT username, password_hash, salt FROM app_account WHERE username = ?',
+    sql: 'SELECT id, username, password_hash, salt FROM app_account WHERE username = ?',
     args: [username.trim()],
   });
   if (row.rows.length === 0 || !verifyPassword(password, String(row.rows[0].password_hash), String(row.rows[0].salt))) {
@@ -73,12 +81,13 @@ export async function login(username: string, password: string): Promise<string 
   }
   const acc = row.rows[0] as Record<string, unknown>;
 
-  const token =
-    (globalThis.crypto?.randomUUID?.() || `${Date.now()}${Math.random().toString(36).slice(2)}`).replace(/-/g, '');
+  // B5:128 位随机熵(无 randomUUID fallback——Node 18+ 全局必有,fallback 反而引入
+  // Date.now+Math.random 弱熵路径);存库前 SHA-256(B2),明文只出现在响应 cookie 里
+  const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + SESSION_TTL_MS).toISOString();
   await db.execute({
-    sql: 'INSERT INTO app_session (token, expires_at) VALUES (?, ?)',
-    args: [token, expires],
+    sql: 'INSERT INTO app_session (token, user_id, expires_at) VALUES (?, ?, ?)',
+    args: [hashToken(token), acc.id, expires],
   });
   return token;
 }
@@ -90,8 +99,8 @@ export async function getSessionUser(token: string | undefined | null): Promise<
   if (!token) return null;
   const db = await getDb();
   const row = await db.execute({
-    sql: 'SELECT a.username, s.expires_at FROM app_session s, app_account a WHERE s.token = ? LIMIT 1',
-    args: [token],
+    sql: 'SELECT a.username, s.expires_at FROM app_session s JOIN app_account a ON a.id = s.user_id WHERE s.token = ? LIMIT 1',
+    args: [hashToken(token)],
   });
   if (row.rows.length === 0) return null;
   const acc = row.rows[0] as Record<string, unknown>;
@@ -102,7 +111,7 @@ export async function getSessionUser(token: string | undefined | null): Promise<
   if (remaining < SESSION_TTL_MS / 3) {
     await db.execute({
       sql: 'UPDATE app_session SET expires_at = ? WHERE token = ?',
-      args: [new Date(Date.now() + SESSION_TTL_MS).toISOString(), token],
+      args: [new Date(Date.now() + SESSION_TTL_MS).toISOString(), hashToken(token)],
     });
   }
   // 过期行清理:低概率触发即可(高频端点不该每次写库),失败不影响鉴权
@@ -120,7 +129,7 @@ export async function getSessionUser(token: string | undefined | null): Promise<
 export async function logout(token: string | undefined | null): Promise<void> {
   if (!token) return;
   const db = await getDb();
-  await db.execute({ sql: 'DELETE FROM app_session WHERE token = ?', args: [token] });
+  await db.execute({ sql: 'DELETE FROM app_session WHERE token = ?', args: [hashToken(token)] });
 }
 
 export interface ChangeAccountResult {
@@ -165,6 +174,9 @@ export async function changeAccount(opts: {
   } else {
     await db.execute({ sql: 'UPDATE app_account SET username = ? WHERE id = ?', args: [nextUsername, acc.id] });
   }
+  // B1:凭据变更后吊销全部会话——已泄露的会话 cookie 不得在改密/改名后继续有效
+  // (单账号模式:清空即当前用户重登,成本可忽略)
+  await db.execute({ sql: 'DELETE FROM app_session', args: [] });
   return { ok: true };
 }
 
