@@ -1,39 +1,19 @@
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 
+/**
+ * 趋势图时间跨度选择（「最近 N 天」诚实口径）。
+ * 说明:曾经提供「自定义日期区间」,但底层只消费区间长度(距当前最近 N 小时),
+ * 所选起止点并不会出现在图上——误导性强,已移除;需绝对区间展示时请先改接口。
+ */
 const PRESETS = [
-  { label: "24h", hours: 24 },
-  { label: "周", hours: 168 },
-  { label: "月", hours: 720 },
-  { label: "年", hours: 8760 },
-  { label: "自定义", hours: -1 },
+  { label: "1天", hours: 24 },
+  { label: "7天", hours: 168 },
+  { label: "30天", hours: 720 },
+  { label: "365天", hours: 8760 },
 ];
 
 export default function TimeRangeFilter({ value, onChange }) {
-  const [customOpen, setCustomOpen] = useState(false);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-
   const activePreset = PRESETS.find((p) => p.hours === value);
-
-  const handlePreset = (hours) => {
-    if (hours === -1) {
-      setCustomOpen(!customOpen);
-      return;
-    }
-    setCustomOpen(false);
-    onChange(hours);
-  };
-
-  const handleCustomApply = () => {
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const diffHours = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60)));
-      onChange(diffHours);
-      setCustomOpen(false);
-    }
-  };
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -45,9 +25,9 @@ export default function TimeRangeFilter({ value, onChange }) {
           const active = activePreset?.hours === hours;
           return (
             <button
-              key={label}
+              key={hours}
               type="button"
-              onClick={() => handlePreset(hours)}
+              onClick={() => onChange(hours)}
               className={cn(
                 "px-2.5 h-8 rounded-full text-xs font-medium transition-all border",
                 active
@@ -60,31 +40,6 @@ export default function TimeRangeFilter({ value, onChange }) {
           );
         })}
       </div>
-
-      {customOpen && (
-        <div className="flex items-center gap-1.5 w-full sm:w-auto mt-1 sm:mt-0">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="text-xs bg-card border rounded-md px-2 py-1 text-foreground"
-          />
-          <span className="text-xs text-muted-foreground">—</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="text-xs bg-card border rounded-md px-2 py-1 text-foreground"
-          />
-          <button
-            type="button"
-            onClick={handleCustomApply}
-            className="px-2 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground"
-          >
-            确定
-          </button>
-        </div>
-      )}
     </div>
   );
 }
