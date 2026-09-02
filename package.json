@@ -1,7 +1,7 @@
 {
   "name": "financial-signal",
-  "version": "2.0.1",
-  "description": "新浪全球实时财经新闻 RSS — Next.js + ISR 自动更新",
+  "version": "0.0.1",
+  "description": "新浪全球实时财经新闻",
   "private": true,
   "main": "electron/main.js",
   "packageManager": "pnpm@11.14.0",
