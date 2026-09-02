@@ -70,7 +70,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
               className={SIDEBAR_FOOTER_ICON_BTN}
               render={<Link href="/" className="no-underline" />}
             >
-              <BrandLogo className="size-7 group-data-[collapsible=icon]:size-4" />
+              <BrandLogo className="size-7 group-data-[collapsible=icon]:size-6" />
               <span className="truncate text-base font-semibold tracking-tight text-sidebar-foreground group-data-[collapsible=icon]:hidden">
                 财经信号
               </span>

@@ -10,18 +10,19 @@ import { cn } from "@/lib/utils";
 
 /**
  * 设置弹窗（avatar 菜单 → 设置）：
+ * - 账号：修改登录名 / 密码（需当前密码）
  * - 模型：LLM_MODEL / LLM_BASE_URL / LLM_API_KEY（30s 缓存热生效，无需重启）
  * - 数据源：TURSO_DATABASE_URL / TURSO_AUTH_TOKEN（需重启应用生效）
  * - 定时任务：CRON_SECRET（30s 缓存热生效）
- * - 账号：修改登录名 / 密码（需当前密码）
  * 布局参考 zlog settings-dialog：左侧导航栏 + 右侧内容区（移动端导航变顶部横排）。
+ * 导航顺序：账号 → 模型 → 数据源 → 定时任务。
  * 文本类字段留空保存 = 清除该项（恢复环境变量默认）；密钥类留空 = 保持不变。
  */
 const PANELS = [
+  { id: "account", label: "账号", icon: UserRound, title: "账号设置", desc: "修改登录名与密码（需验证当前密码）" },
   { id: "model", label: "模型", icon: Cpu, title: "模型配置", desc: "LLM 模型 / 接口地址 / API Key（保存后约 30 秒热生效，无需重启）" },
   { id: "turso", label: "数据源", icon: Database, title: "数据源配置", desc: "远端 Turso 数据库（改动需重启应用后生效）" },
   { id: "cron", label: "定时任务", icon: Clock, title: "定时任务", desc: "Vercel Cron / QStash 鉴权密钥（保存后约 30 秒热生效）" },
-  { id: "account", label: "账号", icon: UserRound, title: "账号设置", desc: "修改登录名与密码（需验证当前密码）" },
 ];
 
 export default function SettingsDialog({ open, onOpenChange, username, onAccountChanged }) {
@@ -31,7 +32,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState(null);
-  const [panel, setPanel] = useState("model");
+  const [panel, setPanel] = useState(PANELS[0].id);
 
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -60,6 +61,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     if (prevOpen.current === open) return;
     prevOpen.current = open;
     if (!open) return;
+    setPanel(PANELS[0].id);
     setLoaded(false);
     setError(null);
     setOkMsg(null);
