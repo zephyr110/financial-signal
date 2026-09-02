@@ -1,6 +1,7 @@
 'use strict';
 const net = require('net');
 const http = require('http');
+const path = require('path');
 
 /** 找一个可监听的随机端口(127.0.0.1)。 */
 function findFreePort() {
@@ -60,7 +61,12 @@ function buildServerEnv({ port, dbPath, extra = {} }) {
     HOSTNAME: '127.0.0.1',
     DESKTOP_MODE: '1',
     NODE_ENV: 'production',
-    ...(dbPath ? { NEWS_DB_PATH: dbPath } : {}),
+    ...(dbPath
+      ? {
+          NEWS_DB_PATH: dbPath,
+          AUTH_DB_PATH: path.join(path.dirname(dbPath), 'auth.db'),
+        }
+      : {}),
     ...extra,
   };
 }

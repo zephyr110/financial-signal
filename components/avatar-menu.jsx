@@ -14,6 +14,10 @@ import {
 } from "./ui/dropdown-menu";
 import { SidebarMenuButton, SidebarMenuItem, useSidebar } from "./ui/sidebar";
 import { cn } from "@/lib/utils";
+import {
+  SIDEBAR_FOOTER_ICON_BTN,
+  SIDEBAR_FOOTER_ICON_ITEM,
+} from "@/lib/sidebar-footer-classes";
 
 function GithubIcon() {
   return (
@@ -33,14 +37,13 @@ const THEME_MODES = [
  * 侧栏底部头像菜单（参考 zlog admin-sidebar）：
  * 用户信息卡 + 主题切换（segmented 按钮组）+ GitHub / 退出登录。
  * 折叠为 icon rail 时仅显示头像。
- * username/desktop 由 AppSidebar 统一拉取后传入(设置弹窗与头像共用一份用户信息)。
+ * username 由 AppSidebar 统一拉取后传入(设置弹窗与头像共用一份用户信息)。
  */
-export default function AvatarMenu({ username = "", desktop = false }) {
+export default function AvatarMenu({ username = "" }) {
   const router = useRouter();
   const { isMobile } = useSidebar();
   const { theme, setTheme } = useTheme();
-  // 桌面模式显示"桌面模式"而非字面 "desktop",避免像是一个用户名
-  const displayName = desktop ? "桌面模式" : username;
+  const displayName = username;
   const avatarInitial = displayName ? displayName.charAt(0).toUpperCase() : "";
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -56,15 +59,18 @@ export default function AvatarMenu({ username = "", desktop = false }) {
 
   return (
     <>
-      <SidebarMenuItem>
+      <SidebarMenuItem className={SIDEBAR_FOOTER_ICON_ITEM}>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <SidebarMenuButton
                 tooltip={displayName || "账户"}
-                className="h-10 gap-2.5 py-2.5 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! data-open:bg-sidebar-accent"
+                className={cn(SIDEBAR_FOOTER_ICON_BTN, "data-open:bg-sidebar-accent")}
               >
-                <Avatar size="sm" className="size-8 shrink-0 group-data-[collapsible=icon]:size-4">
+                <Avatar
+                  size="sm"
+                  className="size-8 shrink-0 group-data-[collapsible=icon]:size-4 group-data-[collapsible=icon]:after:border-0"
+                >
                   <AvatarFallback className="bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">
                     {avatarInitial}
                   </AvatarFallback>
@@ -134,17 +140,15 @@ export default function AvatarMenu({ username = "", desktop = false }) {
                 <GithubIcon />
                 GitHub
               </DropdownMenuItem>
-              {!desktop && (
-                <DropdownMenuItem
-                  variant="destructive"
-                  className="cursor-pointer gap-2.5 rounded-md px-2.5 py-2 hover:bg-destructive/10 dark:hover:bg-destructive/20 data-highlighted:bg-destructive/10 dark:data-highlighted:bg-destructive/20"
-                  onClick={logout}
-                  disabled={loggingOut}
-                >
-                  <LogOut size={16} className="shrink-0 opacity-60" />
-                  退出登录
-                </DropdownMenuItem>
-              )}
+              <DropdownMenuItem
+                variant="destructive"
+                className="cursor-pointer gap-2.5 rounded-md px-2.5 py-2 hover:bg-destructive/10 dark:hover:bg-destructive/20 data-highlighted:bg-destructive/10 dark:data-highlighted:bg-destructive/20"
+                onClick={logout}
+                disabled={loggingOut}
+              >
+                <LogOut size={16} className="shrink-0 opacity-60" />
+                退出登录
+              </DropdownMenuItem>
             </div>
           </DropdownMenuContent>
         </DropdownMenu>

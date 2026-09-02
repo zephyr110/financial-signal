@@ -49,16 +49,24 @@ describe('GET /api/auth/me', () => {
     await handler(mockReq('GET', { fs_session: 'good-token' }), res)
     expect(res._status).toBe(200)
     expect(res._body).toEqual({ authenticated: true, username: 'admin' })
-    expect(res._body.desktop).toBeUndefined()
   })
 
-  it('桌面模式 → 200 { authenticated:true, username:desktop, desktop:true }(不透出 session 判定)', async () => {
+  it('桌面模式无会话 → 401(与 web 一致,走真实会话校验)', async () => {
     process.env.DESKTOP_MODE = '1'
+    vi.mocked(getSessionUser).mockResolvedValue(null)
     const res = mockRes()
     await handler(mockReq('GET'), res)
+    expect(res._status).toBe(401)
+    expect(res._body).toEqual({ authenticated: false })
+  })
+
+  it('桌面模式有效会话 → 200 { authenticated:true, username }', async () => {
+    process.env.DESKTOP_MODE = '1'
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    const res = mockRes()
+    await handler(mockReq('GET', { fs_session: 'good-token' }), res)
     expect(res._status).toBe(200)
-    expect(res._body).toEqual({ authenticated: true, username: 'desktop', desktop: true })
-    expect(getSessionUser).not.toHaveBeenCalled()
+    expect(res._body).toEqual({ authenticated: true, username: 'admin' })
   })
 
   it('非 GET → 405', async () => {

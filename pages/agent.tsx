@@ -229,7 +229,7 @@ export default function AgentPage() {
             persistSession(data.sessionId);
           }
           if (res.status === 503) {
-            setError("研究助手未配置：请设置 LLM_API_KEY 环境变量（或 DEEPSEEK_API_KEY）。");
+            setError("研究助手未配置：请在 设置 → 模型 中填写 API Key，或设置 LLM_API_KEY 环境变量。");
           } else {
             setError(data.error || `请求失败（HTTP ${res.status}）`);
           }

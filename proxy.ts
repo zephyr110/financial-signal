@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionUser, SESSION_COOKIE } from './lib/auth';
 
@@ -21,9 +22,20 @@ const PUBLIC_API = ['/api/auth/', '/api/health', '/api/rss', '/api/events', '/ap
 const PUBLIC_PREFIX = ['/agent/s/'];
 
 export default async function proxy(req: NextRequest) {
-  // 桌面端:本地单用户应用,跳过登录门卫
-  if (process.env.DESKTOP_MODE === '1') return NextResponse.next();
   const { pathname, search } = req.nextUrl;
+
+  // 桌面首启:主库文件尚未创建时放行首页(欢迎引导);login 走独立 auth.db,不抢先建主库
+  if (process.env.DESKTOP_MODE === '1') {
+    const localDbPath = process.env.NEWS_DB_PATH;
+    if (
+      localDbPath
+      && !localDbPath.startsWith(':')
+      && !fs.existsSync(localDbPath)
+      && pathname === '/'
+    ) {
+      return NextResponse.next();
+    }
+  }
 
   if (STATIC_EXT_RE.test(pathname)) return NextResponse.next();
   if (PUBLIC_PREFIX.some((p) => pathname.startsWith(p))) return NextResponse.next();

@@ -10,7 +10,7 @@ import { isLocalOrigin } from '../../lib/cronAuth';
  *   tool_start / tool_end（工具调用过程）→ delta（最终回答逐字）→ done（含完整结果）
  *   （工具调用步骤的 delta 是短 JSON，前端以 tool_start 事件截断渲染）
  *
- * 桌面模式下 proxy.ts 放行全部请求 → 本端点自行做 Origin 校验：恶意网页可
+ * 桌面模式下本端点自行做 Origin 校验(与会话鉴权叠加)：恶意网页可
  * 用简单表单 POST 触发 LLM 调用（每请求最多 8 次）消耗用户额度，非本机
  * Origin（或无 Origin 的浏览器子资源请求）一律拒绝。
  */

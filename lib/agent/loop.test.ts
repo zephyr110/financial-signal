@@ -24,8 +24,12 @@ const llm = vi.hoisted(() => ({
   chatCompletion: vi.fn(),
 }));
 
-const config = vi.hoisted(() => ({
-  apiKey: 'test-key',
+const llmConfig = vi.hoisted(() => ({
+  getEffectiveLlmConfig: vi.fn().mockResolvedValue({
+    apiKey: 'test-key',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-v4-flash',
+  }),
 }));
 
 // 保留真实 db 查询函数（tools 依赖），仅覆盖写入/副作用函数
@@ -34,7 +38,7 @@ vi.mock('../db', async (importOriginal) => {
   return { ...actual, ...db };
 });
 vi.mock('../llm/client', () => llm);
-vi.mock('../llm/config', () => ({ LLM_CONFIG: config }));
+vi.mock('../llm/config', () => llmConfig);
 vi.mock('./session', () => ({
   loadAgentContext: vi.fn().mockResolvedValue([]),
 }));
@@ -208,8 +212,11 @@ describe('runAgentTurn', () => {
   });
 
   it('未配置 API key 时抛错', async () => {
-    config.apiKey = '';
+    llmConfig.getEffectiveLlmConfig.mockResolvedValueOnce({
+      apiKey: '',
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-v4-flash',
+    });
     await expect(runAgentTurn({ userMessage: 'hi' })).rejects.toThrow('LLM_API_KEY');
-    config.apiKey = 'test-key';
   });
 });

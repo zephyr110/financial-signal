@@ -54,18 +54,34 @@ describe('/api/settings', () => {
     expect(res._body.llm).toBeDefined()
   })
 
-  it('桌面模式 GET 无 cookie → 200(会话检查跳过,修复 LLM 配置面板 401)', async () => {
+  it('桌面模式 GET 无 cookie → 401(与会话鉴权一致)', async () => {
     vi.stubEnv('DESKTOP_MODE', '1')
+    vi.mocked(getSessionUser).mockResolvedValue(null)
+    const res = mockRes()
+    await handler(mockReq('GET'), res)
+    expect(res._status).toBe(401)
+  })
+
+  it('桌面模式 GET 有效会话 → 200', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1')
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
     const res = mockRes()
     await handler(mockReq('GET'), res)
     expect(res._status).toBe(200)
-    expect(getSessionUser).not.toHaveBeenCalled()
     expect(res._body.llm).toBeDefined()
-    expect(res._body.cronSecretSet).toBe(false)
+  })
+
+  it('桌面模式 POST 无会话 → 401', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1')
+    vi.mocked(getSessionUser).mockResolvedValue(null)
+    const res = mockRes()
+    await handler(mockReq('POST', { headers: { origin: 'http://127.0.0.1:3010', host: '127.0.0.1:3010' }, body: { llmModel: 'gpt-x' } }), res)
+    expect(res._status).toBe(401)
   })
 
   it('桌面模式 POST 恶意 Origin → 403(防 form-POST 窃取 API key)', async () => {
     vi.stubEnv('DESKTOP_MODE', '1')
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
     const res = mockRes()
     await handler(mockReq('POST', { headers: { origin: 'https://evil.example' }, body: { llmModel: 'gpt-x' } }), res)
     expect(res._status).toBe(403)
@@ -74,6 +90,7 @@ describe('/api/settings', () => {
 
   it('桌面模式 POST 本机 Origin(端口匹配 Host)→ 200 并落库', async () => {
     vi.stubEnv('DESKTOP_MODE', '1')
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
     const res = mockRes()
     await handler(mockReq('POST', { headers: { origin: 'http://127.0.0.1:3010', host: '127.0.0.1:3010' }, body: { llmModel: 'deepseek-chat' } }), res)
     expect(res._status).toBe(200)
@@ -82,6 +99,7 @@ describe('/api/settings', () => {
 
   it('桌面模式 POST 本机 Origin 但端口不匹配 Host → 403(同机其他本地服务)', async () => {
     vi.stubEnv('DESKTOP_MODE', '1')
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
     const res = mockRes()
     await handler(mockReq('POST', { headers: { origin: 'http://127.0.0.1:9999', host: '127.0.0.1:3010' }, body: { llmModel: 'gpt-x' } }), res)
     expect(res._status).toBe(403)

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { getDb } from './db';
+import { getAuthDb } from './authDb';
 
 /**
  * 登录认证（单账号模式）：
@@ -31,7 +31,7 @@ function randomPassword(): string {
  * （本地开发可见；生产请通过 env 配置或创建后立即在「设置 → 账户」修改）。
  */
 export async function ensureDefaultAccount(): Promise<void> {
-  const db = await getDb();
+  const db = await getAuthDb();
   const row = await db.execute({ sql: 'SELECT COUNT(*) as n FROM app_account', args: [] });
   if (Number(row.rows[0].n) === 0) {
     const username = process.env.ADMIN_INITIAL_USERNAME || 'admin';
@@ -70,7 +70,7 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
 /** 校验账号密码；成功签发会话 token 并返回（失败返回 null）。 */
 export async function login(username: string, password: string): Promise<string | null> {
   await ensureDefaultAccount();
-  const db = await getDb();
+  const db = await getAuthDb();
   const row = await db.execute({
     sql: 'SELECT id, username, password_hash, salt FROM app_account WHERE username = ?',
     args: [username.trim()],
@@ -90,7 +90,7 @@ export async function login(username: string, password: string): Promise<string 
   const expires = new Date(Date.now() + SESSION_TTL_MS).toISOString();
   await db.execute({
     sql: 'INSERT INTO app_session (token, user_id, expires_at) VALUES (?, ?, ?)',
-    args: [hashToken(token), acc.id, expires],
+    args: [hashToken(token), Number(acc.id), expires],
   });
   return token;
 }
@@ -100,7 +100,7 @@ export async function login(username: string, password: string): Promise<string 
  * 都 UPDATE 写库——每请求一次写放大）；顺带概率性清理过期会话（防表无限膨胀）。 */
 export async function getSessionUser(token: string | undefined | null): Promise<string | null> {
   if (!token) return null;
-  const db = await getDb();
+  const db = await getAuthDb();
   const h = hashToken(token);
   const row = await db.execute({
     sql: 'SELECT a.username, s.expires_at FROM app_session s JOIN app_account a ON a.id = s.user_id WHERE s.token = ? LIMIT 1',
@@ -136,7 +136,7 @@ export async function getSessionUser(token: string | undefined | null): Promise<
 
 export async function logout(token: string | undefined | null): Promise<void> {
   if (!token) return;
-  const db = await getDb();
+  const db = await getAuthDb();
   await db.execute({ sql: 'DELETE FROM app_session WHERE token = ?', args: [hashToken(token)] });
 }
 
@@ -155,7 +155,7 @@ export async function changeAccount(opts: {
   password?: string;
 }): Promise<ChangeAccountResult> {
   await ensureDefaultAccount();
-  const db = await getDb();
+  const db = await getAuthDb();
   const row = await db.execute({ sql: 'SELECT id, username, password_hash, salt FROM app_account LIMIT 1', args: [] });
   if (row.rows.length === 0) return { ok: false, error: '账号不存在' };
   const acc = row.rows[0] as Record<string, unknown>;

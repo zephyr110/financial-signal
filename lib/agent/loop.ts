@@ -10,7 +10,7 @@
  */
 import { appendAgentMessage, createAgentSession, touchAgentSession, editAgentMessage, logEvent, agentSessionExists, EVENT_TYPES } from '../db';
 import { chatCompletion } from '../llm/client';
-import { LLM_CONFIG } from '../llm/config';
+import { getEffectiveLlmConfig } from '../llm/config';
 import type { AgentTurnResult } from './types';
 import { getTool, buildToolPrompt } from './tools';
 import { loadAgentContext } from './session';
@@ -103,8 +103,11 @@ export type AgentTurnEvent =
  * （最终回答经 chatCompletion stream 逐字回调）。
  */
 export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResult & { sessionId: number }> {
-  if (!LLM_CONFIG.apiKey) {
-    throw new Error('LLM_API_KEY not configured. Set LLM_API_KEY (or DEEPSEEK_API_KEY) environment variable.');
+  const { apiKey } = await getEffectiveLlmConfig();
+  if (!apiKey) {
+    throw new Error(
+      'LLM_API_KEY not configured. Set LLM_API_KEY (or DEEPSEEK_API_KEY) environment variable, or configure it in 设置 → 模型.'
+    );
   }
 
   // 防御悬空 sessionId：浏览器 localStorage 可能缓存了已删除的会话。直接使用会在

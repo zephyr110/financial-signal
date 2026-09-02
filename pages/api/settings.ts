@@ -8,16 +8,11 @@ import { isLocalOrigin } from '../../lib/cronAuth';
  * - POST → 保存配置（密钥留空 = 不变；显式 '' 清除 —— 由 UI 约定为留空即不变）
  */
 export default async function handler(req: any, res: any) {
-  const isDesktop = process.env.DESKTOP_MODE === '1';
-  if (!isDesktop) {
-    // Web 模式:沿用会话鉴权
-    const username = await getSessionUser(req.cookies?.[SESSION_COOKIE]);
-    if (!username) return res.status(401).json({ error: '未登录' });
-  } else if (req.method === 'POST') {
-    // 桌面端无会话(me.ts 的 DESKTOP_MODE 分支不种 cookie)→ 跳过会话检查。
-    // 但 proxy.ts 在 DESKTOP_MODE 下放行全部请求,POST 需自行防跨站:渲染层
-    // fetch POST 必带本机 Origin;恶意网页 form-POST 改 llmBaseUrl 可把已存
-    // 的 API key 转发到攻击者地址 → 有 Origin 且非本机时拒绝。
+  const username = await getSessionUser(req.cookies?.[SESSION_COOKIE]);
+  if (!username) return res.status(401).json({ error: '未登录' });
+
+  // 桌面端 POST 额外校验本机 Origin:浏览器子资源 CSRF 防护(与会话鉴权叠加)
+  if (process.env.DESKTOP_MODE === '1' && req.method === 'POST') {
     if (!isLocalOrigin(req.headers.origin, req.headers.host)) {
       return res.status(403).json({ error: 'Forbidden origin' });
     }

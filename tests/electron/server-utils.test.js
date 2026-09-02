@@ -68,13 +68,14 @@ describe('waitForHealthy', () => {
 })
 
 describe('buildServerEnv', () => {
-  it('forces PORT/HOSTNAME/DESKTOP_MODE/NODE_ENV and sets NEWS_DB_PATH', () => {
+  it('forces PORT/HOSTNAME/DESKTOP_MODE/NODE_ENV and sets NEWS_DB_PATH + AUTH_DB_PATH', () => {
     const env = buildServerEnv({ port: 8123, dbPath: '/tmp/x.db' })
     expect(env.PORT).toBe('8123')
     expect(env.HOSTNAME).toBe('127.0.0.1')
     expect(env.DESKTOP_MODE).toBe('1')
     expect(env.NODE_ENV).toBe('production')
     expect(env.NEWS_DB_PATH).toBe('/tmp/x.db')
+    expect(env.AUTH_DB_PATH).toBe('/tmp/auth.db')
   })
 
   it('omits NEWS_DB_PATH when dbPath falsy, and extra overrides', () => {

@@ -24,9 +24,8 @@ const PANELS = [
   { id: "account", label: "账号", icon: UserRound, title: "账号设置", desc: "修改登录名与密码（需验证当前密码）" },
 ];
 
-export default function SettingsDialog({ open, onOpenChange, username, onAccountChanged, desktop = false }) {
-  // 桌面模式为本地单用户,账号(改登录名/密码)面板无意义,整块隐藏
-  const panels = desktop ? PANELS.filter((p) => p.id !== "account") : PANELS;
+export default function SettingsDialog({ open, onOpenChange, username, onAccountChanged }) {
+  const panels = PANELS;
   // 表单状态（初始值在 open 时从 GET /api/settings 拉取）
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);

@@ -18,6 +18,11 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isDesktopApp, setIsDesktopApp] = useState(false);
+
+  useEffect(() => {
+    setIsDesktopApp(typeof window !== "undefined" && !!(window as any).desktop);
+  }, []);
 
   // 登录后跳转目标防开放重定向:仅允许站内相对路径(以 / 开头且非 //host)
   const safeNext = (next: string): string => {
@@ -162,6 +167,11 @@ export default function LoginPage() {
           <p className="text-center text-xs text-muted-foreground">
             仅供个人研究使用 · 不构成投资建议
           </p>
+          {isDesktopApp && (
+            <p className="text-center text-xs text-muted-foreground">
+              首次使用默认账号为 admin；若未设置密码，初始密码会输出到桌面应用日志，登录后请在「设置 → 账号」修改。
+            </p>
+          )}
         </div>
       </div>
     </>
