@@ -254,7 +254,7 @@ export default function SessionSidebarGroup({
               将永久删除「{deleteTitle}」及其全部消息记录，此操作无法撤销。
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="mt-2 border-t-0 bg-transparent p-0 sm:justify-end">
+          <DialogFooter className="mx-0 mb-0 mt-2 border-t-0 bg-transparent p-0 sm:justify-end">
             <Button
               type="button"
               variant="outline"

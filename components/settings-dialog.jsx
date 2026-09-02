@@ -270,7 +270,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
             )}
 
             {/* ── 模型 ── */}
-            <div hidden={panel !== "model"} className="max-w-md space-y-3">
+            <div hidden={panel !== "model"} className="space-y-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium">模型 (LLM_MODEL)</label>
                 <Input
@@ -314,7 +314,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
             </div>
 
             {/* ── 数据源 ── */}
-            <div hidden={panel !== "turso"} className="max-w-md space-y-3">
+            <div hidden={panel !== "turso"} className="space-y-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium">远端数据库 URL (TURSO_DATABASE_URL)</label>
                 <div className="flex gap-2">
@@ -360,7 +360,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
             </div>
 
             {/* ── 定时任务 ── */}
-            <div hidden={panel !== "cron"} className="max-w-md space-y-3">
+            <div hidden={panel !== "cron"} className="space-y-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium">CRON_SECRET（Vercel Cron / QStash 鉴权）</label>
                 <div className="flex gap-2">
@@ -386,7 +386,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
             </div>
 
             {/* ── 账号 ── */}
-            <div hidden={panel !== "account"} className="max-w-md space-y-3">
+            <div hidden={panel !== "account"} className="space-y-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium">登录名</label>
                 <Input
