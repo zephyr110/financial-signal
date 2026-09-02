@@ -9,6 +9,8 @@ interface Props {
   items: any[];
   /** analysis 页现有线索数据 */
   threads: any[];
+  /** 行业信号计数(heatmap 口径:24h 全窗口 ≥3 分)——与 IndustrySelector 徽标同源 */
+  heatmap?: { industry: string; signalCount: number }[] | null;
 }
 
 /**
@@ -18,13 +20,18 @@ interface Props {
  * - 跟踪线索：标题列表（链接线索页）
  * 空状态不渲染。数据来自 watchlist 服务 + 现有页面数据匹配（无额外请求）。
  */
-export default function WatchlistPanel({ items, threads }: Props) {
+export default function WatchlistPanel({ items, threads, heatmap = null }: Props) {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
 
   useEffect(() => {
     setWatchlist(getAllWatchlist());
     return subscribeWatchlist(() => setWatchlist(getAllWatchlist()));
   }, []);
+
+  // heatmap 口径计数表(全窗口 ≥3 分);watchlist 行业不在 heatmap 中 = 无高分信号,不显示数字
+  const heatmapCounts = new Map(
+    (heatmap || []).map((h) => [h.industry, h.signalCount])
+  );
 
   const industries = watchlist.filter((w) => w.type === "industry");
   const signals = watchlist.filter((w) => w.type === "signal");
@@ -51,9 +58,7 @@ export default function WatchlistPanel({ items, threads }: Props) {
           <span className="text-xs text-muted-foreground block mb-1.5">跟踪行业</span>
           <div className="flex flex-wrap gap-1.5">
             {industries.map((w) => {
-              const count = items.filter(
-                (it) => it.industries?.some((ind: string) => ind === w.id)
-              ).length;
+              const count = heatmapCounts.get(w.id) ?? 0;
               return (
                 <button
                   key={`industry-${w.id}`}

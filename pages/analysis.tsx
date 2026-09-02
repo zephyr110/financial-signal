@@ -291,7 +291,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
 
           <ErrorBanner message={error} />
 
-          <WatchlistPanel items={items} threads={threads} />
+          <WatchlistPanel items={items} threads={threads} heatmap={heatmap} />
 
           <SearchBar
             onSearch={handleSearch}
