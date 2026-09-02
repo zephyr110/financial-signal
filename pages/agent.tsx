@@ -6,8 +6,8 @@ import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X } from
 import AppShell from "../components/app-shell";
 import SessionSidebarGroup from "../components/SessionSidebarGroup";
 import AgentCodeBlock from "../components/agent-code-block";
-import { AgentAvatar } from "@/components/agent-avatar";
-import { AgentProcessingBlock } from "@/components/agent-processing-block";
+import { AgentAvatar } from "@/components/AgentAvatar";
+import { AgentProcessingBlock } from "@/components/AgentProcessingBlock";
 import { looksLikeJson, stripToolProtocolFromAnswer } from "@/lib/agent/format";
 import { historyToChatItems, type ChatItem } from "@/types/agent-chat";
 import { useAutosizeTextarea } from "@/hooks/use-autosize-textarea";
