@@ -1,6 +1,7 @@
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { Newspaper, TrendingUp, Bot } from "lucide-react";
+import { Newspaper, TrendingUp, Bot, Settings } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -12,10 +13,12 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarSeparator,
   useSidebar,
 } from "./ui/sidebar";
 import BrandLogo from "./BrandLogo";
 import AvatarMenu from "./avatar-menu";
+import SettingsDialog from "./settings-dialog";
 
 const NAV_ITEMS = [
   { href: "/", label: "新闻快讯", icon: Newspaper, match: (p) => p === "/" },
@@ -31,12 +34,33 @@ const NAV_ITEMS = [
 
 /**
  * 全局侧栏（sidebar-07 折叠分区模式）：
- * Header 品牌 → 导航分组 → 页面专属分组（sidebarExtra）→ Footer（头像菜单：设置/主题/GitHub/退出）。
+ * Header 品牌 → 导航分组 → 页面专属分组（sidebarExtra）→ Footer
+ * （应用操作：设置 gear 行 + 分隔线 + 头像菜单：主题/GitHub/退出）。
+ * 用户信息(username/desktop)在此统一拉取,设置弹窗与头像菜单共用。
  */
 export default function AppSidebar({ sidebarExtra = null, ...props }) {
   const router = useRouter();
   const { setOpenMobile } = useSidebar();
   const closeOnMobile = () => setOpenMobile(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [username, setUsername] = useState("");
+  // 桌面模式标记:与 pages/index.tsx 一致,同步读 preload 注入的 window.desktop
+  // (不再经 /api/auth/me 异步探测——首帧会闪现"退出登录"与空用户名)
+  const [desktop, setDesktop] = useState(
+    typeof window !== "undefined" && !!window.desktop
+  );
+
+  // 会话用户信息(设置弹窗「账户」面板与头像显示共用):桌面模式无会话,me.ts 也不返回 username
+  useEffect(() => {
+    if (desktop) return;
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.username) setUsername(d.username);
+        if (d?.desktop) setDesktop(true);
+      })
+      .catch(() => {});
+  }, [desktop]);
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -87,9 +111,31 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
       </SidebarContent>
 
       <SidebarFooter className="gap-0 p-0">
-        <SidebarMenu className="px-2 py-2">
-          <AvatarMenu />
+        <SidebarMenu className="gap-0.5 px-2 py-2">
+          <SidebarMenuItem>
+            {/* 应用级设置常驻入口(头像菜单外的第二入口已在菜单内移除) */}
+            <SidebarMenuButton
+              tooltip="设置"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="设置"
+              className="h-10 w-full gap-2.5 py-2.5"
+            >
+              <Settings />
+              <span>设置</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem aria-hidden="true">
+            <SidebarSeparator className="my-0.5" />
+          </SidebarMenuItem>
+          <AvatarMenu username={username} desktop={desktop} />
         </SidebarMenu>
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          username={username}
+          onAccountChanged={setUsername}
+          desktop={desktop}
+        />
       </SidebarFooter>
 
       <SidebarRail />

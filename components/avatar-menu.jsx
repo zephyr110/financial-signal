@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/router";
 import { useTheme } from "next-themes";
-import { ChevronRight, LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
+import { ChevronRight, LogOut, Monitor, Moon, Sun } from "lucide-react";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import {
   DropdownMenu,
@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { SidebarMenuButton, SidebarMenuItem, useSidebar } from "./ui/sidebar";
-import SettingsDialog from "./settings-dialog";
 import { cn } from "@/lib/utils";
 
 function GithubIcon() {
@@ -32,36 +31,18 @@ const THEME_MODES = [
 
 /**
  * 侧栏底部头像菜单（参考 zlog admin-sidebar）：
- * 用户信息卡 + 主题切换（segmented 按钮组）+ 设置 / GitHub / 退出登录。
+ * 用户信息卡 + 主题切换（segmented 按钮组）+ GitHub / 退出登录。
  * 折叠为 icon rail 时仅显示头像。
+ * username/desktop 由 AppSidebar 统一拉取后传入(设置弹窗与头像共用一份用户信息)。
  */
-export default function AvatarMenu() {
+export default function AvatarMenu({ username = "", desktop = false }) {
   const router = useRouter();
   const { isMobile } = useSidebar();
   const { theme, setTheme } = useTheme();
-  const [username, setUsername] = useState("");
-  // 桌面模式标记:与 pages/index.tsx 一致,同步读 preload 注入的 window.desktop
-  // (不再经 /api/auth/me 异步探测——首帧会闪现"退出登录"与空用户名)
-  // 本文件是 .jsx(无类型检查),直接读属性;pages/index.tsx 用 (window as any) 等价
-  const [desktop, setDesktop] = useState(
-    typeof window !== "undefined" && !!window.desktop
-  );
   // 桌面模式显示"桌面模式"而非字面 "desktop",避免像是一个用户名
   const displayName = desktop ? "桌面模式" : username;
   const avatarInitial = displayName ? displayName.charAt(0).toUpperCase() : "";
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-
-  useEffect(() => {
-    if (desktop) return; // 桌面模式无会话,me.ts 也不返回 username
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.username) setUsername(d.username);
-        if (d?.desktop) setDesktop(true);
-      })
-      .catch(() => {});
-  }, [desktop]);
 
   const logout = async () => {
     if (loggingOut) return;
@@ -144,15 +125,8 @@ export default function AvatarMenu() {
 
             <DropdownMenuSeparator className="mx-0 my-2" />
 
-            {/* 设置 / GitHub / 退出 */}
+            {/* GitHub / 退出 */}
             <div className="flex flex-col gap-0.5">
-              <DropdownMenuItem
-                className="cursor-pointer gap-2.5 rounded-md px-2.5 py-2 hover:bg-accent hover:text-accent-foreground data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-                onClick={() => setSettingsOpen(true)}
-              >
-                <Settings size={16} className="shrink-0 opacity-60" />
-                设置
-              </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer gap-2.5 rounded-md px-2.5 py-2 hover:bg-accent hover:text-accent-foreground data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 onClick={() => window.open("https://github.com/zephyr110/financial-signal", "_blank", "noopener")}
@@ -175,14 +149,6 @@ export default function AvatarMenu() {
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
-
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        username={username}
-        onAccountChanged={setUsername}
-        desktop={desktop}
-      />
     </>
   );
 }
