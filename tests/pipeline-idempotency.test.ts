@@ -81,9 +81,27 @@ describe('analyze 幂等（news_id UNIQUE + ON CONFLICT DO UPDATE）', () => {
 describe('event_threads 幂等（dedup_key UNIQUE + ON CONFLICT DO UPDATE）', () => {
   it('同标题线程重复保存不新增行，stage 演进更新', async () => {
     const db = await getDb();
+    const signalIds: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const newsId = 8800 + i;
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO news_archive (id, source, source_id, title, content, published_at) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [newsId, 'test', `thread-news-${i}`, 't', 'c', new Date().toISOString()],
+      });
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO analysis_result (news_id, signal_score, category, impact_level, sentiment, summary)
+              VALUES (?, 4, 'industry', 'significant', 'positive', 's')`,
+        args: [newsId],
+      });
+      const row = await db.execute({
+        sql: 'SELECT id FROM analysis_result WHERE news_id = ?',
+        args: [newsId],
+      });
+      signalIds.push(Number(row.rows[0].id));
+    }
     const thread = (stage: string, confidence: string) => [{
       title: '存储涨价 传导至模组厂',
-      news_ids: [1, 2, 3],
+      news_ids: signalIds,
       narrative: `narrative ${stage}`,
       stage,
       confidence,
@@ -97,6 +115,12 @@ describe('event_threads 幂等（dedup_key UNIQUE + ON CONFLICT DO UPDATE）', (
     expect(rows.rows.length).toBe(1);
     expect(rows.rows[0].stage).toBe('brewing');
     expect(rows.rows[0].confidence).toBe('medium');
+
+    const links = await db.execute({
+      sql: 'SELECT signal_id FROM event_thread_signal WHERE thread_id = ? ORDER BY signal_id',
+      args: [rows.rows[0].id],
+    });
+    expect(links.rows.map((r) => Number(r.signal_id))).toEqual(signalIds.sort((a, b) => a - b));
   });
 
   it('规范化标题不同（空白差异）视为同一线程', async () => {

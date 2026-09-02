@@ -75,6 +75,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 3, name: 'event_threads.dedup_key + 历史去重', up: migrationThreadDedup },
   { version: 4, name: 'app_session.user_id(会话按用户关联+token 存哈希)', up: migrationSessionUserId },
   { version: 5, name: 'backtest_result.direction(方向命中率:多/空/中性/混合)', up: migrationBacktestDirection },
+  { version: 6, name: 'event_thread_signal 关联表 + 历史回填', up: migrationEventThreadSignal },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -87,6 +88,37 @@ async function migrationBacktestDirection(db) {
       await db.execute({ sql: 'ALTER TABLE backtest_result ADD COLUMN direction TEXT', args: [] });
     } catch { /* 并发实例已先补列 */ }
   }
+}
+
+/** v6：event_thread_signal 关联表，替代 json_each 反查线程-信号关系。 */
+async function migrationEventThreadSignal(db) {
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS event_thread_signal (
+      thread_id  INTEGER NOT NULL REFERENCES event_threads(id) ON DELETE CASCADE,
+      signal_id  INTEGER NOT NULL REFERENCES analysis_result(id) ON DELETE CASCADE,
+      PRIMARY KEY (thread_id, signal_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ets_signal ON event_thread_signal(signal_id);
+    CREATE INDEX IF NOT EXISTS idx_ets_thread ON event_thread_signal(thread_id);
+  `);
+  const cnt = await db.execute({ sql: 'SELECT COUNT(*) AS c FROM event_thread_signal', args: [] });
+  if (Number(cnt.rows[0]?.c || 0) > 0) return;
+  const hasAnalysis = await db.execute({
+    sql: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='analysis_result' LIMIT 1",
+    args: [],
+  });
+  if (hasAnalysis.rows.length === 0) return;
+  await db.execute({
+    sql: `
+      INSERT OR IGNORE INTO event_thread_signal (thread_id, signal_id)
+      SELECT et.id, CAST(j.value AS INTEGER)
+      FROM event_threads et
+      JOIN json_each(et.news_ids) AS j
+      WHERE json_valid(et.news_ids)
+        AND EXISTS (SELECT 1 FROM analysis_result a WHERE a.id = CAST(j.value AS INTEGER))
+    `,
+    args: [],
+  });
 }
 
 async function migrate(db) {
@@ -626,6 +658,79 @@ function industryFilterClause(industries: string[] | null | undefined): { clause
   };
 }
 
+/** published_at → unix 秒（兼容 ISO 与 SQLite datetime 格式） */
+function publishedAtUnixSql(col = 'n.published_at'): string {
+  return `cast(strftime('%s', replace(replace(${col}, 'T', ' '), 'Z', '')) as integer)`;
+}
+
+/** json_each 行业值 IN 过滤（热力图/趋势 SQL 聚合用） */
+function industryValueFilterClause(
+  industries: string[] | null | undefined,
+  jeAlias = 'je',
+): { clause: string; args: string[] } {
+  if (!industries || industries.length === 0) return { clause: '', args: [] };
+  const placeholders = industries.map(() => '?').join(', ');
+  return { clause: ` AND ${jeAlias}.value IN (${placeholders})`, args: industries };
+}
+
+function trendBucketConfig(hoursBack: number): { bucketHours: number; labelFn: (dt: Date) => string } {
+  if (hoursBack <= 48) {
+    return {
+      bucketHours: 2,
+      labelFn: (dt) => dt.toISOString().slice(11, 16),
+    };
+  }
+  if (hoursBack <= 168) {
+    return {
+      bucketHours: 6,
+      labelFn: (dt) => {
+        const d = dt.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+        return `${d} ${dt.toISOString().slice(11, 16)}`;
+      },
+    };
+  }
+  if (hoursBack <= 720) {
+    return {
+      bucketHours: 24,
+      labelFn: (dt) => dt.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }),
+    };
+  }
+  return {
+    bucketHours: 72,
+    labelFn: (dt) => dt.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }),
+  };
+}
+
+/** 同步 event_thread_signal（saveEventThreads 写侧维护） */
+async function syncEventThreadSignals(db, dedupKey: string, newsIds: unknown[]) {
+  const row = await db.execute({
+    sql: 'SELECT id FROM event_threads WHERE dedup_key = ?',
+    args: [dedupKey],
+  });
+  const threadId = row.rows[0]?.id;
+  if (!threadId) return;
+  await db.execute({
+    sql: 'DELETE FROM event_thread_signal WHERE thread_id = ?',
+    args: [threadId],
+  });
+  const ids = (newsIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (ids.length === 0) return;
+  const idPlaceholders = ids.map(() => '?').join(', ');
+  const existing = await db.execute({
+    sql: `SELECT id FROM analysis_result WHERE id IN (${idPlaceholders})`,
+    args: ids,
+  });
+  const validIds = existing.rows.map((r) => Number(r.id));
+  if (validIds.length === 0) return;
+  const placeholders = validIds.map(() => '(?, ?)').join(', ');
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO event_thread_signal (thread_id, signal_id) VALUES ${placeholders}`,
+    args: validIds.flatMap((sid) => [threadId, sid]),
+  });
+}
+
 export async function getAnalyzedNews({ minScore = 1, limit = 50, hoursBack = 24, cursor = 0, industries = null } = {}) {
   const effectiveCursor = cursor || 9999999;
   const isFirstPage = effectiveCursor >= 9999999;
@@ -723,44 +828,37 @@ export async function getIndustryHeatmap(hoursBack = 24, industries: string[] | 
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
+  const indFilter = industryValueFilterClause(industries, 'je');
   const result = await db.execute({
     sql: `
-      SELECT a.industries, a.signal_score, a.sentiment
+      SELECT je.value AS industry,
+             COUNT(*) AS signalCount,
+             ROUND(AVG(a.signal_score), 1) AS avgScore,
+             SUM(CASE WHEN a.sentiment = 'positive' THEN 1 ELSE 0 END) AS positive,
+             SUM(CASE WHEN a.sentiment = 'negative' THEN 1 ELSE 0 END) AS negative
       FROM analysis_result a
       JOIN news_archive n ON n.id = a.news_id
+      JOIN json_each(a.industries) AS je
       WHERE n.published_at >= ?
         AND a.signal_score >= 3
         AND a.industries IS NOT NULL
+        AND json_valid(a.industries)${indFilter.clause}
+      GROUP BY je.value
+      ORDER BY signalCount DESC
     `,
-    args: [since],
+    args: [since, ...indFilter.args],
   });
 
-  const industryMap = new Map();
-  const watchedSet = industries ? new Set(industries) : null;
-  for (const row of result.rows) {
-    let inds = [];
-    try { inds = JSON.parse(row.industries); } catch { continue; }
-    for (const ind of inds) {
-      if (watchedSet && !watchedSet.has(ind)) continue;
-      if (!industryMap.has(ind)) {
-        industryMap.set(ind, { count: 0, scoreSum: 0, positive: 0, negative: 0 });
-      }
-      const entry = industryMap.get(ind);
-      entry.count++;
-      entry.scoreSum += row.signal_score;
-      if (row.sentiment === 'positive') entry.positive++;
-      if (row.sentiment === 'negative') entry.negative++;
-    }
-  }
-
-  return Array.from(industryMap.entries())
-    .map(([name, data]) => ({
-      industry: name,
-      signalCount: data.count,
-      avgScore: Math.round((data.scoreSum / data.count) * 10) / 10,
-      sentiment: data.positive > data.negative ? 'positive' : data.negative > data.positive ? 'negative' : 'neutral',
-    }))
-    .sort((a, b) => b.signalCount - a.signalCount);
+  return result.rows.map((r: Record<string, unknown>) => {
+    const positive = Number(r.positive) || 0;
+    const negative = Number(r.negative) || 0;
+    return {
+      industry: r.industry,
+      signalCount: Number(r.signalCount) || 0,
+      avgScore: Number(r.avgScore) || 0,
+      sentiment: positive > negative ? 'positive' : negative > positive ? 'negative' : 'neutral',
+    };
+  });
     },
   );
 }
@@ -804,67 +902,43 @@ export async function getIndustryTrend(hoursBack = 24, industries: string[] | nu
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
+  const { bucketHours, labelFn } = trendBucketConfig(safeHours);
+  const bucketSec = bucketHours * 3600;
+  const ts = publishedAtUnixSql('n.published_at');
+  const indFilter = industryValueFilterClause(industries, 'je');
   const result = await db.execute({
     sql: `
-      SELECT a.industries, a.signal_score, n.published_at
+      SELECT ((${ts}) / ${bucketSec}) * ${bucketSec} AS bucket_unix,
+             je.value AS industry,
+             COUNT(*) AS cnt
       FROM analysis_result a
       JOIN news_archive n ON n.id = a.news_id
+      JOIN json_each(a.industries) AS je
       WHERE n.published_at >= ?
         AND a.signal_score >= 3
         AND a.industries IS NOT NULL
-      ORDER BY n.published_at ASC
+        AND json_valid(a.industries)${indFilter.clause}
+      GROUP BY bucket_unix, je.value
+      ORDER BY bucket_unix ASC
     `,
-    args: [since],
+    args: [since, ...indFilter.args],
   });
 
-  // Choose bucket size and label format based on time range
-  let bucketHours, labelFn;
-  if (safeHours <= 48) {
-    bucketHours = 2;
-    labelFn = (dt) => dt.toISOString().slice(11, 16); // "10:00"
-  } else if (safeHours <= 168) {
-    bucketHours = 6;
-    labelFn = (dt) => {
-      const d = dt.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
-      return `${d} ${dt.toISOString().slice(11, 16)}`; // "07/25 12:00"
-    };
-  } else if (safeHours <= 720) {
-    bucketHours = 24;
-    labelFn = (dt) => dt.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }); // "07/25"
-  } else {
-    bucketHours = 72;
-    labelFn = (dt) => dt.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }); // "07/25"
-  }
-
-  // Group by bucket and industry
-  const buckets = new Map();
-  const watchedSet = industries ? new Set(industries) : null;
+  const buckets = new Map<number, Record<string, number>>();
   for (const row of result.rows) {
-    let inds = [];
-    try { inds = JSON.parse(row.industries); } catch { continue; }
-    const dt = new Date(row.published_at);
-    dt.setMinutes(0, 0, 0);
-    dt.setHours(Math.floor(dt.getHours() / bucketHours) * bucketHours);
-    if (bucketHours >= 24) dt.setHours(0);
-    const key = dt.toISOString();
-
-    for (const ind of inds) {
-      if (watchedSet && !watchedSet.has(ind)) continue;
-      if (!buckets.has(key)) buckets.set(key, new Map());
-      const indMap = buckets.get(key);
-      indMap.set(ind, (indMap.get(ind) || 0) + 1);
-    }
+    const unix = Number((row as Record<string, unknown>).bucket_unix) || 0;
+    const industry = String((row as Record<string, unknown>).industry || '');
+    const cnt = Number((row as Record<string, unknown>).cnt) || 0;
+    if (!buckets.has(unix)) buckets.set(unix, {});
+    buckets.get(unix)![industry] = cnt;
   }
 
-  // Convert to { time, [industry]: count } format
-  const data = Array.from(buckets.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([iso, indMap]) => ({
-      time: labelFn(new Date(iso)),
-      ...Object.fromEntries(indMap),
+  return Array.from(buckets.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([unix, indMap]) => ({
+      time: labelFn(new Date(unix * 1000)),
+      ...indMap,
     }));
-
-  return data;
     },
   );
 }
@@ -909,6 +983,7 @@ export async function saveEventThreads(threads) {
         now,
       ],
     });
+    await syncEventThreadSignals(db, normalizeThreadTitle(t.title), t.news_ids || []);
   }
 }
 
@@ -962,23 +1037,20 @@ export async function getEventThreadById(id: number) {
   if (threadResult.rows.length === 0) return null;
 
   const thread = threadResult.rows[0] as Record<string, unknown>;
-  const newsIds = tryParseJson(thread.news_ids as string);
 
-  let signals = [];
-  if (newsIds.length > 0) {
-    const placeholders = newsIds.map(() => '?').join(', ');
-    const sigResult = await db.execute({
-      sql: `
-        SELECT a.id, a.signal_score, a.category, a.summary, n.published_at,
-               substr(n.content, 1, 200) as content, n.docurl, n.source
-        FROM analysis_result a
-        JOIN news_archive n ON n.id = a.news_id
-        WHERE a.id IN (${placeholders})
-        ORDER BY n.published_at ASC
-      `,
-      args: newsIds,
-    });
-    signals = sigResult.rows.map((r: Record<string, unknown>) => ({
+  const sigResult = await db.execute({
+    sql: `
+      SELECT a.id, a.signal_score, a.category, a.summary, n.published_at,
+             substr(n.content, 1, 200) as content, n.docurl, n.source
+      FROM event_thread_signal ets
+      JOIN analysis_result a ON a.id = ets.signal_id
+      JOIN news_archive n ON n.id = a.news_id
+      WHERE ets.thread_id = ?
+      ORDER BY n.published_at ASC
+    `,
+    args: [id],
+  });
+  const signals = sigResult.rows.map((r: Record<string, unknown>) => ({
       id: rowId(r.id),
       signal_score: r.signal_score,
       category: r.category,
@@ -988,7 +1060,6 @@ export async function getEventThreadById(id: number) {
       docurl: (r.docurl as string) || null, // P2.4 起因段原文链接
       source: (r.source as string) || null,
     }));
-  }
 
   return {
     id: rowId(thread.id),
@@ -1222,11 +1293,11 @@ export async function getSignalById(id: number) {
       FROM analysis_result a
       JOIN news_archive n ON n.id = a.news_id
       LEFT JOIN event_threads et ON et.id = (
-        SELECT e2.id FROM event_threads e2
-        WHERE EXISTS (
-          SELECT 1 FROM json_each(e2.news_ids) AS j WHERE j.value = a.id
-        )
-        ORDER BY e2.created_at DESC
+        SELECT ets.thread_id
+        FROM event_thread_signal ets
+        JOIN event_threads t ON t.id = ets.thread_id
+        WHERE ets.signal_id = a.id
+        ORDER BY t.created_at DESC
         LIMIT 1
       )
       WHERE a.id = ?
@@ -1510,46 +1581,31 @@ export async function getCompanyHeatmap(hoursBack = 24, industries: string[] | n
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
+  const indFilter = industryFilterClause(industries);
   const result = await db.execute({
     sql: `
-      SELECT a.companies, a.industries, a.signal_score
+      SELECT jc.value AS company,
+             COUNT(*) AS signalCount,
+             ROUND(AVG(a.signal_score), 1) AS avgScore
       FROM analysis_result a
       JOIN news_archive n ON n.id = a.news_id
+      JOIN json_each(a.companies) AS jc
       WHERE n.published_at >= ?
         AND a.signal_score >= 3
         AND a.companies IS NOT NULL
+        AND json_valid(a.companies)${indFilter.clause}
+      GROUP BY jc.value
+      ORDER BY signalCount DESC
+      LIMIT 10
     `,
-    args: [since],
+    args: [since, ...indFilter.args],
   });
 
-  const companyMap = new Map<string, { count: number; scoreSum: number }>();
-  const watchedSet = industries ? new Set(industries) : null;
-  for (const row of result.rows) {
-    // 公司计数跟随行业口径:新闻涉及的行业与关注列表无交集时整条跳过
-    if (watchedSet) {
-      const rowInds = tryParseJson(row.industries as string | null) as string[];
-      const hit = rowInds.some((ind) => watchedSet.has(ind));
-      if (!hit) continue;
-    }
-    const companies = tryParseJson(row.companies as string);
-    for (const comp of companies) {
-      if (!companyMap.has(comp)) {
-        companyMap.set(comp, { count: 0, scoreSum: 0 });
-      }
-      const entry = companyMap.get(comp)!;
-      entry.count++;
-      entry.scoreSum += (row.signal_score as number);
-    }
-  }
-
-  return Array.from(companyMap.entries())
-    .map(([name, data]) => ({
-      company: name,
-      signalCount: data.count,
-      avgScore: Math.round((data.scoreSum / data.count) * 10) / 10,
-    }))
-    .sort((a, b) => b.signalCount - a.signalCount)
-    .slice(0, 10);
+  return result.rows.map((r: Record<string, unknown>) => ({
+    company: r.company,
+    signalCount: Number(r.signalCount) || 0,
+    avgScore: Number(r.avgScore) || 0,
+  }));
     },
   );
 }
