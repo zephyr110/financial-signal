@@ -9,9 +9,25 @@ function clampInt(value: any, fallback: number, min: number, max: number): numbe
   return Math.min(max, Math.max(min, n));
 }
 
+function mapAnalysisItems(news: any[]) {
+  return news.map((item: any) => ({
+    ...item,
+    industries: item.industries ? safeParse(item.industries) : [],
+    companies: item.companies ? safeParse(item.companies) : [],
+    tags: item.tags ? safeParse(item.tags) : [],
+  }));
+}
+
+function nextCursorFromItems(items: any[]) {
+  if (items.length !== 50) return null;
+  const last = items[items.length - 1];
+  return last?.analysis_id ?? last?.id ?? null;
+}
+
 /**
  * GET /api/analysis?hoursBack=24&minScore=1&trendHours=168&cursor=0
  * cursor: pagination cursor (last analysis_result.id from previous page)
+ * 分页请求(cursor 为有效 id)仅返回 items + nextCursor，避免重复拉取聚合图表。
  */
 export default async function handler(req: any, res: any) {
   try {
@@ -24,6 +40,19 @@ export default async function handler(req: any, res: any) {
     const industries: string[] | null = typeof watchedParam === 'string' && watchedParam.length > 0
       ? watchedParam.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 30)
       : null;
+
+    const isPagination = cursor > 0 && cursor < 9999999;
+
+    if (isPagination) {
+      const news = await getAnalyzedNews({ minScore, hoursBack, limit: 50, cursor, industries });
+      const items = mapAnalysisItems(news);
+      res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=60');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.status(200).json({
+        items,
+        nextCursor: nextCursorFromItems(items),
+      });
+    }
 
     const [news, statsComparison, heatmap, trend, threads, companyHeatmap, marketToday, sentimentRows] = await Promise.all([
       getAnalyzedNews({ minScore, hoursBack, limit: 50, cursor, industries }),
@@ -41,22 +70,22 @@ export default async function handler(req: any, res: any) {
       previous: statsComparison.previous,
     };
 
-    const items = news.map((item: any) => ({
-      ...item,
-      industries: item.industries ? safeParse(item.industries) : [],
-      companies: item.companies ? safeParse(item.companies) : [],
-      tags: item.tags ? safeParse(item.tags) : [],
-    }));
-
-    // Next cursor is the smallest analysis_result.id in this batch
-    const last = items[items.length - 1];
-    const nextCursor = items.length === 50 ? (last?.analysis_id ?? last?.id) : null;
-
+    const items = mapAnalysisItems(news);
     const sentimentBreakdown = aggregateSentimentRows(sentimentRows);
 
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=300');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.status(200).json({ items, stats, heatmap, trend, threads, nextCursor, sentimentBreakdown, companyHeatmap, marketToday });
+    res.status(200).json({
+      items,
+      stats,
+      heatmap,
+      trend,
+      threads,
+      nextCursor: nextCursorFromItems(items),
+      sentimentBreakdown,
+      companyHeatmap,
+      marketToday,
+    });
   } catch (error) {
     console.error('Analysis API error:', error);
     res.status(500).json({ error: 'Failed to fetch analysis' });

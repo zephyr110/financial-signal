@@ -85,6 +85,27 @@ describe('SQL 聚合读路径', () => {
     expect(signal?.event_thread?.title).toBe('半导体景气');
   });
 
+  it('getEventThreadById 关联表缺失时回退 news_ids', async () => {
+    const db = await mod.getDb();
+    await db.execute({
+      sql: `INSERT INTO event_threads (title, news_ids, narrative, stage, confidence, dedup_key, created_at)
+            VALUES ('回退测试', ?, 'n', 'early', 'high', '回退测试', datetime('now'))`,
+      args: [JSON.stringify([1, 2])],
+    });
+    const threadRow = await db.execute({
+      sql: "SELECT id FROM event_threads WHERE dedup_key = '回退测试'",
+      args: [],
+    });
+    const threadId = Number(threadRow.rows[0].id);
+    await db.execute({
+      sql: 'DELETE FROM event_thread_signal WHERE thread_id = ?',
+      args: [threadId],
+    });
+    const thread = await mod.getEventThreadById(threadId);
+    expect(thread?.signals).toHaveLength(2);
+    expect(thread?.signals.map((s) => s.id)).toEqual([1, 2]);
+  });
+
   afterAll(() => {
     fs.rmSync(dir, { recursive: true, force: true });
   });

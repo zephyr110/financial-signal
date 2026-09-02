@@ -1,6 +1,6 @@
 import { createClient } from '@libsql/client';
 import { industryDisplayName } from './constants';
-import { cachedRead, readCacheKey, READ_CACHE_TTL } from './read-cache';
+import { cachedRead, readCacheKey, READ_CACHE_TTL, clearReadCache } from './read-cache';
 import crypto from 'crypto';
 import path from 'path';
 
@@ -642,9 +642,8 @@ export async function insertAnalysis({
       tags ? JSON.stringify(tags) : null,
     ],
   });
+  clearReadCache();
 }
-
-/** Get analyzed news with their original content, joined. */
 /**
  * 关注行业过滤片段(analysis_result 别名 a;industries 为 JSON 数组文本)。
  * industries 为空/未传时不加条件;json_each 仅对合法 JSON 生效(入库值均 JSON.stringify,安全)。
@@ -985,6 +984,7 @@ export async function saveEventThreads(threads) {
     });
     await syncEventThreadSignals(db, normalizeThreadTitle(t.title), t.news_ids || []);
   }
+  clearReadCache();
 }
 
 /**
@@ -1027,17 +1027,8 @@ export async function getEventThreads(hoursBack = 24, limit = 500, industries: s
   );
 }
 
-/** Get a single event thread by id, with its linked signals (news_ids → analysis rows). */
-export async function getEventThreadById(id: number) {
-  const db = await getDb();
-  const threadResult = await db.execute({
-    sql: 'SELECT * FROM event_threads WHERE id = ?',
-    args: [id],
-  });
-  if (threadResult.rows.length === 0) return null;
-
-  const thread = threadResult.rows[0] as Record<string, unknown>;
-
+/** 拉取线程关联信号；关联表为空时回退 news_ids（兼容迁移前/回填缺口） */
+async function fetchThreadSignals(db, threadId: number, newsIds: unknown[]) {
   const sigResult = await db.execute({
     sql: `
       SELECT a.id, a.signal_score, a.category, a.summary, n.published_at,
@@ -1048,18 +1039,54 @@ export async function getEventThreadById(id: number) {
       WHERE ets.thread_id = ?
       ORDER BY n.published_at ASC
     `,
+    args: [threadId],
+  });
+  if (sigResult.rows.length > 0) {
+    return sigResult.rows.map(mapThreadSignalRow);
+  }
+  const ids = (newsIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(', ');
+  const fallback = await db.execute({
+    sql: `
+      SELECT a.id, a.signal_score, a.category, a.summary, n.published_at,
+             substr(n.content, 1, 200) as content, n.docurl, n.source
+      FROM analysis_result a
+      JOIN news_archive n ON n.id = a.news_id
+      WHERE a.id IN (${placeholders})
+      ORDER BY n.published_at ASC
+    `,
+    args: ids,
+  });
+  return fallback.rows.map(mapThreadSignalRow);
+}
+
+function mapThreadSignalRow(r: Record<string, unknown>) {
+  return {
+    id: rowId(r.id),
+    signal_score: r.signal_score,
+    category: r.category,
+    summary: r.summary,
+    published_at: r.published_at,
+    content: (r.content as string || ''),
+    docurl: (r.docurl as string) || null,
+    source: (r.source as string) || null,
+  };
+}
+
+/** Get a single event thread by id, with its linked signals (news_ids → analysis rows). */
+export async function getEventThreadById(id: number) {
+  const db = await getDb();
+  const threadResult = await db.execute({
+    sql: 'SELECT * FROM event_threads WHERE id = ?',
     args: [id],
   });
-  const signals = sigResult.rows.map((r: Record<string, unknown>) => ({
-      id: rowId(r.id),
-      signal_score: r.signal_score,
-      category: r.category,
-      summary: r.summary,
-      published_at: r.published_at,
-      content: (r.content as string || ''), // SQL 已 substr 截断
-      docurl: (r.docurl as string) || null, // P2.4 起因段原文链接
-      source: (r.source as string) || null,
-    }));
+  if (threadResult.rows.length === 0) return null;
+
+  const thread = threadResult.rows[0] as Record<string, unknown>;
+  const signals = await fetchThreadSignals(db, id, tryParseJson(thread.news_ids as string));
 
   return {
     id: rowId(thread.id),
