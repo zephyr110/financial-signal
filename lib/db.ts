@@ -978,6 +978,18 @@ export async function deleteAgentSession(sessionId: number) {
   });
 }
 
+/** 重命名会话（仅改标题，不更新 updated_at，避免排序跳动）。 */
+export async function renameAgentSession(sessionId: number, title: string): Promise<boolean> {
+  const trimmed = title.trim();
+  if (!trimmed) return false;
+  const db = await getDb();
+  const r = await db.execute({
+    sql: 'UPDATE agent_session SET title = ? WHERE id = ?',
+    args: [trimmed, sessionId],
+  });
+  return r.rowsAffected > 0;
+}
+
 /** 更新会话标题与更新时间。 */
 export async function touchAgentSession(sessionId: number, title?: string) {
   const db = await getDb();

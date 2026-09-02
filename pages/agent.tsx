@@ -449,6 +449,26 @@ export default function AgentPage() {
     [sessionId, newSession]
   );
 
+  const handleRenameSession = useCallback(async (id: number, title: string) => {
+    try {
+      const res = await fetch(`/api/agent-sessions?id=${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "会话重命名失败，请稍后重试");
+      throw e;
+    }
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, title } : s))
+    );
+  }, []);
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // 中文输入法组合期间(拼音选词)的 Enter 不应发送
@@ -484,6 +504,7 @@ export default function AgentPage() {
             onSelect={(id) => void loadSession(id)}
             onNew={newSession}
             onDelete={handleDeleteSession}
+            onRename={handleRenameSession}
           />
         }
       >

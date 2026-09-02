@@ -5,10 +5,12 @@ import {
   createAgentSession,
   agentSessionExists,
   deleteAgentSession,
+  renameAgentSession,
   appendAgentMessage,
   getAgentMessages,
   compactAgentMessages,
   getDb,
+  listAgentSessions,
 } from '../lib/db'
 
 // 隔离 DB：本测试会建表/插入/删除，不能落在共享的项目 DB
@@ -40,6 +42,25 @@ describe('agent session existence guard', () => {
     const sid = await createAgentSession('fk-test')
     await deleteAgentSession(sid)
     await expect(appendAgentMessage(sid, 'user', 'hello')).rejects.toThrow(/FOREIGN KEY|SQLITE_CONSTRAINT/i)
+  })
+
+  it('renameAgentSession 仅改标题,不更新 updated_at', async () => {
+    const sid = await createAgentSession('old-title')
+    const before = await listAgentSessions(10)
+    const row = before.find((r) => Number(r.id) === sid) as Record<string, unknown>
+    expect(row?.title).toBe('old-title')
+    const updatedAt = String(row?.updated_at)
+
+    expect(await renameAgentSession(sid, '  new title  ')).toBe(true)
+    const after = await listAgentSessions(10)
+    const renamed = after.find((r) => Number(r.id) === sid) as Record<string, unknown>
+    expect(renamed?.title).toBe('new title')
+    expect(String(renamed?.updated_at)).toBe(updatedAt)
+
+    expect(await renameAgentSession(sid, '   ')).toBe(false)
+    expect(await renameAgentSession(999999, 'x')).toBe(false)
+
+    await deleteAgentSession(sid)
   })
 })
 

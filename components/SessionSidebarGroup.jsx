@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, MessageSquarePlus, Trash2 } from "lucide-react";
+import { Search, MessageSquarePlus, Trash2, Pencil, MoreHorizontal } from "lucide-react";
 import {
   SidebarGroup,
   SidebarGroupLabel,
@@ -11,6 +11,12 @@ import {
   useSidebar,
 } from "./ui/sidebar";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -19,6 +25,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { cn } from "@/lib/utils";
 
 /** SQLite datetime('now')（UTC）→ 相对时间 */
@@ -46,12 +53,17 @@ export default function SessionSidebarGroup({
   onSelect,
   onNew,
   onDelete,
+  onRename,
 }) {
   const { setOpenMobile } = useSidebar();
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const renameInputRef = useRef(null);
 
   const closeOnMobile = () => setOpenMobile(false);
 
@@ -75,6 +87,10 @@ export default function SessionSidebarGroup({
     if (query.trim()) setSearchOpen(true);
   }, [query]);
 
+  useEffect(() => {
+    if (renameTarget) renameInputRef.current?.focus();
+  }, [renameTarget]);
+
   const handleNew = () => {
     onNew();
     closeOnMobile();
@@ -84,6 +100,29 @@ export default function SessionSidebarGroup({
     e.preventDefault();
     e.stopPropagation();
     setDeleteTarget(session);
+  };
+
+  const requestRename = (session, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setRenameTarget(session);
+    setRenameDraft(session.title?.trim() || "");
+  };
+
+  const confirmRename = async () => {
+    if (!renameTarget || renaming) return;
+    const title = renameDraft.trim();
+    if (!title) return;
+    setRenaming(true);
+    try {
+      await onRename(renameTarget.id, title);
+      setRenameTarget(null);
+      setRenameDraft("");
+    } catch {
+      // 失败时保留对话框，错误由父组件提示
+    } finally {
+      setRenaming(false);
+    }
   };
 
   const confirmDelete = async () => {
@@ -210,19 +249,44 @@ export default function SessionSidebarGroup({
                         </span>
                       </div>
                     </SidebarMenuButton>
-                    <SidebarMenuAction
-                      showOnHover
-                      onClick={(e) => requestDelete(s, e)}
-                      aria-label={`删除会话 ${s.title || "未命名会话"}`}
-                      title="删除会话"
-                      className={cn(
-                        "top-2 size-7 text-muted-foreground transition-colors",
-                        "hover:bg-destructive/10 hover:text-destructive",
-                        "focus-visible:bg-destructive/10 focus-visible:text-destructive"
-                      )}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </SidebarMenuAction>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <SidebarMenuAction
+                            showOnHover={!active}
+                            aria-label={`更多操作 ${s.title || "未命名会话"}`}
+                            title="更多"
+                            onClick={(e) => e.stopPropagation()}
+                            className={cn(
+                              "top-2 size-7 text-muted-foreground transition-colors",
+                              "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                              "focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground",
+                              "data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground",
+                              active && "md:opacity-100"
+                            )}
+                          >
+                            <MoreHorizontal className="size-3.5" />
+                          </SidebarMenuAction>
+                        }
+                      />
+                      <DropdownMenuContent side="bottom" align="end" className="w-36">
+                        <DropdownMenuItem
+                          className="cursor-pointer gap-2"
+                          onClick={(e) => requestRename(s, e)}
+                        >
+                          <Pencil className="size-4 opacity-60" />
+                          重命名
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          className="cursor-pointer gap-2"
+                          onClick={(e) => requestDelete(s, e)}
+                        >
+                          <Trash2 className="size-4 opacity-60" />
+                          删除
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </SidebarMenuItem>
                 );
               })
@@ -270,6 +334,59 @@ export default function SessionSidebarGroup({
               onClick={() => void confirmDelete()}
             >
               {deleting ? "删除中…" : "确认删除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={renameTarget != null}
+        onOpenChange={(open) => {
+          if (!open && !renaming) {
+            setRenameTarget(null);
+            setRenameDraft("");
+          }
+        }}
+      >
+        <DialogContent showCloseButton={!renaming} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>重命名会话</DialogTitle>
+            <DialogDescription>为会话设置一个便于识别的标题。</DialogDescription>
+          </DialogHeader>
+          <Input
+            ref={renameInputRef}
+            value={renameDraft}
+            onChange={(e) => setRenameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter" && renameDraft.trim() && !renaming) {
+                e.preventDefault();
+                void confirmRename();
+              }
+            }}
+            placeholder="输入会话标题"
+            maxLength={120}
+            disabled={renaming}
+            aria-label="会话标题"
+          />
+          <DialogFooter className="mx-0 mb-0 mt-2 border-t-0 bg-transparent p-0 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={renaming}
+              onClick={() => {
+                setRenameTarget(null);
+                setRenameDraft("");
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              disabled={renaming || !renameDraft.trim()}
+              onClick={() => void confirmRename()}
+            >
+              {renaming ? "保存中…" : "保存"}
             </Button>
           </DialogFooter>
         </DialogContent>

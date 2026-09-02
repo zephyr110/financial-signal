@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import type { ProcessingBlock, ToolCallInfo } from "@/types/agent-chat";
+import { getToolLabel } from "@/lib/agent/tool-labels";
 
 interface AgentProcessingBlockProps {
   processing: ProcessingBlock;
@@ -233,7 +234,7 @@ function ToolStepRow({
           >
             <Wrench className="size-3 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-              {tool.name}
+              {getToolLabel(tool.name)}
             </span>
             <StatusBadge tool={tool} />
             <ChevronDown

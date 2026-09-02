@@ -18,9 +18,11 @@ import {
 import BrandLogo from "./BrandLogo";
 import AvatarMenu from "./avatar-menu";
 import SettingsDialog from "./settings-dialog";
+import { cn } from "@/lib/utils";
 import {
   SIDEBAR_FOOTER_ICON_BTN,
   SIDEBAR_FOOTER_ICON_ITEM,
+  SIDEBAR_ICON_RAIL_MENU,
 } from "@/lib/sidebar-footer-classes";
 
 const NAV_ITEMS = [
@@ -59,12 +61,17 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" render={<Link href="/" className="no-underline" />}>
-              <BrandLogo className="size-7" />
-              <span className="truncate text-base font-semibold tracking-tight text-sidebar-foreground">
+      <SidebarHeader className="group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:py-2">
+        <SidebarMenu className={SIDEBAR_ICON_RAIL_MENU}>
+          <SidebarMenuItem className={SIDEBAR_FOOTER_ICON_ITEM}>
+            <SidebarMenuButton
+              size="lg"
+              tooltip="财经信号"
+              className={SIDEBAR_FOOTER_ICON_BTN}
+              render={<Link href="/" className="no-underline" />}
+            >
+              <BrandLogo className="size-7 group-data-[collapsible=icon]:size-4" />
+              <span className="truncate text-base font-semibold tracking-tight text-sidebar-foreground group-data-[collapsible=icon]:hidden">
                 财经信号
               </span>
             </SidebarMenuButton>
@@ -106,7 +113,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
       </SidebarContent>
 
       <SidebarFooter className="gap-0 border-t-0 p-0">
-        <SidebarMenu className="gap-1 px-2 py-2 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:gap-1 group-data-[collapsible=icon]:px-0">
+        <SidebarMenu className={cn("gap-1 px-2 py-2", SIDEBAR_ICON_RAIL_MENU, "group-data-[collapsible=icon]:gap-1")}>
           <SidebarMenuItem className={SIDEBAR_FOOTER_ICON_ITEM}>
             {/* 应用级设置常驻入口(头像菜单外的第二入口已在菜单内移除) */}
             <SidebarMenuButton
@@ -116,7 +123,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
               className={SIDEBAR_FOOTER_ICON_BTN}
             >
               <Settings />
-              <span>设置</span>
+              <span className="group-data-[collapsible=icon]:hidden">设置</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <AvatarMenu username={username} />
