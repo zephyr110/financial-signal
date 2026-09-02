@@ -4,6 +4,27 @@
  */
 import { getDb, getBacktestByIndustry } from './db';
 
+export type EventDirection = 'long' | 'short' | 'neutral' | 'mixed';
+
+/**
+ * 事件(日期×行业)极性聚合:当日 ≥3 分信号的 sentiment → 事件方向。
+ * 规则:多空并存 → mixed;全 positive → long;全 negative → short;
+ * 其余(全 neutral/mixed 或无信号情绪)→ neutral。
+ * sentiment 为新闻级情绪,近似视为对所列行业同向影响(单情绪字段的已知近似)。
+ */
+export function polarizeEvent(sentiments: string[]): EventDirection {
+  let longs = 0;
+  let shorts = 0;
+  for (const s of sentiments) {
+    if (s === 'positive') longs++;
+    else if (s === 'negative') shorts++;
+  }
+  if (longs > 0 && shorts > 0) return 'mixed';
+  if (longs > 0) return 'long';
+  if (shorts > 0) return 'short';
+  return 'neutral';
+}
+
 const EM_QUOTE_URL = 'https://push2.eastmoney.com/api/qt/stock/get';
 
 // Major 申万行业 + 热门概念 sector codes (secid format: 90.BKxxxx)
@@ -151,7 +172,7 @@ export async function runBacktest(daysBack = 30) {
   // Get high-signal industries grouped by date
   const signals = await db.execute({
     sql: `
-      SELECT DATE(n.published_at) as signal_date, a.industries, a.signal_score
+      SELECT DATE(n.published_at) as signal_date, a.industries, a.signal_score, a.sentiment
       FROM analysis_result a
       JOIN news_archive n ON n.id = a.news_id
       WHERE n.published_at >= ? AND a.signal_score >= 3 AND a.industries IS NOT NULL
@@ -160,7 +181,7 @@ export async function runBacktest(daysBack = 30) {
     args: [since],
   });
 
-  // Group by (date, industry) and find max signal score + count
+  // Group by (date, industry) and find max signal score + count + event direction
   const signalMap = new Map();
   for (const row of signals.rows) {
     let industries = [];
@@ -169,14 +190,17 @@ export async function runBacktest(daysBack = 30) {
       const key = `${row.signal_date}|${ind}`;
       const existing = signalMap.get(key);
       if (!existing || row.signal_score > existing.maxScore) {
+        // 新条目或更高分信号替换条目:count/sentiments 均需带上此前累计(含本条)
         signalMap.set(key, {
           date: row.signal_date,
           industry: ind,
           maxScore: row.signal_score,
           count: (existing?.count || 0) + 1,
+          sentiments: existing ? [...existing.sentiments, row.sentiment] : [row.sentiment],
         });
       } else if (existing) {
         existing.count++;
+        existing.sentiments.push(row.sentiment);
       }
     }
   }
@@ -197,7 +221,7 @@ export async function runBacktest(daysBack = 30) {
   }
 
   // Use INSERT OR REPLACE with UNIQUE(signal_date, industry) — atomic, no DELETE needed
-  const upserts: Array<[string, string, number, number, number | null, number | null, number | null]> = [];
+  const upserts: Array<[string, string, number, number, EventDirection, number | null, number | null, number | null]> = [];
   for (const [, sig] of signalMap) {
     // 别名兜底：LLM 行业名与板块名不一致时映射到标准板块（仅无直接匹配时）
     let rows = marketByIndustry.get(sig.industry) || [];
@@ -210,16 +234,16 @@ export async function runBacktest(daysBack = 30) {
     const day1 = fwd.length >= 1 ? fwd[0].change_pct : null;
     const day3 = fwd.length >= 3 ? fwd.slice(0, 3).reduce((s, r) => s + (r.change_pct ?? 0), 0) : null;
     const day7 = fwd.length >= 7 ? fwd.slice(0, 7).reduce((s, r) => s + (r.change_pct ?? 0), 0) : null;
-    upserts.push([sig.date, sig.industry, sig.maxScore, sig.count, day1, day3, day7]);
+    upserts.push([sig.date, sig.industry, sig.maxScore, sig.count, polarizeEvent(sig.sentiments), day1, day3, day7]);
   }
 
   // 批量写入（每批 50 行，仿 insertNewsBatch）
   for (let i = 0; i < upserts.length; i += 50) {
     const batch = upserts.slice(i, i + 50);
-    const values = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
-    const args = batch.flatMap(([date, industry, score, count, d1, d3, d7]) => [date, industry, score, count, d1, d3, d7]);
+    const values = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const args = batch.flatMap(([date, industry, score, count, dir, d1, d3, d7]) => [date, industry, score, count, dir, d1, d3, d7]);
     await db.execute({
-      sql: `INSERT OR REPLACE INTO backtest_result (signal_date, industry, signal_score, signal_count, day_1_return, day_3_return, day_7_return) VALUES ${values}`,
+      sql: `INSERT OR REPLACE INTO backtest_result (signal_date, industry, signal_score, signal_count, direction, day_1_return, day_3_return, day_7_return) VALUES ${values}`,
       args,
     });
   }
@@ -258,7 +282,7 @@ export async function getBacktestSummary() {
               COALESCE(ROUND(AVG(day_1_return), 2), 0) as avg_d1,
               COALESCE(ROUND(AVG(day_3_return), 2), 0) as avg_d3,
               COALESCE(ROUND(AVG(day_7_return), 2), 0) as avg_d7,
-              ROUND(SUM(CASE WHEN day_1_return > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) as win_rate
+              ROUND(SUM(CASE WHEN (direction = 'long' AND day_1_return > 0) OR (direction = 'short' AND day_1_return < 0) THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END), 0), 1) as win_rate
             FROM backtest_result
             WHERE day_1_return IS NOT NULL
             GROUP BY signal_score
@@ -270,7 +294,7 @@ export async function getBacktestSummary() {
               COALESCE(ROUND(AVG(day_1_return), 2), 0) as avg_d1,
               COALESCE(ROUND(AVG(day_3_return), 2), 0) as avg_d3,
               COALESCE(ROUND(AVG(day_7_return), 2), 0) as avg_d7,
-              ROUND(SUM(CASE WHEN day_1_return > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) as win_rate
+              ROUND(SUM(CASE WHEN (direction = 'long' AND day_1_return > 0) OR (direction = 'short' AND day_1_return < 0) THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END), 0), 1) as win_rate
             FROM backtest_result
             WHERE day_1_return IS NOT NULL
             GROUP BY industry, signal_score

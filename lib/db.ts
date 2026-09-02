@@ -72,7 +72,20 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 2, name: 'news_archive.docurl 列', up: migrationAddDocurl },
   { version: 3, name: 'event_threads.dedup_key + 历史去重', up: migrationThreadDedup },
   { version: 4, name: 'app_session.user_id(会话按用户关联+token 存哈希)', up: migrationSessionUserId },
+  { version: 5, name: 'backtest_result.direction(方向命中率:多/空/中性/混合)', up: migrationBacktestDirection },
 ];
+
+/** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
+ * 幂等 ALTER 仿 v2 docurl:列已存在则跳过。方向由 runBacktest 按当日信号 sentiment 聚合写入,
+ * 命中率分母只计 long/short,中性/混合/遗留不计(见 lib/market.ts 方向化 SQL)。 */
+async function migrationBacktestDirection(db) {
+  const cols = await db.execute({ sql: 'PRAGMA table_info(backtest_result)', args: [] });
+  if (!cols.rows.some((c) => c.name === 'direction')) {
+    try {
+      await db.execute({ sql: 'ALTER TABLE backtest_result ADD COLUMN direction TEXT', args: [] });
+    } catch { /* 并发实例已先补列 */ }
+  }
+}
 
 async function migrate(db) {
   // 版本记录表(迁移机制自身的表;PRAGMA 写在 Turso 被拒,统一用表记录)
@@ -196,6 +209,7 @@ async function baselineSchema(db) {
       industry      TEXT NOT NULL,
       signal_score  INTEGER NOT NULL,
       signal_count  INTEGER NOT NULL,
+      direction     TEXT,
       day_1_return  REAL,
       day_3_return  REAL,
       day_7_return  REAL,
@@ -1407,7 +1421,9 @@ export async function getBacktestByIndustry(daysBack = 30) {
              COALESCE(ROUND(AVG(day_1_return), 2), 0) as avg_d1,
              COALESCE(ROUND(AVG(day_3_return), 2), 0) as avg_d3,
              COALESCE(ROUND(AVG(day_7_return), 2), 0) as avg_d7,
-             ROUND(SUM(CASE WHEN day_1_return > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) as win_rate
+             -- 方向命中率:看多事件次日涨/看空事件次日跌为胜;
+             -- 分母 = 仅带方向(long/short)事件;中性/混合/遗留 NULL 不计(口径见 UI tooltip)
+             ROUND(SUM(CASE WHEN (direction = 'long' AND day_1_return > 0) OR (direction = 'short' AND day_1_return < 0) THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END), 0), 1) as win_rate
       FROM backtest_result
       WHERE day_1_return IS NOT NULL
         AND industry IS NOT NULL
