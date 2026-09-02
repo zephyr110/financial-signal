@@ -202,13 +202,26 @@ describe('runAgentTurn', () => {
     expect(result.reply).toBe('好的。');
   });
 
-  it('步数上限触发截断', async () => {
-    llm.chatCompletion.mockResolvedValue({ content: '{"tool":"search_news","args":{"query":"循环"}}' });
+  it('步数上限触发截断并尝试总结', async () => {
+    process.env.AGENT_MAX_STEPS = '4';
+    const toolJson = '{"tool":"search_news","args":{"query":"循环"}}';
+    llm.chatCompletion
+      .mockResolvedValueOnce({ content: toolJson })
+      .mockResolvedValueOnce({ content: toolJson })
+      .mockResolvedValueOnce({ content: toolJson })
+      .mockResolvedValueOnce({ content: toolJson })
+      .mockResolvedValueOnce({ content: toolJson })
+      .mockResolvedValueOnce({ content: '基于已有数据的总结。' });
 
-    const result = await runAgentTurn({ userMessage: '一直调用工具' });
+    try {
+      const result = await runAgentTurn({ userMessage: '一直调用工具' });
 
-    expect(result.truncated).toBe(true);
-    expect(result.steps).toBeLessThanOrEqual(8);
+      expect(result.truncated).toBe(true);
+      expect(result.toolLog).toHaveLength(4);
+      expect(result.reply).toContain('基于已有数据的总结');
+    } finally {
+      delete process.env.AGENT_MAX_STEPS;
+    }
   });
 
   it('未配置 API key 时抛错', async () => {

@@ -1019,13 +1019,14 @@ export async function compactAgentMessages(
   sessionId: number,
   upToMessageId: number,
   summaryContent: string,
+  meta?: Record<string, unknown>,
 ): Promise<number> {
   const db = await getDb();
   const tx = await db.transaction('write');
   try {
     const ins = await tx.execute({
-      sql: 'INSERT INTO agent_message (session_id, role, content) VALUES (?, ?, ?)',
-      args: [sessionId, 'user', summaryContent],
+      sql: 'INSERT INTO agent_message (session_id, role, content, meta) VALUES (?, ?, ?, ?)',
+      args: [sessionId, 'system', summaryContent, meta != null ? JSON.stringify(meta) : null],
     });
     const summaryId = Number(ins.lastInsertRowid);
     await tx.execute({

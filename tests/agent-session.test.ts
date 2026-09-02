@@ -83,6 +83,7 @@ describe('compactAgentMessages 上下文压缩原子性', () => {
       const rows = await getAgentMessages(sid) // ORDER BY id ASC
       expect(rows.map((r) => r.id)).toEqual([id4, summaryId])
       expect(rows[1].content).toBe('（历史对话已压缩）summary')
+      expect(rows.find((r) => String(r.content).includes('（历史对话已压缩）'))?.role).toBe('system')
       // 摘要消息 id 大于被删的旧消息
       expect(summaryId).toBeGreaterThan(id3)
       // 保留消息原样保留

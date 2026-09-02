@@ -44,6 +44,10 @@ interface SessionSummary {
 
 const SESSION_STORAGE_KEY = "agent-session-id";
 
+/** 触顶截断后一键续跑的用户消息 */
+const CONTINUE_ANALYSIS_MESSAGE =
+  "请基于上文已收集的信息继续深入分析，必要时可补充调用工具。";
+
 // 空状态建议问题：点击直接发送
 const SUGGESTIONS = [
   "存储涨价链条现在到哪个阶段了？",
@@ -252,7 +256,39 @@ export default function AgentPage() {
         };
 
         const handleEvent = (event: string, payload: any) => {
-          if (event === "tool_start") {
+          if (event === "context_compact_start") {
+            updateTurn((m) => ({
+              ...m,
+              processing: {
+                tools: m.processing?.tools ?? [],
+                active: true,
+                thinking: false,
+                compaction: {
+                  status: "running" as const,
+                  summarizedCount: payload.messageCount,
+                },
+              },
+            }));
+          } else if (event === "context_compact_end") {
+            updateTurn((m) => ({
+              ...m,
+              processing: {
+                tools: m.processing?.tools ?? [],
+                active: true,
+                thinking: !payload.failed,
+                compaction: payload.failed
+                  ? {
+                      status: "failed" as const,
+                      summarizedCount: payload.messageCount,
+                    }
+                  : {
+                      status: "done" as const,
+                      summarizedCount: payload.messageCount,
+                      summary: payload.summary,
+                    },
+              },
+            }));
+          } else if (event === "tool_start") {
             streamText = "";
             updateTurn((m) => ({
               ...m,
@@ -268,6 +304,7 @@ export default function AgentPage() {
                 ],
                 active: true,
                 thinking: false,
+                ...(m.processing?.compaction ? { compaction: m.processing.compaction } : {}),
               },
             }));
           } else if (event === "tool_end") {
@@ -322,19 +359,30 @@ export default function AgentPage() {
                   summary: log.summary || t.summary,
                 };
               });
-              const hasProcessing = tools.length > 0;
+              const compaction = m.processing?.compaction;
+              const hasProcessing = tools.length > 0 || compaction;
               return {
                 ...m,
                 content: reply,
+                truncated: Boolean(payload.truncated),
                 processing: hasProcessing
-                  ? { tools, active: false, thinking: false }
+                  ? {
+                      tools,
+                      active: false,
+                      thinking: false,
+                      ...(compaction ? { compaction } : {}),
+                    }
                   : undefined,
               };
             });
 
-            // 无工具也无正文 → 移除空占位
+            // 无工具、无压缩也无正文 → 移除空占位
             if (!reply && !payload.toolLog?.length) {
-              setMessages((prev) => prev.filter((m) => m.id !== turnMsgId));
+              setMessages((prev) => {
+                const turn = prev.find((m) => m.id === turnMsgId);
+                if (turn?.processing?.compaction) return prev;
+                return prev.filter((m) => m.id !== turnMsgId);
+              });
             }
 
             if (!editing && payload.userMessageId) {
@@ -592,7 +640,8 @@ export default function AgentPage() {
                     processing &&
                     (processing.active ||
                       processing.thinking ||
-                      processing.tools.length > 0);
+                      processing.tools.length > 0 ||
+                      processing.compaction);
                   const hasContent = Boolean(m.content.trim());
 
                   if (!showProcessing && !hasContent) return null;
@@ -614,6 +663,17 @@ export default function AgentPage() {
                                 {m.content}
                               </ReactMarkdown>
                             </div>
+                            {m.truncated && !loading && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-fit"
+                                onClick={() => void submitMessage(CONTINUE_ANALYSIS_MESSAGE)}
+                              >
+                                继续分析
+                              </Button>
+                            )}
                             <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover-none:opacity-100">
                               <Button
                                 type="button"

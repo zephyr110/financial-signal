@@ -7,11 +7,11 @@ import { isLocalOrigin } from '../../lib/cronAuth';
  * POST /api/agent — 发送消息 { sessionId?, message, stream? }
  * - stream=false（默认）：一轮结束后一次性返回 JSON
  * - stream=true：SSE 流式，事件序列：
- *   tool_start / tool_end（工具调用过程）→ delta（最终回答逐字）→ done（含完整结果）
+ *   context_compact_start / context_compact_end（历史上下文压缩）→ tool_start / tool_end → delta → done
  *   （工具调用步骤的 delta 是短 JSON，前端以 tool_start 事件截断渲染）
  *
  * 桌面模式下本端点自行做 Origin 校验(与会话鉴权叠加)：恶意网页可
- * 用简单表单 POST 触发 LLM 调用（每请求最多 8 次）消耗用户额度，非本机
+ * 用简单表单 POST 触发 LLM 调用（每请求工具步数有上限，默认 12）消耗用户额度，非本机
  * Origin（或无 Origin 的浏览器子资源请求）一律拒绝。
  */
 export default async function handler(req, res) {
@@ -87,7 +87,15 @@ export default async function handler(req, res) {
       userMessage: message.trim(),
       editingId: eid,
       onEvent: (e) => {
-        if (e.type === 'tool_start') send('tool_start', { tool: e.tool, args: e.args });
+        if (e.type === 'context_compact_start') {
+          send('context_compact_start', { messageCount: e.messageCount });
+        } else if (e.type === 'context_compact_end') {
+          send('context_compact_end', {
+            messageCount: e.messageCount,
+            summary: e.summary,
+            ...(e.failed ? { failed: true } : {}),
+          });
+        } else if (e.type === 'tool_start') send('tool_start', { tool: e.tool, args: e.args });
         else if (e.type === 'tool_end') send('tool_end', { tool: e.tool, ok: e.ok, summary: e.summary });
         else if (e.type === 'delta') send('delta', { text: e.text });
         else if (e.type === 'done') {

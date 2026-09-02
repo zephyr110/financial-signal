@@ -1,26 +1,28 @@
 /**
  * 研究 Agent — 会话上下文管理（spec §10.3 阶段 B）
- *
- *  - Session Note 式持久记忆：历史消息存 SQLite（agent_message 表），跨会话保留
- *  - 上下文自动压缩：消息总量超过预算时，把最旧消息用 LLM 压成一条 system 摘要，
- *    保留最近消息完整（Mini-Agent 式 token 控制）
  */
 import { getAgentMessages, compactAgentMessages } from '../db';
 import { chatCompletion } from '../llm/client';
-import { LLM_CONFIG } from '../llm/config';
 import type { AgentMessage } from './types';
 
 /** 上下文 token 软预算（超出后触发压缩） */
-const CONTEXT_BUDGET_TOKENS = 12000;
+export const CONTEXT_BUDGET_TOKENS = 12000;
 /** 压缩时保留的最近完整消息数 */
-const KEEP_RECENT_MESSAGES = 8;
+export const KEEP_RECENT_MESSAGES = 8;
 /** 压缩摘要的 LLM 调用最大输出 */
 const SUMMARY_MAX_TOKENS = 800;
 
-/**
- * 粗略 token 估算：中文约 1 token/字 的 2/3，英文约 1 token/4 字符。
- * 取保守值 1 token ≈ 1.5 字符，保证不超预算。
- */
+/** 压缩摘要消息前缀（落库与历史识别） */
+export const CONTEXT_COMPACT_PREFIX = '（历史对话已压缩）';
+
+export type ContextCompactEvent =
+  | { type: 'start'; messageCount: number }
+  | { type: 'end'; messageCount: number; summary: string; failed?: boolean };
+
+export interface LoadAgentContextOptions {
+  onCompact?: (event: ContextCompactEvent) => void;
+}
+
 function estimateTokens(messages: AgentMessage[]): number {
   const chars = messages.reduce((sum, m) => sum + m.content.length, 0);
   return Math.ceil(chars / 1.5);
@@ -32,7 +34,7 @@ const SUMMARIZE_PROMPT = `你是一个财经研究助手的上下文压缩器。
 
 async function summarizeMessages(messages: AgentMessage[]): Promise<string> {
   const transcript = messages
-    .map((m) => `${m.role === 'user' ? '用户' : '助手'}: ${m.content.slice(0, 300)}`)
+    .map((m) => `${m.role === 'user' ? '用户' : m.role === 'assistant' ? '助手' : '系统'}: ${m.content.slice(0, 300)}`)
     .join('\n');
   const { content } = await chatCompletion({
     systemPrompt: SUMMARIZE_PROMPT,
@@ -42,39 +44,75 @@ async function summarizeMessages(messages: AgentMessage[]): Promise<string> {
   return content.slice(0, 500);
 }
 
+export function stripContextCompactPrefix(content: string): string {
+  return content.startsWith(CONTEXT_COMPACT_PREFIX)
+    ? content.slice(CONTEXT_COMPACT_PREFIX.length)
+    : content;
+}
+
+function isContextCompactRow(row: { role: unknown; content: unknown; meta?: { contextCompact?: boolean } | null }): boolean {
+  return (
+    (row.role === 'system' && row.meta?.contextCompact === true) ||
+    String(row.content).startsWith(CONTEXT_COMPACT_PREFIX)
+  );
+}
+
+/** 压缩摘要应排在保留的最近消息之前（落库 id 在 keep 之后，需重排） */
+function orderMessagesForContext(
+  rows: { role: unknown; content: unknown; meta?: { contextCompact?: boolean } | null }[],
+  messages: AgentMessage[],
+): AgentMessage[] {
+  const compact: AgentMessage[] = [];
+  const rest: AgentMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (isContextCompactRow(rows[i])) compact.push(messages[i]);
+    else rest.push(messages[i]);
+  }
+  return [...compact, ...rest];
+}
+
 /**
  * 加载会话上下文（含自动压缩）。
- * 返回可直接拼入 messages 数组的历史消息列表。
- * 压缩为异步副作用：超预算时先返回"待压缩"标记，由调用方决定是否等待压缩结果。
- * 简化策略：同步等待压缩（研究场景可接受一次 LLM 延迟）。
+ * 压缩时通过 onCompact 回调通知调用方（用于 SSE 推送到前端 processing 块）。
  */
-export async function loadAgentContext(sessionId: number): Promise<AgentMessage[]> {
+export async function loadAgentContext(
+  sessionId: number,
+  opts?: LoadAgentContextOptions,
+): Promise<AgentMessage[]> {
   const rows = await getAgentMessages(sessionId);
-  const messages: AgentMessage[] = rows.map((r) => ({
+  const mapped: AgentMessage[] = rows.map((r) => ({
     id: r.id,
-    role: r.role,
+    role: r.role as AgentMessage['role'],
     content: r.content,
     ...(r.meta?.toolCall ? { toolCall: r.meta.toolCall } : {}),
     ...(r.meta?.toolResult ? { toolResult: r.meta.toolResult } : {}),
   }));
+  const messages = orderMessagesForContext(rows, mapped);
 
   if (estimateTokens(messages) <= CONTEXT_BUDGET_TOKENS) return messages;
 
   const keep = messages.slice(-KEEP_RECENT_MESSAGES);
   const toSummarize = messages.slice(0, -KEEP_RECENT_MESSAGES);
-  if (toSummarize.length === 0) return messages; // 消息不足 KEEP_RECENT 条，无需压缩
+  if (toSummarize.length === 0) return messages;
+
   console.log(`[agent] Context ${messages.length} msgs exceeds budget — summarizing ${toSummarize.length} old messages.`);
+  opts?.onCompact?.({ type: 'start', messageCount: toSummarize.length });
 
   try {
     const summary = await summarizeMessages(toSummarize);
-    const summaryContent = `（历史对话已压缩）${summary}`;
-    // 原子落库:追加摘要 + 删除被压缩的旧消息(事务内完成)。
-    // 摘要 id 大于所有被删消息 id,保留的最近消息(id 更大)不受影响。
-    const summaryId = await compactAgentMessages(sessionId, toSummarize[toSummarize.length - 1].id, summaryContent);
-    const compressed: AgentMessage = { id: summaryId, role: 'user', content: summaryContent };
+    const summaryContent = `${CONTEXT_COMPACT_PREFIX}${summary}`;
+    const summaryId = await compactAgentMessages(
+      sessionId,
+      toSummarize[toSummarize.length - 1].id!,
+      summaryContent,
+      { contextCompact: true, summarizedCount: toSummarize.length },
+    );
+    opts?.onCompact?.({ type: 'end', messageCount: toSummarize.length, summary });
+    const compressed: AgentMessage = { id: summaryId, role: 'system', content: summaryContent };
     return [compressed, ...keep];
   } catch (err) {
-    console.warn('[agent] Context summarization failed, keeping full history:', err.message);
-    return messages; // 宁可上下文超预算，不可丢消息
+    console.warn('[agent] Context summarization failed, keeping full history:', (err as Error).message);
+    opts?.onCompact?.({ type: 'end', messageCount: toSummarize.length, summary: '', failed: true });
+    return messages;
   }
 }

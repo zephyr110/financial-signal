@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   XCircle,
   ChevronDown,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -65,8 +66,9 @@ function StatusBadge({ tool }: { tool: ToolCallInfo }) {
 
 /** 单轮思考 + 工具调用：进行中展开，完成后自动折叠（shadcn Collapsible + 过渡动画） */
 export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) {
-  const { tools, active, thinking } = processing;
+  const { tools, active, thinking, compaction } = processing;
   const [open, setOpen] = useState(active);
+  const [compactOpen, setCompactOpen] = useState(false);
 
   useEffect(() => {
     if (active) {
@@ -84,16 +86,24 @@ export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) 
   ).length;
 
   const summaryLabel = active
-    ? thinking && tools.length === 0
-      ? "思考中"
-      : runningCount > 0
-        ? `调用工具中`
-        : thinking
-          ? "思考中"
-          : `已调用 ${tools.length} 个工具`
-    : tools.length > 0
-      ? `已调用 ${tools.length} 个工具`
-      : "思考过程";
+    ? compaction?.status === "running"
+      ? "压缩历史上下文"
+      : thinking && tools.length === 0 && !compaction
+        ? "思考中"
+        : runningCount > 0
+          ? `调用工具中`
+          : thinking
+            ? "思考中"
+            : compaction && tools.length === 0
+              ? "压缩完成"
+              : `已调用 ${tools.length} 个工具`
+    : compaction && tools.length === 0
+      ? compaction.status === "failed"
+        ? "压缩失败"
+        : "已压缩历史上下文"
+      : tools.length > 0
+        ? `已调用 ${tools.length} 个工具`
+        : "思考过程";
 
   return (
     <div className="w-full min-w-0">
@@ -121,7 +131,7 @@ export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) 
               )}
             </span>
 
-            {!active && tools.length > 0 && (
+            {!active && (tools.length > 0 || compaction?.status === "done") && (
               <Badge
                 variant="outline"
                 className={cn(
@@ -131,7 +141,7 @@ export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) 
                     : "border-positive/25 bg-positive/5 text-positive"
                 )}
               >
-                {errorCount > 0 ? `${errorCount} 失败` : `${doneCount} 完成`}
+                {errorCount > 0 ? `${errorCount} 失败` : compaction && tools.length === 0 ? "已压缩" : `${doneCount} 完成`}
               </Badge>
             )}
 
@@ -153,6 +163,10 @@ export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) 
               <div className="overflow-hidden">
                 <Separator className="" />
                 <div className="space-y-0 px-3.5 py-3">
+                  {compaction && (
+                    <CompactionRow compaction={compaction} open={compactOpen} onOpenChange={setCompactOpen} />
+                  )}
+
                   {thinking && (
                     <div className="relative flex items-start gap-3 pb-3">
                       <span className="relative z-10 mt-1.5 flex size-2 shrink-0 rounded-full bg-primary/80 ring-4 ring-card" />
@@ -169,7 +183,7 @@ export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) 
                     <div
                       className={cn(
                         "relative space-y-2",
-                        (thinking || tools.length > 1) &&
+                        (thinking || compaction || tools.length > 1) &&
                           "before:absolute before:top-1 before:bottom-1 before:left-[3px] before:w-px before:bg-border"
                       )}
                     >
@@ -178,7 +192,7 @@ export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) 
                           key={`${tool.name}-${i}`}
                           tool={tool}
                           isLast={i === tools.length - 1}
-                          showTimeline={tools.length > 1 || thinking}
+                          showTimeline={tools.length > 1 || thinking || !!compaction}
                         />
                       ))}
                     </div>
@@ -190,6 +204,69 @@ export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) 
         </div>
       </Collapsible>
     </div>
+  );
+}
+
+function CompactionRow({
+  compaction,
+  open,
+  onOpenChange,
+}: {
+  compaction: NonNullable<ProcessingBlock["compaction"]>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const isRunning = compaction.status === "running";
+  const isFailed = compaction.status === "failed";
+  const label = isRunning
+    ? `正在压缩 ${compaction.summarizedCount ?? "…"} 条历史消息`
+    : isFailed
+      ? `历史压缩失败，已使用完整上下文继续`
+      : `已压缩 ${compaction.summarizedCount ?? ""} 条历史消息`;
+
+  return (
+    <Collapsible open={open} onOpenChange={onOpenChange}>
+      <div className="relative pb-3 pl-5">
+        <span
+          className={cn(
+            "absolute top-2.5 left-0 z-10 size-2 rounded-full ring-4 ring-card",
+            isRunning ? "bg-primary/80" : isFailed ? "bg-destructive/80" : "bg-muted-foreground/50"
+          )}
+        />
+        <div className="overflow-hidden rounded-lg ring-1 ring-foreground/8">
+          <CollapsibleTrigger
+            className={cn(
+              "flex w-full items-center gap-2 px-3 py-2 text-left text-xs outline-none",
+              "transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset",
+              open && "bg-muted/25"
+            )}
+          >
+            <Archive className="size-3 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate font-medium text-foreground">{label}</span>
+            {isRunning ? (
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+            ) : isFailed ? (
+              <XCircle className="size-3.5 shrink-0 text-destructive" />
+            ) : (
+              <ChevronDown
+                className={cn(
+                  "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+                  open && "rotate-180"
+                )}
+              />
+            )}
+          </CollapsibleTrigger>
+          {!isRunning && !isFailed && compaction.summary && (
+            <CollapsibleContent>
+              <Separator className="" />
+              <p className="bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                {compaction.summary}
+              </p>
+            </CollapsibleContent>
+          )}
+        </div>
+      </div>
+    </Collapsible>
   );
 }
 

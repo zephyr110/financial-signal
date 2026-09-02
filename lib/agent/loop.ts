@@ -15,11 +15,13 @@ import type { AgentTurnResult } from './types';
 import { getTool, buildToolPrompt } from './tools';
 import { loadAgentContext } from './session';
 import { looksLikeJson, parseJsonLike, repairJson, formatFinalAnswer, stripToolProtocolFromAnswer, validateToolArgs } from './format';
+import { getAgentMaxSteps, MAX_CORRECTION_STEPS } from './limits';
 
-/** 单轮最大步数（LLM 调用次数），防止失控循环 */
-const MAX_STEPS = 8;
 /** 工具结果文本长度上限（防止工具输出撑爆上下文） */
 const TOOL_RESULT_MAX_CHARS = 3000;
+
+const TRUNCATED_REPLY_PREFIX =
+  '> 本轮工具调用较多，以下为基于已收集信息的总结。如需继续深入，请点击「继续分析」或追问。';
 
 export const AGENT_SYSTEM_PROMPT = `你是一个A股政策-行业研究助手（信息准备层，不做投资顾问）。
 
@@ -31,6 +33,7 @@ export const AGENT_SYSTEM_PROMPT = `你是一个A股政策-行业研究助手（
 
 使用准则：
 - 优先用工具获取真实数据，不要凭记忆编造新闻、日期、行业数据
+- 同一问题尽量合并检索（避免对相近关键词重复 search_news），信息足够后尽快给出结论
 - 回答要引用数据来源（信号ID、事件线索ID、时间），说明判断依据
 - 区分"已确认信号"与"推测"，标注置信度
 - 可以给出趋势判断（早期/发酵/扩散/定价），但禁止给出买卖建议
@@ -90,6 +93,8 @@ export interface RunTurnOptions {
 }
 
 export type AgentTurnEvent =
+  | { type: 'context_compact_start'; messageCount: number }
+  | { type: 'context_compact_end'; messageCount: number; summary: string; failed?: boolean }
   | { type: 'tool_start'; tool: string; args: Record<string, unknown> }
   | { type: 'tool_end'; tool: string; ok: boolean; summary: string }
   | { type: 'delta'; text: string }
@@ -144,16 +149,33 @@ export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResu
     }
     await logEvent(EVENT_TYPES.AGENT_QUERY, { entityId: sessionId, payload: { message: opts.userMessage.slice(0, 100) } });
 
-    // history 已包含刚持久化的当前用户消息（loadAgentContext 在其后读取），
-    // turnMessages 只承载本回合后续的工具调用/结果，避免用户消息双发。
-    const history = await loadAgentContext(sessionId);
+    // history 已包含刚持久化的当前用户消息；压缩过程通过 onCompact 推送 SSE，完成后继续主循环
+    const history = await loadAgentContext(sessionId, {
+      onCompact: (e) => {
+        if (e.type === 'start') emit({ type: 'context_compact_start', messageCount: e.messageCount });
+        else if (e.type === 'end') {
+          emit({
+            type: 'context_compact_end',
+            messageCount: e.messageCount,
+            summary: e.summary,
+            ...(e.failed ? { failed: true } : {}),
+          });
+        }
+      },
+    });
+    const maxToolSteps = getAgentMaxSteps();
     const toolLog: AgentTurnResult['toolLog'] = [];
     const turnMessages: { role: 'user' | 'assistant'; content: string }[] = [];
 
-    let steps = 0;
+    let toolSteps = 0;
+    let corrections = 0;
+    let llmCalls = 0;
+    /** 工具步 + 纠错 + 触顶总结，硬顶防失控 */
+    const maxLlmCalls = maxToolSteps + MAX_CORRECTION_STEPS + 2;
     let reply = '';
 
-    for (; steps < MAX_STEPS; steps++) {
+    while (llmCalls < maxLlmCalls) {
+      llmCalls++;
       const messages = [
         { role: 'system', content: `${AGENT_SYSTEM_PROMPT}\n\n可用工具：\n${buildToolPrompt()}` },
         ...history.map((m) => ({ role: m.role, content: m.content })),
@@ -184,9 +206,10 @@ export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResu
         // 工具调用形状但解析失败（截断/损坏的 JSON）→ 回喂模型重试，绝不让损坏的
         // JSON 落最终回答出口（否则用户直接看到原始截断文本，如 {"tool":...,"args":{"）
         if (looksLikeJson(contentText) && parseJsonLike(contentText) === null) {
+          corrections++;
+          if (corrections > MAX_CORRECTION_STEPS) break;
           const feedback = '【格式错误】你的输出是 JSON 形状但无法解析为合法工具调用（可能被截断）。请重新输出严格 JSON：{"tool":"<工具名>","args":{...}}；或改为输出纯文本最终回答。';
           turnMessages.push({ role: 'user', content: feedback });
-          // 以 system 角色持久化：历史重放时前端渲染为居中提示，而非伪用户气泡
           await appendAgentMessage(sessionId, 'system', feedback);
           continue;
         }
@@ -195,28 +218,39 @@ export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResu
         reply = formatted.text;
         await appendAgentMessage(sessionId, 'assistant', reply);
         await touchAgentSession(sessionId);
-        emit({ type: 'done', sessionId, reply, steps: steps + 1, toolLog, truncated: formatted.truncated, userMessageId });
-        return { sessionId, reply, steps: steps + 1, toolLog, truncated: formatted.truncated, userMessageId };
+        emit({
+          type: 'done',
+          sessionId,
+          reply,
+          steps: llmCalls,
+          toolLog,
+          truncated: formatted.truncated,
+          userMessageId,
+        });
+        return { sessionId, reply, steps: llmCalls, toolLog, truncated: formatted.truncated, userMessageId };
       }
 
       const tool = getTool(toolCall.tool);
       if (!tool) {
+        corrections++;
+        if (corrections > MAX_CORRECTION_STEPS) break;
         const feedback = `【工具不存在】工具 "${toolCall.tool}" 未注册。可用工具：${buildToolPrompt().split('\n').map((l) => l.split(':')[0]).join(', ')}。请重试。`;
         turnMessages.push({ role: 'user', content: feedback });
-        // system 角色持久化：反馈是系统级纠正，不应在历史重放中伪装成用户消息
         await appendAgentMessage(sessionId, 'system', feedback);
         continue;
       }
 
-      // 参数前校验：必填缺失/明显类型错误直接回喂模型重试，不执行无效调用
       const argError = validateToolArgs(tool, toolCall.args || {});
       if (argError) {
+        corrections++;
+        if (corrections > MAX_CORRECTION_STEPS) break;
         const feedback = `【参数错误】工具 "${tool.name}" 参数无效：${argError}。请按参数 schema 重新构造：{"tool":"${tool.name}","args":{...}}。`;
         turnMessages.push({ role: 'user', content: feedback });
-        // system 角色持久化：反馈是系统级纠正，不应在历史重放中伪装成用户消息
         await appendAgentMessage(sessionId, 'system', feedback);
         continue;
       }
+
+      if (toolSteps >= maxToolSteps) break;
 
       emit({ type: 'tool_start', tool: tool.name, args: toolCall.args || {} });
 
@@ -231,6 +265,7 @@ export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResu
         ok = false;
         resultText = `工具执行失败: ${(err as Error).message}`;
       }
+      toolSteps++;
       const summary = resultText.split('\n')[0].slice(0, 100);
       toolLog.push({
         name: tool.name,
@@ -240,10 +275,7 @@ export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResu
       });
       emit({ type: 'tool_end', tool: tool.name, ok, summary });
 
-      // 持久化工具执行终态：历史会话重放时前端据此渲染"完成/失败"，而非永久"执行中"
       const meta = { toolCall: { name: tool.name, args: toolCall.args || {}, status: ok ? 'done' : 'error' } };
-      // 持久化模型的真实输出（JSON 工具调用），而非占位符——跨轮次重放时模型
-      // 仍能看到自己此前的调用内容（模型可见即记录）
       await appendAgentMessage(sessionId, 'assistant', contentText, meta);
       await appendAgentMessage(sessionId, 'user', `【工具 ${tool.name} 结果】\n${resultText}`, { toolResult: { name: tool.name, ok, content: resultText.slice(0, 200) } });
 
@@ -251,12 +283,37 @@ export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResu
       turnMessages.push({ role: 'user', content: `【工具 ${tool.name} 结果】\n${resultText}` });
     }
 
-    // 步数上限：回退为回答当前已知内容
-    reply = `已达到单轮工具调用上限（${MAX_STEPS} 步），以下是目前掌握的信息。如需继续深入，请追问。`;
+    // 触顶：追加一次「仅总结、禁止再调工具」的 LLM 调用，避免只返回空提示
+    llmCalls++;
+    const synthMessages = [
+      { role: 'system', content: `${AGENT_SYSTEM_PROMPT}\n\n可用工具：\n${buildToolPrompt()}` },
+      ...history.map((m) => ({ role: m.role, content: m.content })),
+      ...turnMessages,
+      {
+        role: 'user',
+        content:
+          '【系统】单轮工具调用已达上限。请基于以上工具结果直接给出最终回答（纯文本 markdown，禁止再输出工具 JSON）。',
+      },
+    ];
+    let synthBuffer = '';
+    const { content: synthContent } = await chatCompletion({
+      messages: synthMessages,
+      maxTokens: 4096,
+      stream: true,
+      onDelta: (text: string) => {
+        synthBuffer += text;
+        if (looksLikeJson(synthBuffer.trim())) return;
+        emit({ type: 'delta', text });
+      },
+    });
+    const formatted = formatFinalAnswer(stripToolProtocolFromAnswer((synthContent || '').trim()));
+    reply = formatted.text.trim()
+      ? `${TRUNCATED_REPLY_PREFIX}\n\n${formatted.text}`
+      : `已达到单轮工具调用上限（${maxToolSteps} 次工具调用），暂未生成总结。请点击「继续分析」或追问。`;
     await appendAgentMessage(sessionId, 'assistant', reply);
     await touchAgentSession(sessionId);
-    emit({ type: 'done', sessionId, reply, steps, toolLog, truncated: true, userMessageId });
-    return { sessionId, reply, steps, toolLog, truncated: true, userMessageId };
+    emit({ type: 'done', sessionId, reply, steps: llmCalls, toolLog, truncated: true, userMessageId });
+    return { sessionId, reply, steps: llmCalls, toolLog, truncated: true, userMessageId };
   } catch (err) {
     // 错误时携带已创建的 sessionId：客户端失败重试可续用同一会话，避免孤儿会话
     if (sessionId != null) (err as Error & { sessionId?: number }).sessionId = sessionId;

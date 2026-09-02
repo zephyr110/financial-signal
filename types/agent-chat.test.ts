@@ -41,4 +41,25 @@ describe("historyToChatItems", () => {
     expect(items[0].processing?.tools).toHaveLength(1);
     expect(items[0].content).toBe("");
   });
+
+  it("上下文压缩摘要并入下一条助手回复的 processing", () => {
+    const items = historyToChatItems([
+      {
+        id: 1,
+        role: "system",
+        content: "（历史对话已压缩）用户关注半导体行业。",
+        meta: { contextCompact: true, summarizedCount: 6 },
+      },
+      { id: 2, role: "user", content: "继续分析" },
+      { id: 3, role: "assistant", content: "半导体近期信号较强。" },
+    ]);
+
+    expect(items).toHaveLength(2);
+    expect(items[1].processing?.compaction).toMatchObject({
+      status: "done",
+      summarizedCount: 6,
+      summary: "用户关注半导体行业。",
+    });
+    expect(items[1].content).toBe("半导体近期信号较强。");
+  });
 });
