@@ -1,4 +1,5 @@
 import { createClient } from '@libsql/client';
+import { industryDisplayName } from './constants';
 import crypto from 'crypto';
 import path from 'path';
 
@@ -611,11 +612,25 @@ export async function insertAnalysis({
 }
 
 /** Get analyzed news with their original content, joined. */
-export async function getAnalyzedNews({ minScore = 1, limit = 50, hoursBack = 24, cursor = 0 } = {}) {
+/**
+ * 关注行业过滤片段(analysis_result 别名 a;industries 为 JSON 数组文本)。
+ * industries 为空/未传时不加条件;json_each 仅对合法 JSON 生效(入库值均 JSON.stringify,安全)。
+ */
+function industryFilterClause(industries: string[] | null | undefined): { clause: string; args: string[] } {
+  if (!industries || industries.length === 0) return { clause: '', args: [] };
+  const placeholders = industries.map(() => '?').join(', ');
+  return {
+    clause: ` AND EXISTS (SELECT 1 FROM json_each(a.industries) AS je WHERE je.value IN (${placeholders}))`,
+    args: industries,
+  };
+}
+
+export async function getAnalyzedNews({ minScore = 1, limit = 50, hoursBack = 24, cursor = 0, industries = null } = {}) {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const safeMin = Number.isFinite(minScore) ? Math.min(5, Math.max(1, minScore)) : 1;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
+  const indFilter = industryFilterClause(industries);
   const result = await db.execute({
     sql: `
       SELECT n.*, a.id as analysis_id, a.signal_score, a.category, a.impact_level, a.industries, a.companies,
@@ -624,11 +639,11 @@ export async function getAnalyzedNews({ minScore = 1, limit = 50, hoursBack = 24
       JOIN analysis_result a ON a.news_id = n.id
       WHERE a.signal_score >= ?
         AND n.published_at >= ?
-        AND a.id < ?
+        AND a.id < ?${indFilter.clause}
       ORDER BY a.id DESC
       LIMIT ?
     `,
-    args: [safeMin, since, cursor || 9999999, limit],
+    args: [safeMin, since, cursor || 9999999, ...indFilter.args, limit],
   });
   return result.rows;
 }
@@ -677,7 +692,7 @@ export async function getDbCounts() {
 }
 
 /** Get industry-level aggregated signal strength for the heatmap. */
-export async function getIndustryHeatmap(hoursBack = 24) {
+export async function getIndustryHeatmap(hoursBack = 24, industries: string[] | null = null) {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
@@ -694,10 +709,12 @@ export async function getIndustryHeatmap(hoursBack = 24) {
   });
 
   const industryMap = new Map();
+  const watchedSet = industries ? new Set(industries) : null;
   for (const row of result.rows) {
-    let industries = [];
-    try { industries = JSON.parse(row.industries); } catch { continue; }
-    for (const ind of industries) {
+    let inds = [];
+    try { inds = JSON.parse(row.industries); } catch { continue; }
+    for (const ind of inds) {
+      if (watchedSet && !watchedSet.has(ind)) continue;
       if (!industryMap.has(ind)) {
         industryMap.set(ind, { count: 0, scoreSum: 0, positive: 0, negative: 0 });
       }
@@ -720,7 +737,7 @@ export async function getIndustryHeatmap(hoursBack = 24) {
 }
 
 /** Get hourly trend data for top industries (signal_score >= 3). */
-export async function getIndustryTrend(hoursBack = 24) {
+export async function getIndustryTrend(hoursBack = 24, industries: string[] | null = null) {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
@@ -758,16 +775,18 @@ export async function getIndustryTrend(hoursBack = 24) {
 
   // Group by bucket and industry
   const buckets = new Map();
+  const watchedSet = industries ? new Set(industries) : null;
   for (const row of result.rows) {
-    let industries = [];
-    try { industries = JSON.parse(row.industries); } catch { continue; }
+    let inds = [];
+    try { inds = JSON.parse(row.industries); } catch { continue; }
     const dt = new Date(row.published_at);
     dt.setMinutes(0, 0, 0);
     dt.setHours(Math.floor(dt.getHours() / bucketHours) * bucketHours);
     if (bucketHours >= 24) dt.setHours(0);
     const key = dt.toISOString();
 
-    for (const ind of industries) {
+    for (const ind of inds) {
+      if (watchedSet && !watchedSet.has(ind)) continue;
       if (!buckets.has(key)) buckets.set(key, new Map());
       const indMap = buckets.get(key);
       indMap.set(ind, (indMap.get(ind) || 0) + 1);
@@ -837,7 +856,7 @@ export function normalizeThreadTitle(title: string | null | undefined): string {
 }
 
 /** Get recent event threads. limit 用于 ISR 预渲染裁剪（P1.5 构建期 DB 解耦）。 */
-export async function getEventThreads(hoursBack = 24, limit = 500) {
+export async function getEventThreads(hoursBack = 24, limit = 500, industries: string[] | null = null) {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) ? Math.min(hoursBack, 24 * 30) : 24;
   const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 1000) : 500;
@@ -846,12 +865,20 @@ export async function getEventThreads(hoursBack = 24, limit = 500) {
     sql: 'SELECT * FROM event_threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?',
     args: [since, safeLimit],
   });
-  return result.rows.map(r => ({
+  const parsed = result.rows.map(r => ({
     ...r,
     news_ids: tryParseJson(r.news_ids),
     industries: tryParseJson(r.industries),
     watch_points: tryParseJson(r.watch_points),
   }));
+  if (!industries || industries.length === 0) return parsed;
+  // 线索行业(LLM 原始名)与关注行业(板块名)归一后比对
+  const watchedSet = new Set(industries.map((w) => industryDisplayName(w)));
+  return parsed.filter((t) => {
+    const inds = (t.industries as string[]) || [];
+    if (inds.length === 0) return false;
+    return inds.some((ind) => watchedSet.has(industryDisplayName(ind)));
+  });
 }
 
 /** Get a single event thread by id, with its linked signals (news_ids → analysis rows). */
@@ -1317,6 +1344,7 @@ export async function searchSignals({
 export async function getAnalysisStatsWithComparison(
   currentHoursBack = 24,
   previousHoursBack = 24,
+  industries: string[] | null = null,
 ) {
   const db = await getDb();
   const safeCur = Number.isFinite(currentHoursBack) ? Math.min(currentHoursBack, 720) : 24;
@@ -1326,6 +1354,7 @@ export async function getAnalysisStatsWithComparison(
   const previousSince = new Date(now - (safeCur + safePrev) * 60 * 60 * 1000).toISOString();
   const previousUntil = currentSince;
 
+  const indFilter = industryFilterClause(industries);
   const queryStats = (since: string, until?: string) => {
     const conditions = until
       ? `n.published_at >= ? AND n.published_at < ?`
@@ -1340,9 +1369,9 @@ export async function getAnalysisStatsWithComparison(
           COALESCE(SUM(CASE WHEN a.signal_score = 4 THEN 1 ELSE 0 END), 0) as significant_count
         FROM analysis_result a
         JOIN news_archive n ON n.id = a.news_id
-        WHERE ${conditions}
+        WHERE ${conditions}${indFilter.clause}
       `,
-      args,
+      args: [...args, ...indFilter.args],
     });
   };
 
@@ -1365,13 +1394,13 @@ export async function getAnalysisStatsWithComparison(
  * Get company-level signal aggregation for the heatmap (top 10 companies by mention count).
  * Only includes signals with score >= 3.
  */
-export async function getCompanyHeatmap(hoursBack = 24) {
+export async function getCompanyHeatmap(hoursBack = 24, industries: string[] | null = null) {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
   const result = await db.execute({
     sql: `
-      SELECT a.companies, a.signal_score
+      SELECT a.companies, a.industries, a.signal_score
       FROM analysis_result a
       JOIN news_archive n ON n.id = a.news_id
       WHERE n.published_at >= ?
@@ -1382,7 +1411,14 @@ export async function getCompanyHeatmap(hoursBack = 24) {
   });
 
   const companyMap = new Map<string, { count: number; scoreSum: number }>();
+  const watchedSet = industries ? new Set(industries) : null;
   for (const row of result.rows) {
+    // 公司计数跟随行业口径:新闻涉及的行业与关注列表无交集时整条跳过
+    if (watchedSet) {
+      const rowInds = tryParseJson(row.industries as string | null) as string[];
+      const hit = rowInds.some((ind) => watchedSet.has(ind));
+      if (!hit) continue;
+    }
     const companies = tryParseJson(row.companies as string);
     for (const comp of companies) {
       if (!companyMap.has(comp)) {

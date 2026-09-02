@@ -91,6 +91,8 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
   const [scoreFilter, setScoreFilter] = useState(null);
   const [trendHours, setTrendHours] = useState(168);
   const { watched, toggle: toggleIndustry, clearAll: clearIndustries, filterByWatched } = useWatchedIndustries();
+  // 归一化后的关注行业(兼容 localStorage 遗留的原始 LLM 名):全页过滤/匹配统一用它
+  const watchedEff = useMemo(() => watched.map(industryDisplayName), [watched]);
 
   // ── Search state ──
   const [searchQuery, setSearchQuery] = useState("");
@@ -110,8 +112,13 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
     setFetching(true);
     setError(null);
     const gen = ++listGenRef.current;
+    const watchQuery =
+      watchedEff.length > 0 ? `&watched=${watchedEff.join(",")}` : "";
     try {
-      const res = await fetch(`/api/analysis?hoursBack=24&trendHours=${trendHours}`, signal ? { signal } : {});
+      const res = await fetch(
+        `/api/analysis?hoursBack=24&trendHours=${trendHours}${watchQuery}`,
+        signal ? { signal } : {}
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (gen !== listGenRef.current) return; // 已被更新的刷新/加载取代
@@ -136,7 +143,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
     } finally {
       setFetching(false);
     }
-  }, [trendHours]);
+  }, [trendHours, watchedEff]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -147,12 +154,6 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
   // Apply industry filter first, then score/card filters on top
   const watchedItems = useMemo(() => filterByWatched(items), [items, filterByWatched]);
 
-  // 归一化后的关注行业(兼容 localStorage 遗留的原始 LLM 名):用于与归一化数据的匹配/展示
-  const watchedEff = useMemo(
-    () => watched.map(industryDisplayName),
-    [watched]
-  );
-
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
@@ -160,7 +161,9 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
     try {
       // Score filter uses server-side filtering; card filter uses client-side
       const minScoreParam = scoreFilter || 1;
-      const url = `/api/analysis?hoursBack=24&cursor=${nextCursor}&trendHours=${trendHours}&minScore=${minScoreParam}`;
+      const watchQuery =
+        watchedEff.length > 0 ? `&watched=${watchedEff.join(",")}` : "";
+      const url = `/api/analysis?hoursBack=24&cursor=${nextCursor}&trendHours=${trendHours}&minScore=${minScoreParam}${watchQuery}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -180,7 +183,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore, trendHours, scoreFilter]);
+  }, [nextCursor, loadingMore, trendHours, scoreFilter, watchedEff]);
 
   // ── Search handlers ──
   const handleSearch = useCallback(async (params: { query: string; minScore: number; hoursBack: number }) => {

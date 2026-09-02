@@ -18,14 +18,19 @@ export default async function handler(req: any, res: any) {
     const trendHours = clampInt(req.query.trendHours, hoursBack, 1, 8760);
     const minScore = clampInt(req.query.minScore, 1, 1, 5);
     const cursor = clampInt(req.query.cursor, 0, 0, 9999999);
+    // 关注行业(逗号分隔,归一板块名):非空时全页数据统一按行业过滤(概览/情感/热力/趋势/线索/公司/列表)
+    const watchedParam = Array.isArray(req.query.watched) ? req.query.watched[0] : req.query.watched;
+    const industries: string[] | null = typeof watchedParam === 'string' && watchedParam.length > 0
+      ? watchedParam.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 30)
+      : null;
 
     const [news, statsComparison, heatmap, trend, threads, companyHeatmap, marketToday] = await Promise.all([
-      getAnalyzedNews({ minScore, hoursBack, limit: 50, cursor }),
-      getAnalysisStatsWithComparison(hoursBack, hoursBack),
-      getIndustryHeatmap(hoursBack),
-      getIndustryTrend(trendHours),
-      getEventThreads(hoursBack),
-      getCompanyHeatmap(hoursBack),
+      getAnalyzedNews({ minScore, hoursBack, limit: 50, cursor, industries }),
+      getAnalysisStatsWithComparison(hoursBack, hoursBack, industries),
+      getIndustryHeatmap(hoursBack, industries),
+      getIndustryTrend(trendHours, industries),
+      getEventThreads(hoursBack, 500, industries),
+      getCompanyHeatmap(hoursBack, industries),
       getTodayMarketData(8),
     ]);
 
