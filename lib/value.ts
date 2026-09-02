@@ -121,7 +121,7 @@ export function evaluateValue(
       value: 0,
       threshold: 0,
       pass: null,
-      note: '暂无独立反馈渠道，此项暂按通过计',
+      note: '暂无独立反馈渠道——命中率(方向口径)与分层状态请以分析页回测面板为准，本项未评估',
     },
   ];
 

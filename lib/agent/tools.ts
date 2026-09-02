@@ -104,7 +104,8 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
   {
     name: 'get_backtest',
     description:
-      '查询行业信号回测统计（信号出现后1/3/7日平均涨跌与胜率）。' +
+      '查询行业信号回测统计（信号出现后1/3/7日平均涨跌与方向命中率）。' +
+      '命中率为方向口径：看多事件次日涨/看空事件次日跌计命中，分母仅计带方向(多/空)事件，中性/混合不计。' +
       '用于回答"某行业的信号历史上表现如何"类问题。',
     parameters: {
       type: 'object',
@@ -121,7 +122,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
         : rows;
       if (filtered.length === 0) return `没有找到行业"${args.industry}"的回测数据。`;
       const lines = filtered.slice(0, 10).map((r) =>
-        `${r.industry}: ${r.samples}次样本 1日${r.avg_d1}% 3日${r.avg_d3}% 7日${r.avg_d7}% 胜率${r.win_rate}%`
+        `${r.industry}: ${r.samples}次样本 1日${r.avg_d1}% 3日${r.avg_d3}% 7日${r.avg_d7}% 命中率${r.win_rate == null ? '—' : `${r.win_rate}%`}（方向口径,${r.directional_count ?? 0}个多/空事件计入分母）`
       );
       return `行业信号回测统计（近${numArg(args.daysBack, 30)}天）：\n${lines.join('\n')}`;
     },

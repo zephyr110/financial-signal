@@ -248,6 +248,14 @@ export async function runBacktest(daysBack = 30) {
     });
   }
 
+  // 清理超窗行:回测只承诺展示最近 daysBack 天,旧行不删会与「近 30 天」文案漂移
+  // (且 v5 迁移前的遗留行 direction 为 NULL,清理后窗口内行下次重建时全部带方向)
+  const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  await db.execute({
+    sql: 'DELETE FROM backtest_result WHERE signal_date < ?',
+    args: [cutoff],
+  });
+
   const stats = await db.execute({ sql: 'SELECT COUNT(*) as total FROM backtest_result', args: [] });
   console.log(`[backtest] Completed: ${stats.rows[0]?.total || 0} signal-market pairs analyzed`);
   return { pairs: stats.rows[0]?.total || 0 };
@@ -282,9 +290,11 @@ export async function getBacktestSummary() {
               COALESCE(ROUND(AVG(day_1_return), 2), 0) as avg_d1,
               COALESCE(ROUND(AVG(day_3_return), 2), 0) as avg_d3,
               COALESCE(ROUND(AVG(day_7_return), 2), 0) as avg_d7,
+              SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END) as directional_count,
               ROUND(SUM(CASE WHEN (direction = 'long' AND day_1_return > 0) OR (direction = 'short' AND day_1_return < 0) THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END), 0), 1) as win_rate
             FROM backtest_result
             WHERE day_1_return IS NOT NULL
+              AND signal_date >= date('now', '-30 day')
             GROUP BY signal_score
             ORDER BY signal_score DESC`,
     }),
@@ -294,9 +304,11 @@ export async function getBacktestSummary() {
               COALESCE(ROUND(AVG(day_1_return), 2), 0) as avg_d1,
               COALESCE(ROUND(AVG(day_3_return), 2), 0) as avg_d3,
               COALESCE(ROUND(AVG(day_7_return), 2), 0) as avg_d7,
+              SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END) as directional_count,
               ROUND(SUM(CASE WHEN (direction = 'long' AND day_1_return > 0) OR (direction = 'short' AND day_1_return < 0) THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END), 0), 1) as win_rate
             FROM backtest_result
             WHERE day_1_return IS NOT NULL
+              AND signal_date >= date('now', '-30 day')
             GROUP BY industry, signal_score
             HAVING COUNT(*) >= 3
             ORDER BY signal_score DESC, samples DESC`,

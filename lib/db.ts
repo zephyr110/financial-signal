@@ -1408,7 +1408,8 @@ export async function getCompanyHeatmap(hoursBack = 24) {
 
 /**
  * Get backtest summary grouped by industry (instead of signal_score).
- * Only returns industries with at least 5 samples.
+ * 下限过滤统一 ≥3(与 market.getBacktestSummary 一致);展示分层(10/30)由 UI 层全权管控,
+ * 低样本行业在 UI 显示「数据积累中」占位而非被 SQL 静默吃掉。
  */
 export async function getBacktestByIndustry(daysBack = 30) {
   const db = await getDb();
@@ -1421,6 +1422,7 @@ export async function getBacktestByIndustry(daysBack = 30) {
              COALESCE(ROUND(AVG(day_1_return), 2), 0) as avg_d1,
              COALESCE(ROUND(AVG(day_3_return), 2), 0) as avg_d3,
              COALESCE(ROUND(AVG(day_7_return), 2), 0) as avg_d7,
+             SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END) as directional_count,
              -- 方向命中率:看多事件次日涨/看空事件次日跌为胜;
              -- 分母 = 仅带方向(long/short)事件;中性/混合/遗留 NULL 不计(口径见 UI tooltip)
              ROUND(SUM(CASE WHEN (direction = 'long' AND day_1_return > 0) OR (direction = 'short' AND day_1_return < 0) THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN direction IN ('long', 'short') THEN 1 ELSE 0 END), 0), 1) as win_rate
@@ -1429,7 +1431,7 @@ export async function getBacktestByIndustry(daysBack = 30) {
         AND industry IS NOT NULL
         AND signal_date >= ?
       GROUP BY industry
-      HAVING COUNT(*) >= 5
+      HAVING COUNT(*) >= 3
       ORDER BY samples DESC
     `,
     args: [since],
