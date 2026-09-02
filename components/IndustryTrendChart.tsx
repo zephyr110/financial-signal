@@ -1,18 +1,8 @@
+import { useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { useChartTooltip, resolveTooltipColor } from "@/components/chart-tooltip";
 
 const COLORS = ["#2563eb", "#e11d48", "#16a34a", "#f97316", "#7c3aed", "#ca8a04"];
-
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius)",
-    fontSize: 12,
-    color: "var(--foreground)",
-  },
-  labelStyle: { color: "var(--foreground)", fontWeight: 600 },
-  itemStyle: { color: "var(--muted-foreground)" },
-};
 
 /**
  * Multi-line trend chart — industry signal count over time (2-hour buckets).
@@ -64,6 +54,21 @@ export default function IndustryTrendChart({ data, watched }) {
     );
   }
 
+  const topKeysKey = topKeys.join("\0");
+
+  const colorByKey = useMemo(
+    () => Object.fromEntries(topKeys.map((key, i) => [key, COLORS[i % COLORS.length]])),
+    [topKeysKey],
+  );
+
+  const tooltipContent = useChartTooltip(
+    {
+      formatter: (value, name) => [`${value} 条`, name],
+      getColor: (entry) => colorByKey[String(entry.name ?? entry.dataKey)] ?? resolveTooltipColor(entry),
+    },
+    [colorByKey],
+  );
+
   return (
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={data} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
@@ -83,7 +88,7 @@ export default function IndustryTrendChart({ data, watched }) {
           width={40}
           label={{ value: "信号数", angle: -90, position: "center", offset: -28, style: { fontSize: 11, fill: "var(--muted-foreground)" } }}
         />
-        <Tooltip {...TOOLTIP_STYLE} />
+        <Tooltip content={tooltipContent} />
         <Legend
           wrapperStyle={{ fontSize: 11, color: "var(--muted-foreground)" }}
         />

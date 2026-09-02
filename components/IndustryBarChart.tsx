@@ -1,18 +1,17 @@
 import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from "recharts";
 import { track } from "@/lib/track";
+import { CHART_TOOLTIP_CURSOR, chartTooltipContent } from "@/components/chart-tooltip";
 
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius)",
-    fontSize: 12,
-    color: "var(--foreground)",
+const industryBarTooltip = chartTooltipContent({
+  labelFormatter: (_, payload) => String(payload?.[0]?.payload?.fullName ?? ""),
+  formatter: (value, name) => {
+    if (name === "count") return [`${value} 条`, "信号数"];
+    return [String(value), name];
   },
-  labelStyle: { color: "var(--foreground)", fontWeight: 600 },
-  itemStyle: { color: "var(--muted-foreground)" },
-};
+  getColor: (entry) =>
+    avgScoreToColor(Number((entry.payload as { score?: number })?.score ?? 3)),
+});
 
 interface IndustryBarChartProps {
   data: any[];
@@ -73,14 +72,7 @@ export default function IndustryBarChart({ data, onIndustryClick }: IndustryBarC
             tickLine={false}
             width={56}
           />
-          <Tooltip
-            {...TOOLTIP_STYLE}
-            formatter={(value, name) => {
-              if (name === "count") return [`${value} 条`, "信号数"];
-              return [value, name];
-            }}
-            labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || ""}
-          />
+          <Tooltip cursor={CHART_TOOLTIP_CURSOR} content={industryBarTooltip} />
           <Bar
             dataKey="count"
             radius={[0, 4, 4, 0]}

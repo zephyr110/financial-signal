@@ -8,18 +8,16 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import { CHART_TOOLTIP_CURSOR, chartTooltipContent } from "@/components/chart-tooltip";
 
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius)",
-    fontSize: 12,
-    color: "var(--foreground)",
+const companyHeatmapTooltip = chartTooltipContent({
+  formatter: (_value, _name, entry) => {
+    const p = entry.payload as { signalCount?: number; avgScore?: number } | undefined;
+    return [`${p?.signalCount ?? 0} 次 · 均分 ${p?.avgScore ?? "—"}`, "提及"];
   },
-  labelStyle: { color: "var(--foreground)", fontWeight: 600 as const },
-  itemStyle: { color: "var(--muted-foreground)" },
-};
+  getColor: (entry) =>
+    String((entry.payload as { fill?: string })?.fill ?? avgScoreToColor(3)),
+});
 
 interface CompanyHeatmapItem {
   company: string;
@@ -44,10 +42,7 @@ export default function CompanyHeatmap({ data }: CompanyHeatmapProps) {
     );
   }
 
-  // Largest count for bar width scaling
-  const maxCount = Math.max(...data.map((d) => d.signalCount), 1);
-
-  const chartData = data.map((d, i) => ({
+  const chartData = data.map((d) => ({
     ...d,
     // Progressive HSL color: hue from 0 (red/high score) to 210 (blue/low score)
     fill: avgScoreToColor(d.avgScore),
@@ -77,13 +72,7 @@ export default function CompanyHeatmap({ data }: CompanyHeatmapProps) {
             tickLine={false}
             width={80}
           />
-          <Tooltip
-            {...TOOLTIP_STYLE}
-            formatter={(_value: number, _name: string, props: any) => [
-              `${props.payload.signalCount} 次 · 均分 ${props.payload.avgScore}`,
-              "提及",
-            ]}
-          />
+          <Tooltip cursor={CHART_TOOLTIP_CURSOR} content={companyHeatmapTooltip} />
           <Bar dataKey="signalCount" radius={[0, 4, 4, 0]} maxBarSize={24}>
             {chartData.map((entry, i) => (
               <Cell key={i} fill={entry.fill} />

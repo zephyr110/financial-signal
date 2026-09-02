@@ -12,6 +12,7 @@ import {
   summarizeOverallSentiment,
   type SentimentBreakdownRow,
 } from "@/lib/sentiment";
+import { CHART_TOOLTIP_CURSOR, chartTooltipContent } from "@/components/chart-tooltip";
 
 // A股惯例：红涨绿跌 → 看多红、看空绿
 const SENTIMENT_COLORS = {
@@ -28,17 +29,12 @@ const SENTIMENT_LABELS: Record<string, string> = {
   mixed: "混合",
 };
 
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius)",
-    fontSize: 12,
-    color: "var(--foreground)",
-  },
-  labelStyle: { color: "var(--foreground)", fontWeight: 600 as const },
-  itemStyle: { color: "var(--muted-foreground)" },
-};
+const sentimentTooltip = chartTooltipContent({
+  hideZero: true,
+  formatter: (value, name) => [`${value} 条`, SENTIMENT_LABELS[name] || name],
+  getColor: (entry) =>
+    SENTIMENT_COLORS[String(entry.name) as keyof typeof SENTIMENT_COLORS] ?? "#6b7280",
+});
 
 interface SentimentChartProps {
   data: SentimentBreakdownRow[];
@@ -100,13 +96,7 @@ export default function SentimentChart({ data, sampleNote }: SentimentChartProps
             allowDecimals={false}
             width={28}
           />
-          <Tooltip
-            {...TOOLTIP_STYLE}
-            formatter={(value: number, name: string) => [
-              `${value} 条`,
-              SENTIMENT_LABELS[name] || name,
-            ]}
-          />
+          <Tooltip cursor={CHART_TOOLTIP_CURSOR} content={sentimentTooltip} />
           <Bar dataKey="positive" stackId="sent" fill={SENTIMENT_COLORS.positive} name="positive" />
           <Bar dataKey="negative" stackId="sent" fill={SENTIMENT_COLORS.negative} name="negative" />
           <Bar dataKey="neutral" stackId="sent" fill={SENTIMENT_COLORS.neutral} name="neutral" />

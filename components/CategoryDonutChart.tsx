@@ -1,27 +1,16 @@
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { CATEGORY_LABELS } from "@/lib/constants";
+import { chartTooltipContent, useChartTooltip } from "@/components/chart-tooltip";
 
-const COLORS = {
-  policy:       "#e11d48",
-  geopolitics:  "#f97316",
-  industry:     "#2563eb",
-  company:      "#16a34a",
-  macro:        "#7c3aed",
+const COLORS: Record<string, string> = {
+  policy: "#e11d48",
+  geopolitics: "#f97316",
+  industry: "#2563eb",
+  company: "#16a34a",
+  macro: "#7c3aed",
   market_rumor: "#ca8a04",
 };
 const FALLBACK = "#6b7280";
-
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "var(--card)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius)",
-    fontSize: 12,
-    color: "var(--foreground)",
-  },
-  labelStyle: { color: "var(--foreground)", fontWeight: 600 },
-  itemStyle: { color: "var(--muted-foreground)" },
-};
 
 /**
  * Donut chart — category distribution of quality signals (score ≥ 3).
@@ -62,6 +51,20 @@ export default function CategoryDonutChart({ items }) {
     }))
     .sort((a, b) => b.value - a.value);
 
+  const tooltipContent = useChartTooltip(
+    {
+      formatter: (value, _name, entry) => {
+        const label = String((entry.payload as { name?: string })?.name ?? "");
+        return [`${value} 条 (${((Number(value) / total) * 100).toFixed(0)}%)`, label];
+      },
+      getColor: (entry) => {
+        const key = (entry.payload as { key?: string })?.key;
+        return (key && COLORS[key]) || FALLBACK;
+      },
+    },
+    [total],
+  );
+
   return (
     <div>
       <ResponsiveContainer width="100%" height={220}>
@@ -74,16 +77,14 @@ export default function CategoryDonutChart({ items }) {
             outerRadius={80}
             paddingAngle={2}
             dataKey="value"
+            nameKey="name"
             stroke="none"
           >
             {chartData.map((entry, i) => (
               <Cell key={i} fill={COLORS[entry.key] || FALLBACK} />
             ))}
           </Pie>
-          <Tooltip
-            {...TOOLTIP_STYLE}
-            formatter={(value) => [`${value} 条 (${((value / total) * 100).toFixed(0)}%)`]}
-          />
+          <Tooltip content={tooltipContent} />
           <text
             x="50%"
             y="50%"
