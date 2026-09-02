@@ -1,6 +1,6 @@
 {
   "name": "financial-signal",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "新浪全球实时财经新闻",
   "private": true,
   "main": "electron/main.js",
