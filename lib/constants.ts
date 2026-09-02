@@ -46,3 +46,15 @@ export const SCORE_TO_IMPACT = {
   2: 'minor',
   1: 'noise',
 };
+
+// ── 行业名展示归一 ──
+// LLM 输出的行业名与行情板块名不一致时,统一到板块名展示(与回测/板块对照行同一词汇)。
+// 与 lib/market.ts 的行情映射同源;idempotent:板块名本身不在 key 中,重复调用不变。
+export const INDUSTRY_ALIASES: Record<string, string> = {
+  '半导体': '半导体材料',
+  '光模块': '光通信模块',
+};
+
+export function industryDisplayName(name: string): string {
+  return INDUSTRY_ALIASES[name] ?? name;
+}

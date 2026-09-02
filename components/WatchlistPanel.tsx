@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Star, X, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAllWatchlist, subscribeWatchlist, toggleWatchlist, type WatchlistItem } from "@/lib/watchlist";
+import { industryDisplayName } from "@/lib/constants";
 
 interface Props {
   /** analysis 页现有信号数据（按 id 匹配 watchlist 条目） */
@@ -58,7 +59,8 @@ export default function WatchlistPanel({ items, threads, heatmap = null }: Props
           <span className="text-xs text-muted-foreground block mb-1.5">跟踪行业</span>
           <div className="flex flex-wrap gap-1.5">
             {industries.map((w) => {
-              const count = heatmapCounts.get(w.id) ?? 0;
+              const name = industryDisplayName(w.id); // 兼容遗留原始 LLM 名的 watch 条目
+              const count = heatmapCounts.get(name) ?? 0;
               return (
                 <button
                   key={`industry-${w.id}`}
@@ -67,7 +69,7 @@ export default function WatchlistPanel({ items, threads, heatmap = null }: Props
                   className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-accent text-accent-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
                 >
                   <TrendingUp className="h-3 w-3" />
-                  {w.id}
+                  {name}
                   {count > 0 && (
                     <span className="text-xs text-muted-foreground">({count})</span>
                   )}

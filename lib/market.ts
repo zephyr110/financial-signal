@@ -3,6 +3,7 @@
  * Fetches daily quote for 申万 industry sector indices via the quote API.
  */
 import { getDb, getBacktestByIndustry } from './db';
+import { INDUSTRY_ALIASES } from './constants';
 
 export type EventDirection = 'long' | 'short' | 'neutral' | 'mixed';
 
@@ -154,16 +155,8 @@ export async function saveMarketData(rows) {
 }
 
 /**
- * 行业名 → 板块名别名映射（LLM 标注的申万行业名与东财板块名不完全一致时兜底）。
- * 仅在无直接匹配时启用（见 runBacktest），不会造成双计。
- */
-const INDUSTRY_ALIASES: Record<string, string> = {
-  '半导体': '半导体材料',
-  '光模块': '光通信模块',
-};
-
-/**
  * Run backtest: correlate past signals with subsequent market returns.
+ * 行业名 → 板块名兜底映射见 lib/constants.ts INDUSTRY_ALIASES(仅无直接匹配时启用,不会双计)。
  */
 export async function runBacktest(daysBack = 30) {
   const db = await getDb();

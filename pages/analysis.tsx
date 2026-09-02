@@ -24,6 +24,7 @@ import SignalSearchResults from "../components/SignalSearchResults";
 import WatchlistPanel from "../components/WatchlistPanel";
 import { getAnalyzedNews, getAnalysisStats, getIndustryHeatmap, getIndustryTrend, getEventThreads } from "../lib/db";
 import { useWatchedIndustries } from "../lib/useWatchedIndustries";
+import { industryDisplayName } from "@/lib/constants";
 import { safeParse } from "../lib/utils";
 
 function applyFilters(allItems, cardFilter, scoreFilter, maxScore) {
@@ -41,8 +42,39 @@ function applyFilters(allItems, cardFilter, scoreFilter, maxScore) {
   return filtered;
 }
 
+// 行业名展示归一:LLM 标注名 → 板块名,保证热力图/选择器/趋势/时间线/回测同屏同一词汇
+function normSignalItems(list: any[] | null | undefined): any[] {
+  return (list || []).map((item) => ({
+    ...item,
+    industries: (Array.isArray(item.industries) ? item.industries : []).map(industryDisplayName),
+    companies: Array.isArray(item.companies) ? item.companies : [],
+  }));
+}
+
+function normHeatmapRows(rows: any[] | null | undefined): { industry: string; signalCount: number }[] {
+  const m = new Map<string, number>();
+  for (const h of rows || []) {
+    const k = industryDisplayName(h.industry);
+    m.set(k, (m.get(k) || 0) + (h.signalCount || 0));
+  }
+  return Array.from(m.entries()).map(([industry, signalCount]) => ({ industry, signalCount }));
+}
+
+function normTrendRows(rows: any[] | null | undefined): Record<string, unknown>[] {
+  return (rows || []).map((row) => {
+    const merged: Record<string, number> = {};
+    for (const [k, v] of Object.entries(row)) {
+      if (k === "time") continue;
+      const dk = industryDisplayName(k);
+      merged[dk] = (merged[dk] || 0) + (typeof v === "number" ? v : 0);
+    }
+    // 只输出 time + 归一后的行业键:保留原始键会造成同行业双系列/重复计数
+    return { time: row.time, ...merged };
+  });
+}
+
 export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ssgHeatmap, trend: ssgTrend, threads: ssgThreads, sentimentBreakdown: ssgSentiment, companyHeatmap: ssgCompanyHeatmap, error: ssgError }) {
-  const [items, setItems] = useState(ssgItems);
+  const [items, setItems] = useState(() => normSignalItems(ssgItems));
   const [stats, setStats] = useState(ssgStats);
   const [heatmap, setHeatmap] = useState(ssgHeatmap || []);
   const [trend, setTrend] = useState(ssgTrend || []);
@@ -83,12 +115,12 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (gen !== listGenRef.current) return; // 已被更新的刷新/加载取代
-      setItems((data.items || []).map(item => ({
+      setItems(normSignalItems((data.items || []).map(item => ({
         ...item,
         industries: item.industries ? safeParse(item.industries) : [],
         companies: item.companies ? safeParse(item.companies) : [],
         tags: item.tags ? safeParse(item.tags) : [],
-      })));
+      }))));
       setStats(data.stats || {});
       setHeatmap(data.heatmap || []);
       setTrend(data.trend || []);
@@ -115,6 +147,12 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
   // Apply industry filter first, then score/card filters on top
   const watchedItems = useMemo(() => filterByWatched(items), [items, filterByWatched]);
 
+  // 归一化后的关注行业(兼容 localStorage 遗留的原始 LLM 名):用于与归一化数据的匹配/展示
+  const watchedEff = useMemo(
+    () => watched.map(industryDisplayName),
+    [watched]
+  );
+
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
@@ -127,12 +165,15 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (gen !== listGenRef.current) return; // 期间发生过刷新/筛选变更,丢弃旧分页
-      setItems(prev => [...prev, ...(data.items || []).map((item: any) => ({
-        ...item,
-        industries: item.industries ? safeParse(item.industries) : [],
-        companies: item.companies ? safeParse(item.companies) : [],
-        tags: item.tags ? safeParse(item.tags) : [],
-      }))]);
+      setItems(prev => [
+        ...prev,
+        ...normSignalItems((data.items || []).map((item: any) => ({
+          ...item,
+          industries: item.industries ? safeParse(item.industries) : [],
+          companies: item.companies ? safeParse(item.companies) : [],
+          tags: item.tags ? safeParse(item.tags) : [],
+        }))),
+      ]);
       setNextCursor(data.nextCursor || null);
     } catch (e) {
       console.error('Load more failed:', e);
@@ -208,27 +249,35 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
     return applyFilters(watchedItems, cardFilter, scoreFilter, stats?.max_score || 0);
   }, [watchedItems, cardFilter, scoreFilter, stats?.max_score]);
 
-  // Filter heatmap, trend, threads by watched industries
+  // 展示归一:heatmap/trend 在消费处统一到板块名(LLM 原始名与行情板块名同屏一致)
+  const normHeatmap = useMemo(() => normHeatmapRows(heatmap), [heatmap]);
+  const normTrend = useMemo(() => normTrendRows(trend), [trend]);
+
+  // Filter heatmap, trend, threads by watched industries(匹配用归一后的行业名)
   const filteredHeatmap = useMemo(() => {
-    if (!watched || watched.length === 0) return heatmap || [];
-    return (heatmap || []).filter(h => watched.includes(h.industry));
-  }, [heatmap, watched]);
+    if (watchedEff.length === 0) return normHeatmap;
+    return normHeatmap.filter(h => watchedEff.includes(h.industry));
+  }, [normHeatmap, watchedEff]);
 
   const filteredThreads = useMemo(() => {
-    if (!watched || watched.length === 0) return threads || [];
-    return (threads || []).filter(t => {
+    const norm = (threads || []).map(t => ({
+      ...t,
+      industries: Array.isArray(t.industries) ? t.industries.map(industryDisplayName) : [],
+    }));
+    if (watchedEff.length === 0) return norm;
+    return norm.filter(t => {
       if (!t.industries || t.industries.length === 0) return true;
-      return t.industries.some((ind: string) => watched.includes(ind));
+      return t.industries.some((ind: string) => watchedEff.includes(ind));
     });
-  }, [threads, watched]);
+  }, [threads, watchedEff]);
 
   // Pass watched to IndustryTrendChart so it only shows watched industry lines
-  const trendWatched = watched.length > 0 ? watched : null;
+  const trendWatched = watchedEff.length > 0 ? watchedEff : null;
 
-  // Derive available industries from heatmap for the selector
+  // Derive available industries from heatmap for the selector(归一后;计数与回测一致口径)
   const availableIndustries = useMemo(() => {
-    return (heatmap || []).slice(0, 20).map(h => ({ industry: h.industry, signalCount: h.signalCount }));
-  }, [heatmap]);
+    return normHeatmap.slice(0, 20).map(h => ({ industry: h.industry, signalCount: h.signalCount }));
+  }, [normHeatmap]);
 
   const hasData = items.length > 0;
 
@@ -282,7 +331,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
               <SignalAlert items={watchedItems} />
               <IndustrySelector
                 industries={availableIndustries}
-                watched={watched}
+                watched={watchedEff}
                 onToggle={toggleIndustry}
                 onClear={clearIndustries}
               />
@@ -291,7 +340,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
 
           <ErrorBanner message={error} />
 
-          <WatchlistPanel items={items} threads={threads} heatmap={heatmap} />
+          <WatchlistPanel items={items} threads={threads} heatmap={normHeatmap} />
 
           <SearchBar
             onSearch={handleSearch}
@@ -414,7 +463,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
                     <TimeRangeFilter value={trendHours} onChange={setTrendHours} />
                   </div>
                   <div className="bg-card border rounded-xl p-4 sm:p-5 mb-6">
-                    <IndustryTrendChart data={trend} watched={trendWatched} />
+                    <IndustryTrendChart data={normTrend} watched={trendWatched} />
                   </div>
                 </div>
               )}

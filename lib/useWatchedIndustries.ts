@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { industryDisplayName } from "./constants";
 import { getAllWatchlist, subscribeWatchlist, toggleWatchlist, removeWatchlist, type WatchlistType } from "./watchlist";
 
 const LEGACY_KEY = "financial-signals-watched-industries";
@@ -54,9 +55,10 @@ export function useWatchedIndustries() {
 
   const filterByWatched = useCallback((items) => {
     if (!watched || watched.length === 0) return items;
+    const normWatched = watched.map(industryDisplayName);
     return items.filter((item) => {
       if (!item.industries || item.industries.length === 0) return true;
-      return item.industries.some((ind: string) => watched.includes(ind));
+      return item.industries.some((ind: string) => normWatched.includes(industryDisplayName(ind)));
     });
   }, [watched]);
 
