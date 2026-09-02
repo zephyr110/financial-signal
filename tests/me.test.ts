@@ -1,12 +1,24 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import handler from '../pages/api/auth/me'
 import { getSessionUser } from '../lib/auth'
+import { getAuthDb } from '../lib/authDb'
 
-// 只测 handler 分支:getSessionUser 走 db,这里 mock 掉(web 分支判定逻辑在 lib/auth 自身测试覆盖)
+// 只测 handler 分支:getSessionUser 走 db,这里 mock 掉(web 分支判定逻辑在 lib/auth 自身测试覆盖)。
+// getAuthDb 同样 mock:桌面首启分支要数 app_account,不 mock 会在 process.cwd() 真建 auth.db
 vi.mock('../lib/auth', () => ({
   SESSION_COOKIE: 'fs_session',
   getSessionUser: vi.fn(),
 }))
+vi.mock('../lib/authDb', () => ({
+  getAuthDb: vi.fn(),
+}))
+
+/** 桌面首启分支的账号计数:>0 走真实会话校验,=0 返回 setupRequired */
+function mockAccountCount(n: number) {
+  vi.mocked(getAuthDb).mockResolvedValue({
+    execute: vi.fn().mockResolvedValue({ rows: [{ n }] }),
+  } as any)
+}
 
 function mockReq(method = 'GET', cookies: Record<string, string> = {}) {
   return { method, cookies }
@@ -28,6 +40,7 @@ describe('GET /api/auth/me', () => {
   const prevDesktopMode = process.env.DESKTOP_MODE
   beforeEach(() => {
     vi.mocked(getSessionUser).mockReset()
+    vi.mocked(getAuthDb).mockReset()
     delete process.env.DESKTOP_MODE
   })
   afterEach(() => {
@@ -51,8 +64,9 @@ describe('GET /api/auth/me', () => {
     expect(res._body).toEqual({ authenticated: true, username: 'admin' })
   })
 
-  it('桌面模式无会话 → 401(与 web 一致,走真实会话校验)', async () => {
+  it('桌面模式已有账号、无会话 → 401(会话校验与 web 一致)', async () => {
     process.env.DESKTOP_MODE = '1'
+    mockAccountCount(1)
     vi.mocked(getSessionUser).mockResolvedValue(null)
     const res = mockRes()
     await handler(mockReq('GET'), res)
@@ -60,8 +74,19 @@ describe('GET /api/auth/me', () => {
     expect(res._body).toEqual({ authenticated: false })
   })
 
+  it('桌面首启(auth.db 无账号)→ 200 { setupRequired:true },不查会话', async () => {
+    process.env.DESKTOP_MODE = '1'
+    mockAccountCount(0)
+    const res = mockRes()
+    await handler(mockReq('GET'), res)
+    expect(res._status).toBe(200)
+    expect(res._body).toEqual({ authenticated: false, setupRequired: true, desktop: true })
+    expect(getSessionUser).not.toHaveBeenCalled()
+  })
+
   it('桌面模式有效会话 → 200 { authenticated:true, username }', async () => {
     process.env.DESKTOP_MODE = '1'
+    mockAccountCount(1)
     vi.mocked(getSessionUser).mockResolvedValue('admin')
     const res = mockRes()
     await handler(mockReq('GET', { fs_session: 'good-token' }), res)

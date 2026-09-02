@@ -29,13 +29,19 @@ function randomPassword(): string {
  * 无账号时创建默认账号。初始密码：环境变量 ADMIN_INITIAL_PASSWORD 优先（部署者
  * 显式配置，适合首启初始化脚本）；否则随机生成，仅在创建时打印一次到日志
  * （本地开发可见；生产请通过 env 配置或创建后立即在「设置 → 账户」修改）。
+ * 桌面端(DESKTOP_MODE)无 ADMIN_INITIAL_PASSWORD 时不自动建号：随机密码打印
+ * 到 stdout,而 Finder 启动的 .app 无可见日志 → 新装机用户将永远无法登录。
+ * 桌面首启改由登录页「设置初始密码」引导(setupAccount / POST /api/auth/setup)。
  */
 export async function ensureDefaultAccount(): Promise<void> {
   const db = await getAuthDb();
   const row = await db.execute({ sql: 'SELECT COUNT(*) as n FROM app_account', args: [] });
   if (Number(row.rows[0].n) === 0) {
-    const username = process.env.ADMIN_INITIAL_USERNAME || 'admin';
     const explicit = process.env.ADMIN_INITIAL_PASSWORD;
+    if (!explicit && process.env.DESKTOP_MODE === '1') {
+      return;
+    }
+    const username = process.env.ADMIN_INITIAL_USERNAME || 'admin';
     const initialPassword = explicit || randomPassword();
     const { hash, salt } = hashPassword(initialPassword);
     // B6:并发首启两个请求同时 COUNT=0 时,第二个 INSERT 撞 UNIQUE(username)
@@ -52,6 +58,37 @@ export async function ensureDefaultAccount(): Promise<void> {
       );
     }
   }
+}
+
+export interface SetupAccountResult {
+  ok: boolean;
+  error?: string;
+  token?: string;
+}
+
+/** 桌面首启初始化账号(用户主动设置初始密码,替代不可见的随机种子密码)。
+ * 仅无账号时可用;成功后直接签发会话。Web 端不开放(API 层 403)。 */
+export async function setupAccount(username: string, password: string): Promise<SetupAccountResult> {
+  const u = username.trim();
+  if (u.length < 2) return { ok: false, error: '登录名至少 2 个字符' };
+  if (password.length < 6) return { ok: false, error: '密码至少 6 位' };
+  const db = await getAuthDb();
+  const cnt = await db.execute({ sql: 'SELECT COUNT(*) as n FROM app_account', args: [] });
+  if (Number(cnt.rows[0].n) > 0) return { ok: false, error: '账号已初始化' };
+  const { hash, salt } = hashPassword(password);
+  // OR IGNORE + rowsAffected:并发双开窗口同时 setup 时输家静默拒绝(而非 500)
+  const inserted = await db.execute({
+    sql: 'INSERT OR IGNORE INTO app_account (username, password_hash, salt) VALUES (?, ?, ?)',
+    args: [u, hash, salt],
+  });
+  if (inserted.rowsAffected === 0) return { ok: false, error: '账号已初始化' };
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+  await db.execute({
+    sql: 'INSERT INTO app_session (token, user_id, expires_at) VALUES (?, ?, ?)',
+    args: [hashToken(token), Number(inserted.lastInsertRowid), expires],
+  });
+  return { ok: true, token };
 }
 
 export function hashPassword(password: string): { hash: string; salt: string } {
