@@ -124,8 +124,11 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
               <span>设置</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          {/* 应用操作区与身份区之间的分割线(shadcn SidebarSeparator):
+              展开态两端各留 8px(叠加容器 px-2 共 16px);
+              折叠 icon rail 态归零内缩,线宽对齐 32px 图标列。 */}
           <SidebarMenuItem aria-hidden="true">
-            <SidebarSeparator className="my-0.5" />
+            <SidebarSeparator className="mx-2 my-0.5 group-data-[collapsible=icon]:mx-0" />
           </SidebarMenuItem>
           <AvatarMenu username={username} desktop={desktop} />
         </SidebarMenu>
