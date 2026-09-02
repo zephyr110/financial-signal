@@ -107,7 +107,13 @@ export default function IndustryBacktestInline({
         </>
       )}
       <span>·</span>
-      <span>胜率 {isReference ? "~" : ""}{match.win_rate}%</span>
+      {/* 方向命中率:看多次日涨/看空次日跌为命中;中性/混合不计(match.win_rate 可能为 NULL) */}
+      <span title="方向命中率 = 看多信号次日板块上涨 / 看空信号次日下跌的比例;中性/混合事件不计入分母">
+        命中率{" "}
+        {match.win_rate == null
+          ? "—"
+          : `${isReference ? "~" : ""}${match.win_rate}%`}
+      </span>
       <span>·</span>
       {/* A股惯例：红涨绿跌 */}
       <span className="inline-flex items-center gap-0.5">

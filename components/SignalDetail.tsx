@@ -199,7 +199,7 @@ export default function SignalDetail({
             行业回测
           </h3>
           <p className="text-xs text-muted-foreground mb-3">
-            信号出现后行业指数平均涨跌幅 · 过去 30 天 · 胜率 = T+1 上涨样本占比
+            信号出现后行业指数平均涨跌幅 · 过去 30 天 · 命中率 = 看多信号次日板块上涨/看空信号次日下跌占比(中性/混合事件不计入)
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -210,7 +210,7 @@ export default function SignalDetail({
                   <th className="text-right py-2 px-2 font-medium">T+1</th>
                   <th className="text-right py-2 px-2 font-medium">T+3</th>
                   <th className="text-right py-2 px-2 font-medium">T+7</th>
-                  <th className="text-right py-2 pl-2 font-medium">胜率</th>
+                  <th className="text-right py-2 pl-2 font-medium">命中率</th>
                 </tr>
               </thead>
               <tbody>
@@ -254,7 +254,10 @@ export default function SignalDetail({
                         {showNumbers ? <ReturnSpan value={row.avg_d7} /> : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="py-2 pl-2 text-right tabular-nums font-medium">
-                        {showNumbers ? `${tier === "reference" ? "~" : ""}${row.win_rate}%` : <span className="text-muted-foreground font-normal">—</span>}
+                        {/* win_rate 为 NULL = 无带方向样本 */}
+                        {showNumbers && row.win_rate != null
+                          ? `${tier === "reference" ? "~" : ""}${row.win_rate}%`
+                          : <span className="text-muted-foreground font-normal">—</span>}
                       </td>
                     </tr>
                   );

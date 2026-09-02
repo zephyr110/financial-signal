@@ -10,13 +10,17 @@ interface BacktestRow {
   avg_d1: number;
   avg_d3: number;
   avg_d7: number;
-  win_rate: number;
+  win_rate: number | null;
 }
 
 type TabKey = "score" | "industry";
 
+// 口径说明(胜率 1.6fr 列表头与单元格悬浮提示共用):分母仅计带方向事件,中性/混合不计
+const WIN_RATE_HINT =
+  "方向命中率 = 看多信号次日板块上涨 / 看空信号次日下跌的比例;中性/混合事件不计入分母(样本列 = 总事件数)";
+
 // 表格网格列模板（fr 权重自适应：行业列相对收窄，数值列相对加宽，表头与两种行共用，改列宽需同步）：
-// 行业 1.4fr | 均分 0.9fr | 样本 1.4fr | 3×涨跌幅 1fr | 胜率 1.6fr | 方向 0.8fr
+// 行业 1.4fr | 均分 0.9fr | 样本 1.4fr | 3×涨跌幅 1fr | 命中率 1.6fr | 方向 0.8fr
 const HEADER_GRID = "hidden sm:grid grid-cols-[1.4fr_0.9fr_1.4fr_1fr_1fr_1fr_1.6fr_0.8fr]";
 const ROW_GRID = "grid grid-cols-[1fr_40px_1fr] sm:grid-cols-[1.4fr_0.9fr_1.4fr_1fr_1fr_1fr_1.6fr_0.8fr]";
 
@@ -47,8 +51,11 @@ export default function BacktestPanel() {
           : (a.signal_score ?? 0) - (b.signal_score ?? 0)
       );
     } else if (sortKey === "winRate") {
+      // 无方向样本(NULL)视为 -1:降序时排最后,升序时排最前
       rows.sort((a, b) =>
-        sortDir === "desc" ? b.win_rate - a.win_rate : a.win_rate - b.win_rate
+        sortDir === "desc"
+          ? (b.win_rate ?? -1) - (a.win_rate ?? -1)
+          : (a.win_rate ?? -1) - (b.win_rate ?? -1)
       );
     } else {
       rows.sort((a, b) => b.samples - a.samples);
@@ -144,13 +151,14 @@ export default function BacktestPanel() {
                 <span>T+7</span>
                 {tab === "industry" ? (
                   <SortableHeader
-                    label="胜率"
+                    label="命中率"
+                    title={WIN_RATE_HINT}
                     active={sortKey === "winRate"}
                     dir={sortDir}
                     onClick={() => toggleSort("winRate")}
                   />
                 ) : (
-                  <span>胜率</span>
+                  <span title={WIN_RATE_HINT}>命中率</span>
                 )}
                 <span>方向</span>
               </div>
@@ -227,11 +235,13 @@ export default function BacktestPanel() {
 /** 可排序表头：点击切换升降序，未激活显示中性排序图标。 */
 function SortableHeader({
   label,
+  title,
   active,
   dir,
   onClick,
 }: {
   label: string;
+  title?: string;
   active: boolean;
   dir: "desc" | "asc";
   onClick: () => void;
@@ -240,6 +250,7 @@ function SortableHeader({
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         "inline-flex items-center gap-0.5 text-xs transition-colors hover:text-foreground",
         active && "text-foreground font-medium"
@@ -345,17 +356,19 @@ function ReturnCell({ value, show = true, tier }: { value: number; show?: boolea
   );
 }
 
-function WinRateCell({ rate, show = true, tier }: { rate: number; show?: boolean; tier?: BacktestTier }) {
+function WinRateCell({ rate, show = true, tier }: { rate: number | null; show?: boolean; tier?: BacktestTier }) {
+  // rate 为 NULL = 该组无带方向事件(全部中性/混合/遗留),展示 "—" 而非参与数字
+  const hasRate = show && rate != null;
   return (
-    <div className="hidden sm:flex items-center gap-1.5">
+    <div className="hidden sm:flex items-center gap-1.5" title={rate == null ? "无带方向样本,不计命中率" : undefined}>
       <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
         <div
-          className={cn("h-full rounded-full transition-all", show ? "bg-primary" : "bg-border")}
-          style={{ width: show ? `${rate}%` : "100%" }}
+          className={cn("h-full rounded-full transition-all", hasRate ? "bg-primary" : "bg-border")}
+          style={{ width: hasRate ? `${rate}%` : "100%" }}
         />
       </div>
       <span className="text-xs font-medium tabular-nums w-9 text-right">
-        {show ? `${tier === "reference" ? "~" : ""}${rate}%` : "—"}
+        {hasRate ? `${tier === "reference" ? "~" : ""}${rate}%` : "—"}
       </span>
     </div>
   );

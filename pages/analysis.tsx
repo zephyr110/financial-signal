@@ -436,7 +436,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
               信号有效性回测
             </h3>
             <p className="text-xs text-muted-foreground mb-3">
-              信号出现后行业指数后续涨跌幅 · 近 30 天 · 胜率 = T+1 上涨样本占比
+              信号出现后行业指数后续涨跌幅 · 近 30 天 · 命中率 = 看多信号次日板块上涨/看空信号次日下跌占比(中性/混合事件不计入)
             </p>
             <BacktestPanel />
           </div>
