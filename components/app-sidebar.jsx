@@ -13,7 +13,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarSeparator,
   useSidebar,
 } from "./ui/sidebar";
 import BrandLogo from "./BrandLogo";
@@ -35,7 +34,7 @@ const NAV_ITEMS = [
 /**
  * 全局侧栏（sidebar-07 折叠分区模式）：
  * Header 品牌 → 导航分组 → 页面专属分组（sidebarExtra）→ Footer
- * （应用操作：设置 gear 行 + 分隔线 + 头像菜单：主题/GitHub/退出）。
+ * （应用操作：设置 gear 行 + 头像菜单：主题/GitHub/退出）。
  * 用户信息(username/desktop)在此统一拉取,设置弹窗与头像菜单共用。
  */
 export default function AppSidebar({ sidebarExtra = null, ...props }) {
@@ -111,24 +110,18 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
       </SidebarContent>
 
       <SidebarFooter className="gap-0 p-0">
-        <SidebarMenu className="gap-0.5 px-2 py-2">
+        <SidebarMenu className="gap-0.5 px-2 py-2 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
           <SidebarMenuItem>
             {/* 应用级设置常驻入口(头像菜单外的第二入口已在菜单内移除) */}
             <SidebarMenuButton
               tooltip="设置"
               onClick={() => setSettingsOpen(true)}
               aria-label="设置"
-              className="h-10 w-full gap-2.5 py-2.5"
+              className="h-10 gap-2.5 py-2.5 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2!"
             >
               <Settings />
               <span>设置</span>
             </SidebarMenuButton>
-          </SidebarMenuItem>
-          {/* 应用操作区与身份区之间的分割线(shadcn SidebarSeparator):
-              展开态两端各留 8px(叠加容器 px-2 共 16px);
-              折叠 icon rail 态归零内缩,线宽对齐 32px 图标列。 */}
-          <SidebarMenuItem aria-hidden="true">
-            <SidebarSeparator className="mx-2 my-0.5 group-data-[collapsible=icon]:mx-0" />
           </SidebarMenuItem>
           <AvatarMenu username={username} desktop={desktop} />
         </SidebarMenu>

@@ -38,7 +38,7 @@ export default function SectionNavGroup({ items, scrollRoot = null }) {
   };
 
   return (
-    <Collapsible defaultOpen className="group/collapsible">
+    <Collapsible defaultOpen className="group/collapsible group-data-[collapsible=icon]:hidden">
       <SidebarGroup>
         <SidebarGroupLabel className="cursor-pointer">
           <CollapsibleTrigger className="flex w-full items-center gap-2">

@@ -62,9 +62,9 @@ export default function AvatarMenu({ username = "", desktop = false }) {
             render={
               <SidebarMenuButton
                 tooltip={displayName || "账户"}
-                className="h-10 w-full gap-2.5 py-2.5 data-open:bg-sidebar-accent"
+                className="h-10 gap-2.5 py-2.5 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! data-open:bg-sidebar-accent"
               >
-                <Avatar size="sm" className="size-8 shrink-0">
+                <Avatar size="sm" className="size-8 shrink-0 group-data-[collapsible=icon]:size-4">
                   <AvatarFallback className="bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">
                     {avatarInitial}
                   </AvatarFallback>
