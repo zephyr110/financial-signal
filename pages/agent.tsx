@@ -2,10 +2,15 @@ import { useState, useEffect, useRef, useCallback, isValidElement } from "react"
 import Head from "next/head";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { MessageSquareText, Send, Wrench, Loader2, Bot, CheckCircle2, XCircle, ChevronRight, Copy, Check, Share2, Pencil, X } from "lucide-react";
+import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X } from "lucide-react";
 import AppShell from "../components/app-shell";
 import SessionSidebarGroup from "../components/SessionSidebarGroup";
 import AgentCodeBlock from "../components/agent-code-block";
+import { AgentAvatar } from "@/components/agent-avatar";
+import { AgentProcessingBlock } from "@/components/agent-processing-block";
+import { looksLikeJson, stripToolProtocolFromAnswer } from "@/lib/agent/format";
+import { historyToChatItems, type ChatItem } from "@/types/agent-chat";
+import { useAutosizeTextarea } from "@/hooks/use-autosize-textarea";
 
 // ReactMarkdown v10：components/remarkPlugins 引用变化会触发全部 markdown 重新解析。
 // 提升为模块级常量，避免父组件每次 render（如输入框击键）都重建引用导致重解析
@@ -30,22 +35,6 @@ import { Alert, AlertTitle, AlertDescription } from "../components/ui/alert";
 import { Textarea } from "../components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-interface ToolCallInfo {
-  name: string;
-  args: Record<string, unknown>;
-  /** 流式工具执行状态：tool_end 事件到达后由 running 变为 done/error */
-  status?: "running" | "done" | "error";
-  summary?: string;
-}
-
-interface ChatItem {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  toolCall?: ToolCallInfo;
-  toolLog?: { name: string; args: Record<string, unknown>; ok: boolean; summary: string }[];
-}
-
 interface SessionSummary {
   id: number;
   title: string | null;
@@ -54,39 +43,6 @@ interface SessionSummary {
 }
 
 const SESSION_STORAGE_KEY = "agent-session-id";
-
-/**
- * 服务端消息（agent_message.meta）→ 前端 ChatItem：
- * - assistant 消息带 meta.toolCall → 工具调用卡片
- * - user 的内部工具结果消息（【工具 X 结果】）→ 附加为上一个工具卡片的 toolLog 摘要
- * - 其余按原文渲染
- */
-function historyToChatItems(rows: any[]): ChatItem[] {
-  const out: ChatItem[] = [];
-  for (const r of rows) {
-    if (r.role === "user" && r.content.startsWith("【工具")) {
-      const last = out[out.length - 1];
-      if (last?.toolCall && r.meta?.toolResult) {
-        last.toolLog = [
-          {
-            name: r.meta.toolResult.name,
-            args: {},
-            ok: r.meta.toolResult.ok,
-            summary: String(r.meta.toolResult.content || "").slice(0, 60),
-          },
-        ];
-      }
-      continue;
-    }
-    const item: ChatItem = { id: `hist-${r.id}`, role: r.role, content: r.content };
-    if (r.meta?.toolCall) {
-      // 历史工具调用必然已执行完毕；旧数据 meta 无 status → 兜底 done，避免永久显示"执行中"
-      item.toolCall = { ...r.meta.toolCall, status: r.meta.toolCall.status || "done" };
-    }
-    out.push(item);
-  }
-  return out;
-}
 
 // 空状态建议问题：点击直接发送
 const SUGGESTIONS = [
@@ -110,6 +66,8 @@ export default function AgentPage() {
   const [editingDraft, setEditingDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useAutosizeTextarea(inputRef, input, { maxHeight: 200 });
 
   // 复制回复文本；短时显示"已复制"反馈
   const copyMessage = useCallback(async (id: string, text: string) => {
@@ -235,9 +193,20 @@ export default function AgentPage() {
       // 编辑重发：不追加新用户消息（本地已截断并更新内容），服务端同样处理
       const editing = opts?.editingId ?? null;
       const optimisticId = `local-${Date.now()}`;
+      const turnMsgId = `turn-${Date.now()}`;
       if (!editing) {
         setMessages((prev) => [...prev, { id: optimisticId, role: "user", content: text }]);
       }
+      // 单条助手消息：思考块 + 正文共用同一气泡列，避免「回复两次」
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: turnMsgId,
+          role: "assistant" as const,
+          content: "",
+          processing: { tools: [], active: true, thinking: true },
+        },
+      ]);
 
       try {
         const res = await fetch("/api/agent", {
@@ -264,78 +233,110 @@ export default function AgentPage() {
           } else {
             setError(data.error || `请求失败（HTTP ${res.status}）`);
           }
-          // 移除乐观渲染的 user 消息，让用户重试（编辑重发时无乐观消息，跳过）
-          if (!editing) setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+          // 移除乐观渲染消息；编辑重发失败时同样清理本轮助手占位
+          setMessages((prev) =>
+            prev.filter((m) => m.id !== turnMsgId && (editing || m.id !== optimisticId))
+          );
           return;
         }
 
-        // ── SSE 流式读取：tool_start → delta… → done ──
+        // ── SSE 流式读取：单条 turn 消息承载 processing + 正文 ──
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let streamMsgId: string | null = null;
         let streamText = "";
-        let toolLogs: ChatItem["toolLog"] = [];
         let doneSessionId: number | null = null;
+
+        const updateTurn = (updater: (m: ChatItem) => ChatItem) => {
+          setMessages((prev) => prev.map((m) => (m.id === turnMsgId ? updater(m) : m)));
+        };
 
         const handleEvent = (event: string, payload: any) => {
           if (event === "tool_start") {
-            // 工具调用 JSON 的 delta 已累积在流式消息中 → 移除并替换为工具气泡
-            if (streamMsgId) {
-              setMessages((prev) => prev.filter((m) => m.id !== streamMsgId));
-              streamMsgId = null;
-              streamText = "";
-            }
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `tool-${Date.now()}-${payload.tool}`,
-                role: "assistant" as const,
-                content: "",
-                toolCall: {
-                  name: payload.tool,
-                  args: payload.args || {},
-                  status: "running",
-                } as ToolCallInfo,
+            streamText = "";
+            updateTurn((m) => ({
+              ...m,
+              content: "",
+              processing: {
+                tools: [
+                  ...(m.processing?.tools ?? []),
+                  {
+                    name: payload.tool,
+                    args: payload.args || {},
+                    status: "running" as const,
+                  },
+                ],
+                active: true,
+                thinking: false,
               },
-            ]);
+            }));
           } else if (event === "tool_end") {
-            // 更新最后一条执行中的工具卡片（SSE 顺序 = 工具执行顺序，单 agent 串行执行）
-            setMessages((prev) => {
-              for (let i = prev.length - 1; i >= 0; i--) {
-                const m = prev[i];
-                if (m.toolCall && m.toolCall.status !== "done" && m.toolCall.status !== "error") {
-                  const next = [...prev];
-                  next[i] = {
-                    ...m,
-                    toolCall: {
-                      ...m.toolCall,
-                      status: payload.ok ? "done" : "error",
-                      summary: payload.summary,
-                    },
+            updateTurn((m) => {
+              if (!m.processing) return m;
+              const tools = [...m.processing.tools];
+              for (let i = tools.length - 1; i >= 0; i--) {
+                if (tools[i].status !== "done" && tools[i].status !== "error") {
+                  tools[i] = {
+                    ...tools[i],
+                    status: payload.ok ? "done" : "error",
+                    summary: payload.summary,
                   };
-                  return next;
+                  break;
                 }
               }
-              return prev;
+              return {
+                ...m,
+                processing: { ...m.processing, tools, active: true, thinking: true },
+              };
             });
           } else if (event === "delta") {
             streamText += payload.text || "";
-            if (!streamMsgId) {
-              streamMsgId = `stream-${Date.now()}`;
-              setMessages((prev) => [...prev, { id: streamMsgId!, role: "assistant", content: "" }]);
-            }
-            setMessages((prev) =>
-              prev.map((m) => (m.id === streamMsgId ? { ...m, content: streamText } : m))
-            );
+            const display = stripToolProtocolFromAnswer(streamText);
+            const jsonTail =
+              looksLikeJson(streamText.trim()) ||
+              (streamText.includes("\n") && /"tool"/.test(streamText.split("\n").pop() ?? ""));
+
+            updateTurn((m) => ({
+              ...m,
+              content: display,
+              processing: m.processing
+                ? {
+                    ...m.processing,
+                    thinking: jsonTail && !display,
+                    active: true,
+                  }
+                : undefined,
+            }));
           } else if (event === "done") {
             doneSessionId = payload.sessionId;
-            toolLogs = payload.toolLog || [];
-            // 最终回复以服务端确定性管道输出为准（含截断标注）。流式累积文本只作
-            // 兜底——工具调用 JSON 的 delta 残留（格式错误回喂/参数错误等路径）不应
-            // 成为回复内容
-            const reply = payload.reply || streamText || "";
-            // 乐观用户消息替换为数据库消息（拿到真实 id，后续编辑重发可用）
+            const reply = stripToolProtocolFromAnswer(payload.reply || streamText || "");
+            const toolLogs: NonNullable<ChatItem["toolLog"]> = payload.toolLog || [];
+
+            updateTurn((m) => {
+              const tools = (m.processing?.tools ?? []).map((t, i) => {
+                const log = toolLogs[i];
+                if (!log || log.name !== t.name) return t;
+                return {
+                  ...t,
+                  status: log.ok ? ("done" as const) : ("error" as const),
+                  summary: log.summary || t.summary,
+                };
+              });
+              const hasProcessing = tools.length > 0;
+              return {
+                ...m,
+                content: reply,
+                processing: hasProcessing
+                  ? { tools, active: false, thinking: false }
+                  : undefined,
+              };
+            });
+
+            // 无工具也无正文 → 移除空占位
+            if (!reply && !payload.toolLog?.length) {
+              setMessages((prev) => prev.filter((m) => m.id !== turnMsgId));
+            }
+
             if (!editing && payload.userMessageId) {
               setMessages((prev) =>
                 prev.map((m) =>
@@ -345,14 +346,13 @@ export default function AgentPage() {
                 )
               );
             }
-            // 工具日志附加到最终回复气泡：有流式消息则就地更新为服务端回复，否则新建
-            setMessages((prev) =>
-              streamMsgId
-                ? prev.map((m) => (m.id === streamMsgId ? { ...m, content: reply, toolLog: toolLogs } : m))
-                : [...prev, { id: `reply-${Date.now()}`, role: "assistant" as const, content: reply, toolLog: toolLogs }]
-            );
           } else if (event === "error") {
             setError(payload.error || "研究助手暂时不可用，请稍后再试");
+            updateTurn((m) =>
+              m.processing
+                ? { ...m, processing: { ...m.processing, active: false, thinking: false } }
+                : m
+            );
           }
         };
 
@@ -381,18 +381,20 @@ export default function AgentPage() {
         if (doneSessionId) {
           setSessionId(doneSessionId);
           persistSession(doneSessionId);
-          // 新会话/续聊都会更新标题与时间 → 刷新侧栏列表
           void refreshSessions();
-        } else if (streamMsgId) {
-          // 流中断（超时/网络断开）但已有内容：保留已显示的部分
-          setMessages((prev) =>
-            prev.map((m) => (m.id === streamMsgId ? { ...m, toolLog: toolLogs } : m))
+        } else {
+          updateTurn((m) =>
+            m.processing
+              ? { ...m, processing: { ...m.processing, active: false, thinking: false } }
+              : m
           );
         }
       } catch (e) {
         console.error("Agent request failed:", e);
         setError("网络错误，请稍后重试");
-        if (!editing) setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        setMessages((prev) =>
+          prev.filter((m) => m.id !== turnMsgId && (editing || m.id !== optimisticId))
+        );
       } finally {
         setLoading(false);
         inputRef.current?.focus();
@@ -439,7 +441,7 @@ export default function AgentPage() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
       } catch {
         setError("会话删除失败，请稍后重试");
-        return;
+        throw new Error("delete failed");
       }
       setSessions((prev) => prev.filter((s) => s.id !== id));
       if (sessionId === id) newSession();
@@ -481,7 +483,7 @@ export default function AgentPage() {
             onQuery={setQuery}
             onSelect={(id) => void loadSession(id)}
             onNew={newSession}
-            onDelete={(id) => void handleDeleteSession(id)}
+            onDelete={handleDeleteSession}
           />
         }
       >
@@ -555,84 +557,101 @@ export default function AgentPage() {
                     </div>
                   );
                 }
-                if (m.toolCall) {
+
+                const isUser = m.role === "user";
+                const isAssistant = m.role === "assistant";
+
+                if (isAssistant) {
+                  const processing =
+                    m.processing ??
+                    (m.toolCall
+                      ? { tools: [m.toolCall], active: false, thinking: false }
+                      : undefined);
+                  const showProcessing =
+                    processing &&
+                    (processing.active ||
+                      processing.thinking ||
+                      processing.tools.length > 0);
+                  const hasContent = Boolean(m.content.trim());
+
+                  if (!showProcessing && !hasContent) return null;
+
                   return (
-                    <div key={m.id} className="flex justify-start pl-10">
-                      <div className="max-w-[85%]">
-                        <details className="group/tool rounded-xl border bg-muted/40 open:bg-muted/60">
-                          <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-muted-foreground select-none list-none [&::-webkit-details-marker]:hidden">
-                            <Wrench className="h-3.5 w-3.5 shrink-0" />
-                            <span className="font-medium text-foreground">调用工具： {m.toolCall.name}</span>
-                            {m.toolCall.status === "done" ? (
-                              <span className="ml-auto inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                完成
-                              </span>
-                            ) : m.toolCall.status === "error" ? (
-                              <span className="ml-auto inline-flex items-center gap-1 text-destructive">
-                                <XCircle className="h-3.5 w-3.5" />
-                                失败
-                              </span>
-                            ) : (
-                              <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                执行中…
-                              </span>
-                            )}
-                            <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open/tool:rotate-90" />
-                          </summary>
-                          <div className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-300 ease-in-out group-open/tool:grid-rows-[1fr] group-open/tool:opacity-100">
-                            <div className="overflow-hidden">
-                              <pre className="mx-3 mb-2 overflow-x-auto rounded-md bg-background px-2.5 py-2 text-xs text-muted-foreground whitespace-pre-wrap">
-                                {JSON.stringify(m.toolCall.args, null, 2)}
-                              </pre>
+                    <div key={m.id} className="group flex items-start gap-3">
+                      <AgentAvatar />
+                      <div className="flex min-w-0 max-w-[85%] flex-col gap-2.5">
+                        {showProcessing && processing && (
+                          <AgentProcessingBlock processing={processing} />
+                        )}
+                        {hasContent && (
+                          <>
+                            <div className="markdown-body text-sm leading-7 text-foreground">
+                              <ReactMarkdown
+                                remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                                components={MARKDOWN_COMPONENTS}
+                              >
+                                {m.content}
+                              </ReactMarkdown>
                             </div>
-                          </div>
-                        </details>
-                        {m.toolLog && m.toolLog.length > 0 && (
-                          <div className="mt-1.5 rounded-xl border bg-muted/20 px-3 py-2 space-y-1.5">
-                            {m.toolLog.map((t, i) => (
-                              <ToolLogRow key={i} t={t} />
-                            ))}
-                          </div>
+                            <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover-none:opacity-100">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => void copyMessage(m.id, m.content)}
+                                aria-label="复制回复"
+                              >
+                                {copiedId === m.id ? (
+                                  <>
+                                    <Check className="text-positive" />
+                                    已复制
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy />
+                                    复制
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => void shareConversation()}
+                                aria-label="分享会话"
+                                title="生成会话分享链接"
+                              >
+                                {copiedId === "share" ? (
+                                  <>
+                                    <Check className="text-positive" />
+                                    已复制
+                                  </>
+                                ) : (
+                                  <>
+                                    <Share2 />
+                                    分享
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </>
                         )}
                       </div>
                     </div>
                   );
                 }
-                const isUser = m.role === "user";
+
                 // 仅带数据库 id 的历史消息可编辑（乐观/流式消息等服务端落库后替换为 hist-*）
                 const editable = isUser && m.id.startsWith("hist-");
                 const isEditing = editingId === m.id;
                 return (
                   <div
                     key={m.id}
-                    className={cn(
-                      "group flex gap-3",
-                      isUser ? "justify-end" : "items-start justify-start"
-                    )}
+                    className="group flex justify-end gap-3"
                   >
-                    {!isUser && (
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                        <Bot className="h-4 w-4" />
-                      </span>
-                    )}
-                    {/* 用户消息：气泡 + 底部外侧操作行；助手消息：正文区 */}
-                    <div
-                      className={cn(
-                        "max-w-[85%] text-sm",
-                        isUser && "flex flex-col items-end gap-1"
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          isUser
-                            ? // 用户气泡：右上直角；收紧内边距避免短句两侧留白过大
-                              "leading-relaxed rounded-tl-2xl rounded-bl-2xl rounded-br-2xl rounded-tr-none bg-primary px-3 py-2 text-primary-foreground shadow-sm"
-                            : "leading-7 text-foreground"
-                        )}
-                      >
-                        {isUser && isEditing ? (
+                    <div className="flex max-w-[85%] flex-col items-end gap-1 text-sm">
+                      <div className="leading-relaxed rounded-tl-2xl rounded-bl-2xl rounded-br-2xl rounded-tr-none bg-primary px-3 py-2 text-primary-foreground shadow-sm">
+                        {isEditing ? (
                           <div className="flex flex-col">
                             <Textarea
                               value={editingDraft}
@@ -675,115 +694,47 @@ export default function AgentPage() {
                               </button>
                             </div>
                           </div>
-                        ) : isUser ? (
+                        ) : (
                           <div className="whitespace-pre-wrap">{m.content}</div>
-                        ) : null}
-                        {!isUser && (
-                          <>
-                            <div className="markdown-body">
-                              <ReactMarkdown
-                                remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-                                components={MARKDOWN_COMPONENTS}
-                              >
-                                {m.content}
-                              </ReactMarkdown>
-                            </div>
-                            {/* 操作行：复制 + 分享（靠左） */}
-                            <div className="mt-2 flex items-center justify-start gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => void copyMessage(m.id, m.content)}
-                                className={cn(
-                                  "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground",
-                                  "transition-colors hover:bg-accent hover:text-foreground"
-                                )}
-                                aria-label="复制回复"
-                              >
-                                {copiedId === m.id ? (
-                                  <>
-                                    <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                                    已复制
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="size-3.5" />
-                                    复制
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void shareConversation()}
-                                className={cn(
-                                  "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground",
-                                  "transition-colors hover:bg-accent hover:text-foreground"
-                                )}
-                                aria-label="分享会话"
-                                title="生成会话分享链接"
-                              >
-                                {copiedId === "share" ? (
-                                  <>
-                                    <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                                    已复制
-                                  </>
-                                ) : (
-                                  <>
-                                    <Share2 className="size-3.5" />
-                                    分享
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </>
-                        )}
-                        {m.toolLog && m.toolLog.length > 0 && (
-                          <div className="mt-2.5 space-y-1.5 border-t border-foreground/10 pt-2.5">
-                            {m.toolLog.map((t, i) => (
-                              <ToolLogRow key={i} t={t} />
-                            ))}
-                          </div>
                         )}
                       </div>
-                      {/* 用户气泡操作：底部外侧横排（桌面 hover 显示；触屏常显） */}
-                      {isUser && !isEditing && (
+                      {!isEditing && (
                         <div className="flex flex-row items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover-none:opacity-100">
                           {editable && (
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="xs"
                               onClick={() => {
                                 setEditingDraft(m.content);
                                 setEditingId(m.id);
                               }}
                               disabled={loading}
-                              className={cn(
-                                "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground",
-                                "transition-colors hover:bg-accent hover:text-foreground",
-                                loading && "opacity-40"
-                              )}
                               aria-label="编辑消息"
                             >
-                              <Pencil className="size-3.5" />
+                              <Pencil />
                               编辑
-                            </button>
+                            </Button>
                           )}
-                          <button
+                          <Button
                             type="button"
+                            variant="ghost"
+                            size="xs"
                             onClick={() => void copyMessage(m.id, m.content)}
-                            className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                             aria-label="复制消息"
                           >
                             {copiedId === m.id ? (
                               <>
-                                <Check className="size-3.5 text-emerald-500" />
+                                <Check className="text-positive" />
                                 已复制
                               </>
                             ) : (
                               <>
-                                <Copy className="size-3.5" />
+                                <Copy />
                                 复制
                               </>
                             )}
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -791,14 +742,12 @@ export default function AgentPage() {
                 );
               })}
 
-              {loading && (
-                <div className="flex items-start justify-start gap-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <Bot className="h-4 w-4" />
-                  </span>
-                  <div className="inline-flex h-7 items-center gap-2 text-sm leading-7 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    正在研究…
+              {loading && !messages.some((m) => m.processing?.active) && (
+                <div className="flex items-start gap-3">
+                  <AgentAvatar />
+                  <div className="inline-flex items-center gap-2 rounded-xl bg-card px-3.5 py-2.5 text-sm text-muted-foreground ring-1 ring-foreground/10">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    正在连接…
                   </div>
                 </div>
               )}
@@ -807,10 +756,10 @@ export default function AgentPage() {
               </div>{/* max-w 消息流容器 */}
             </div>{/* agent-scroll 滚动区 */}
 
-            {/* 输入区（大圆角容器 + 内嵌发送，无分割线） */}
-            <div className="shrink-0 bg-background px-4 py-3 sm:py-4">
+            {/* 输入区：水平边距与消息流对齐，收紧内层留白 */}
+            <div className="shrink-0 bg-background px-4 pb-4 pt-3 sm:px-6 sm:pb-5">
               <div className="mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px]">
-                <div className="flex items-end gap-2 rounded-2xl border bg-card p-3 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                <div className="flex items-end gap-1.5 rounded-2xl border bg-card py-2 pl-3 pr-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                   <Textarea
                     ref={inputRef}
                     value={input}
@@ -819,11 +768,11 @@ export default function AgentPage() {
                     placeholder="询问政策影响、行业趋势、事件进展…（Enter 发送，Shift+Enter 换行）"
                     rows={1}
                     maxLength={2000}
-                    className="min-h-[104px] max-h-[200px] flex-1 resize-none border-0 bg-transparent px-2 py-4 shadow-none focus-visible:ring-0"
+                    className="max-h-[200px] min-h-9 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-1.5 shadow-none focus-visible:ring-0"
                   />
                   <Button
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl"
+                    className="mb-0.5 h-9 w-9 shrink-0 rounded-xl"
                     onClick={send}
                     disabled={loading || loadingHistory || !input.trim()}
                     aria-label="发送"
@@ -831,40 +780,12 @@ export default function AgentPage() {
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
-                <p className="mt-2 text-center text-xs text-muted-foreground">
+                <p className="mt-2.5 px-1 text-center text-xs text-muted-foreground">
                   AI 输出基于历史信号数据整理，仅供参考，不构成投资建议
                 </p>
               </div>
             </div>
       </AppShell>
     </>
-  );
-}
-
-/** 工具日志行：单行截断展示，展开后显示完整内容（grid-rows 过渡动画）。 */
-function ToolLogRow({ t }: { t: { name: string; ok: boolean; summary: string } }) {
-  return (
-    <details className="group/log">
-      <summary className="flex cursor-pointer select-none list-none items-center gap-1.5 text-xs [&::-webkit-details-marker]:hidden">
-        <span
-          className={cn(
-            "h-1.5 w-1.5 shrink-0 rounded-full",
-            t.ok ? "bg-emerald-500" : "bg-destructive"
-          )}
-          aria-hidden
-        />
-        <Wrench className="h-3 w-3 shrink-0 opacity-70" />
-        <span className="min-w-0 truncate font-medium">{t.name}</span>
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">{t.summary}</span>
-        <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground transition-transform group-open/log:rotate-90" />
-      </summary>
-      <div className="grid grid-rows-[0fr] transition-all duration-200 group-open/log:grid-rows-[1fr]">
-        <div className="overflow-hidden">
-          <div className="pt-1.5 pl-4 text-xs text-muted-foreground whitespace-pre-wrap break-all">
-            {t.summary}
-          </div>
-        </div>
-      </div>
-    </details>
   );
 }

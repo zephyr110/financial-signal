@@ -300,6 +300,45 @@ export function detectTruncation(text: string): boolean {
   return false;
 }
 
+/** 判断文本是否为工具协议 JSON（含 tool 字段） */
+function isToolProtocolJson(text: string): boolean {
+  const parsed = parseJsonLike((text || '').trim());
+  return !!(parsed && typeof parsed === 'object' && typeof (parsed as { tool?: unknown }).tool === 'string');
+}
+
+/** 从用户可见回答中剥离工具协议 JSON（纯 JSON、末行 JSON、末尾围栏块） */
+export function stripToolProtocolFromAnswer(text: string): string {
+  if (!text) return '';
+  let s = text.trimEnd();
+
+  const fenceRe = /\n?```(?:json)?\s*\n[\s\S]*?"tool"\s*:[\s\S]*?\n```\s*$/;
+  const fenceMatch = s.match(fenceRe);
+  if (fenceMatch) {
+    const inner = fenceMatch[0].replace(/^[\s\S]*?\n/, '').replace(/\n```\s*$/, '');
+    if (isToolProtocolJson(inner)) {
+      s = s.slice(0, s.length - fenceMatch[0].length).trimEnd();
+    }
+  }
+
+  const lines = s.split('\n');
+  if (lines.length > 1) {
+    const last = lines[lines.length - 1].trim();
+    // 完整或生成中的末行工具 JSON
+    if (
+      (looksLikeJson(last) && isToolProtocolJson(last)) ||
+      (/^[\[{`"]/.test(last) && /"tool"/.test(last))
+    ) {
+      s = lines.slice(0, -1).join('\n').trimEnd();
+    }
+  }
+
+  if (looksLikeJson(s.trim()) && isToolProtocolJson(s.trim())) {
+    return '';
+  }
+
+  return s;
+}
+
 /** 最终回答出口管道：截断检测 → markdown 修复 → 截断时诚实标注。
  *  结构截断（围栏/括号）由 fixMarkdown 修复；内容半截无法恢复时追加提示行。 */
 export function formatFinalAnswer(text: string): { text: string; truncated: boolean } {

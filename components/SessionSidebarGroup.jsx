@@ -10,6 +10,15 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "./ui/sidebar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 
 /** SQLite datetime('now')（UTC）→ 相对时间 */
@@ -41,6 +50,8 @@ export default function SessionSidebarGroup({
   const { setOpenMobile } = useSidebar();
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const closeOnMobile = () => setOpenMobile(false);
 
@@ -48,16 +59,6 @@ export default function SessionSidebarGroup({
   const filtered = q
     ? sessions.filter((s) => (s.title ?? "").toLowerCase().includes(q))
     : sessions;
-
-  const [confirmingId, setConfirmingId] = useState(null);
-  const confirmTimer = useRef(null);
-  const armDelete = (id) => {
-    if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    setConfirmingId(id);
-    confirmTimer.current = setTimeout(() => setConfirmingId(null), 3000);
-  };
-  // 卸载时清理确认态计时器，避免对已卸载组件 setState
-  useEffect(() => () => clearTimeout(confirmTimer.current), []);
 
   const openSearch = () => setSearchOpen(true);
 
@@ -78,6 +79,27 @@ export default function SessionSidebarGroup({
     onNew();
     closeOnMobile();
   };
+
+  const requestDelete = (session, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDeleteTarget(session);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await onDelete(deleteTarget.id);
+      setDeleteTarget(null);
+    } catch {
+      // 删除失败：保留对话框，错误由父组件提示
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const deleteTitle = deleteTarget?.title?.trim() || "未命名会话";
 
   return (
     <SidebarGroup className="min-h-0 flex-1">
@@ -163,7 +185,6 @@ export default function SessionSidebarGroup({
             ) : (
               filtered.map((s) => {
                 const active = s.id === currentId;
-                const confirming = confirmingId === s.id;
                 return (
                   <SidebarMenuItem key={s.id}>
                     <SidebarMenuButton
@@ -173,7 +194,7 @@ export default function SessionSidebarGroup({
                         onSelect(s.id);
                         closeOnMobile();
                       }}
-                      className="h-auto items-start py-1.5"
+                      className="h-auto items-start py-1.5 pr-9"
                     >
                       <div className="min-w-0 flex-1">
                         <span
@@ -190,16 +211,17 @@ export default function SessionSidebarGroup({
                       </div>
                     </SidebarMenuButton>
                     <SidebarMenuAction
-                      onClick={() => (confirming ? onDelete(s.id) : armDelete(s.id))}
-                      aria-label={confirming ? `确认删除会话 ${s.title || ""}` : `删除会话 ${s.title || ""}`}
-                      title={confirming ? "再次点击确认删除" : "删除会话"}
+                      showOnHover
+                      onClick={(e) => requestDelete(s, e)}
+                      aria-label={`删除会话 ${s.title || "未命名会话"}`}
+                      title="删除会话"
                       className={cn(
-                        confirming
-                          ? "bg-destructive/10 text-destructive opacity-100"
-                          : "opacity-0 group-hover/menu-item:opacity-100 focus-visible:opacity-100 hover-none:opacity-100"
+                        "top-2 size-7 text-muted-foreground transition-colors",
+                        "hover:bg-destructive/10 hover:text-destructive",
+                        "focus-visible:bg-destructive/10 focus-visible:text-destructive"
                       )}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="size-3.5" />
                     </SidebarMenuAction>
                   </SidebarMenuItem>
                 );
@@ -218,6 +240,40 @@ export default function SessionSidebarGroup({
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
+
+      <Dialog
+        open={deleteTarget != null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent showCloseButton={!deleting} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>删除会话？</DialogTitle>
+            <DialogDescription>
+              将永久删除「{deleteTitle}」及其全部消息记录，此操作无法撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-2 border-t-0 bg-transparent p-0 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting ? "删除中…" : "确认删除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SidebarGroup>
   );
 }

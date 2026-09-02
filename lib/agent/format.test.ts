@@ -5,6 +5,7 @@ import {
   fixMarkdown,
   detectTruncation,
   formatFinalAnswer,
+  stripToolProtocolFromAnswer,
   validateToolArgs,
   looksLikeJson,
   parseJsonLike,
@@ -196,6 +197,23 @@ describe('detectTruncation', () => {
 
   it('以闭合围栏结尾的完整回答不误判截断', () => {
     expect(detectTruncation('示例：\n```js\nconst a = 1;\n```')).toBe(false);
+  });
+});
+
+describe('stripToolProtocolFromAnswer', () => {
+  it('剥离末行工具 JSON，保留说明文字', () => {
+    const raw =
+      '让我换个方式，直接搜索存储涨价相关的新闻信号。\n{"tool":"search_news","args":{"query":"存储涨价"}}';
+    expect(stripToolProtocolFromAnswer(raw)).toBe('让我换个方式，直接搜索存储涨价相关的新闻信号。');
+  });
+
+  it('纯工具 JSON 返回空', () => {
+    expect(stripToolProtocolFromAnswer('{"tool":"search_news","args":{"query":"x"}}')).toBe('');
+  });
+
+  it('散文内引用 JSON 不剥离', () => {
+    const raw = '好的，模型输出了 {"tool":"search_news","args":{"query":"存储"}}，但显示异常。';
+    expect(stripToolProtocolFromAnswer(raw)).toBe(raw);
   });
 });
 

@@ -64,6 +64,14 @@ describe('tryParseToolCall', () => {
     expect(tryParseToolCall('好的，模型输出了 {"tool":"search_news","args":{"query":"存储"}}，但显示异常。')).toBeNull();
   });
 
+  it('说明文字 + 独立末行工具 JSON 可解析', () => {
+    const r = tryParseToolCall(
+      '让我换个方式，直接搜索存储涨价相关的新闻信号。\n{"tool":"search_news","args":{"query":"存储涨价","hoursBack":720}}'
+    );
+    expect(r?.tool).toBe('search_news');
+    expect(r?.args).toMatchObject({ query: '存储涨价' });
+  });
+
   it('截断的 JSON 工具调用被修复补全为合法调用', () => {
     const r = tryParseToolCall('{"tool":"get_industry_heatmap","args":{"');
     expect(r?.tool).toBe('get_industry_heatmap');

@@ -14,7 +14,7 @@ import { LLM_CONFIG } from '../llm/config';
 import type { AgentTurnResult } from './types';
 import { getTool, buildToolPrompt } from './tools';
 import { loadAgentContext } from './session';
-import { looksLikeJson, parseJsonLike, repairJson, formatFinalAnswer, validateToolArgs } from './format';
+import { looksLikeJson, parseJsonLike, repairJson, formatFinalAnswer, stripToolProtocolFromAnswer, validateToolArgs } from './format';
 
 /** 单轮最大步数（LLM 调用次数），防止失控循环 */
 const MAX_STEPS = 8;
@@ -36,17 +36,13 @@ export const AGENT_SYSTEM_PROMPT = `你是一个A股政策-行业研究助手（
 - 可以给出趋势判断（早期/发酵/扩散/定价），但禁止给出买卖建议
 - 若工具没有数据，明确说明数据缺口，不要编造`;
 
-export function tryParseToolCall(content: string): { tool?: string; args?: Record<string, unknown> } | null {
-  // 兼容 ```json 代码块包裹；协议要求工具调用是"严格 JSON"，散文中的 JSON 引用不解析
-  const trimmed = (content || '').trim();
+function parseToolCallCandidate(text: string): { tool?: string; args?: Record<string, unknown> } | null {
+  const trimmed = (text || '').trim();
   const parsed = parseJsonLike(trimmed);
   if (parsed && typeof parsed === 'object' && typeof (parsed as { tool?: unknown }).tool === 'string') {
     const p = parsed as { tool: string; args?: unknown };
     return { tool: p.tool, args: p.args && typeof p.args === 'object' ? (p.args as Record<string, unknown>) : {} };
   }
-  // 后校正：模型输出的 JSON 可能带尾逗号/单引号/未引号 key 或截断。
-  // 仅对"JSON 形状"的输出做修复（looksLikeJson 门禁）——从散文回答里提取
-  // {"tool":...} 会被误执行为工具调用；修复后解析出 tool 字段才视为工具调用。
   if (!looksLikeJson(trimmed)) return null;
   const repaired = repairJson(trimmed);
   if (repaired !== null && repaired !== trimmed) {
@@ -59,6 +55,28 @@ export function tryParseToolCall(content: string): { tool?: string; args?: Recor
       // 放弃
     }
   }
+  return null;
+}
+
+export function tryParseToolCall(content: string): { tool?: string; args?: Record<string, unknown> } | null {
+  const trimmed = (content || '').trim();
+  const direct = parseToolCallCandidate(trimmed);
+  if (direct?.tool) return direct;
+
+  // 说明文字 + 独立末行工具 JSON（常见误输出；行内引用 JSON 仍不解析）
+  const lines = trimmed.split('\n');
+  if (lines.length > 1) {
+    const lastLine = lines[lines.length - 1].trim();
+    const tail = parseToolCallCandidate(lastLine);
+    if (tail?.tool) return tail;
+  }
+
+  const fenceMatch = trimmed.match(/\n```(?:json)?\s*\n([\s\S]*?)\n```\s*$/);
+  if (fenceMatch) {
+    const tail = parseToolCallCandidate(`\`\`\`json\n${fenceMatch[1]}\n\`\`\``);
+    if (tail?.tool) return tail;
+  }
+
   return null;
 }
 
@@ -139,12 +157,18 @@ export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResu
         ...turnMessages,
       ];
 
-      // 每步都流式：工具调用 JSON 短（一闪而过），最终回答逐字推送
+      // 每步都流式：最终回答逐字推送；工具调用 JSON 在完整返回前不透出 delta，
+      // 避免前端出现半截 {"tool":...} 文本
+      let stepBuffer = '';
       const { content } = await chatCompletion({
         messages,
         maxTokens: 4096,
         stream: true,
-        onDelta: (text: string) => emit({ type: 'delta', text }),
+        onDelta: (text: string) => {
+          stepBuffer += text;
+          if (looksLikeJson(stepBuffer.trim())) return;
+          emit({ type: 'delta', text });
+        },
       });
 
       const contentText = (content || '').trim();
@@ -163,8 +187,8 @@ export async function runAgentTurn(input: RunTurnOptions): Promise<AgentTurnResu
           await appendAgentMessage(sessionId, 'system', feedback);
           continue;
         }
-        // 最终回答：确定性出口管道（截断检测 → markdown 修复 → 截断诚实标注）
-        const formatted = formatFinalAnswer(contentText);
+        // 最终回答：剥离误附的工具 JSON → 截断检测 → markdown 修复
+        const formatted = formatFinalAnswer(stripToolProtocolFromAnswer(contentText));
         reply = formatted.text;
         await appendAgentMessage(sessionId, 'assistant', reply);
         await touchAgentSession(sessionId);
