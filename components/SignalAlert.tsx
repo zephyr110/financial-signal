@@ -33,7 +33,7 @@ export default function SignalAlert({ items }: { items: any[] }) {
     }
   }, []);
 
-  // 开关为开且权限已授予时，监测新预警信号（每个 id 只提醒一次）
+  // 开关为开且权限已授予时，监测 ≥4 分信号（每个 id 只提醒一次）
   useEffect(() => {
     if (!enabled || permission !== "granted") return;
     if (!items || items.length === 0) return;
@@ -95,7 +95,7 @@ export default function SignalAlert({ items }: { items: any[] }) {
           type="button"
           onClick={handleToggle}
           aria-pressed={active}
-          title={active ? "点击关闭重要信号提醒" : "开启后，关注行业的重要信号将通过浏览器通知提醒"}
+          title={active ? "点击关闭高分信号提醒" : "开启后，关注行业 ≥4 分（重要/重大）信号将通过浏览器通知提醒"}
           className={cn(
             // 与 IndustrySelector 同款胶囊按钮
             "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors",
@@ -105,7 +105,7 @@ export default function SignalAlert({ items }: { items: any[] }) {
           )}
         >
           {active ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
-          {active ? "重要信号提醒已开启" : "开启重要信号提醒"}
+          {active ? "高分信号提醒已开启" : "开启高分信号提醒"}
         </button>
       )}
     </>
@@ -116,7 +116,7 @@ function showNotification(critical: any[]) {
   const top = critical.slice(0, 3);
   const body = top.map((i) => `[${i.signal_score}分] ${i.summary}`).join("\n");
   try {
-    new Notification(`财经信号 · ${critical.length} 条重要预警`, {
+    new Notification(`财经信号 · ${critical.length} 条 ≥4 分信号`, {
       body,
       icon: "/favicon-light.png",
       tag: "financial-signals-alert",

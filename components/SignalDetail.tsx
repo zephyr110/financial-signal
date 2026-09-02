@@ -103,12 +103,13 @@ export default function SignalDetail({
   const sentimentLabel =
     SENTIMENT_LABELS[signal.sentiment] || signal.sentiment;
 
-  // "利好" or "利空" based on sentiment
+  // "利好"/"利空" based on sentiment;颜色统一 A 股红涨绿跌惯例:
+  // 红=正面(利好/看多)、绿=负面(利空/看空)——与 SentimentChart 等全站一致(此前此处反色)
   const sentimentBadge =
     signal.sentiment === "positive"
-      ? "text-emerald-600 dark:text-emerald-400"
+      ? "text-red-600 dark:text-red-400"
       : signal.sentiment === "negative"
-        ? "text-red-600 dark:text-red-400"
+        ? "text-emerald-600 dark:text-emerald-400"
         : "text-muted-foreground";
 
   return (

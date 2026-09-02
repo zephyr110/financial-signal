@@ -51,7 +51,7 @@ export default function TodaySignalSummary({ items }: TodaySignalSummaryProps) {
             </span>
           </span>
           {criticalCount > 0 && (
-            <Badge variant="destructive">{criticalCount} 预警</Badge>
+            <Badge variant="destructive">{criticalCount} 重大</Badge>
           )}
           {significantCount > 0 && (
             <Badge

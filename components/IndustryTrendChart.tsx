@@ -27,8 +27,16 @@ export default function IndustryTrendChart({ data, watched }) {
     );
   }
 
-  // Discover industry keys from data (skip 'time' key)
-  const industryKeys = Object.keys(data[0]).filter(k => k !== "time");
+  // Discover industry keys from data (skip 'time' key)。
+  // 取所有时间桶的并集而非 data[0]:后出现的行业(首个桶无信号)若只取首桶会被整行漏掉,
+  // 导致「行业信号分布」有该行业而趋势图没有/关注该行业时误报「暂无行业趋势数据」
+  const industryKeySet = new Set<string>();
+  for (const row of data) {
+    for (const k of Object.keys(row)) {
+      if (k !== "time") industryKeySet.add(k);
+    }
+  }
+  const industryKeys = Array.from(industryKeySet);
 
   let topKeys: string[];
   if (watched && watched.length > 0) {

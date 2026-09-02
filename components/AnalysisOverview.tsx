@@ -18,7 +18,7 @@ const CARDS = [
   {
     key: "critical",
     icon: AlertTriangle,
-    label: "预警信号",
+    label: "重大信号",
     gradient: "from-rose-600 to-rose-500 dark:from-rose-700 dark:to-rose-600",
     textColor: "text-white",
     mutedColor: "text-rose-50",

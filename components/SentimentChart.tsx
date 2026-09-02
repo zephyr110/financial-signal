@@ -87,11 +87,15 @@ export default function SentimentChart({ data }: SentimentChartProps) {
     grandTotal > 0 ? Math.round((totalPositive / grandTotal) * 100) : 0;
   const negativePct =
     grandTotal > 0 ? Math.round((totalNegative / grandTotal) * 100) : 0;
+  const neutralPct =
+    grandTotal > 0 ? Math.round((totalNeutral / grandTotal) * 100) : 0;
+  const mixedPct =
+    grandTotal > 0 ? Math.round((totalMixed / grandTotal) * 100) : 0;
 
-  let overallLabel = "中性";
-  if (positivePct > 50) overallLabel = "偏积极 ↑";
-  else if (negativePct > 50) overallLabel = "偏消极 ↓";
-  else if (positivePct > negativePct) overallLabel = "偏积极 ↑";
+  // 结论只看单向过半;中性/混合占多数时如实报「多空分歧」,不再用两两比较硬造方向
+  let overallLabel = "多空分歧";
+  if (positivePct >= 50) overallLabel = "偏积极 ↑";
+  else if (negativePct >= 50) overallLabel = "偏消极 ↓";
 
   return (
     <div>
@@ -145,7 +149,7 @@ export default function SentimentChart({ data }: SentimentChartProps) {
 
       {/* Overall summary */}
       <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1">
-        整体情绪：{overallLabel}（看多 {positivePct}% · 看空 {negativePct}%）· 仅统计 ≥3 分信号
+        整体情绪：{overallLabel}（看多 {positivePct}% · 看空 {negativePct}% · 中性 {neutralPct}% · 混合 {mixedPct}%）· 仅统计 ≥3 分信号（样本：当前页已加载批次）
       </p>
     </div>
   );

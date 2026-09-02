@@ -356,8 +356,9 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
                   {viewMode === "industry" && marketToday.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-border">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs text-muted-foreground">今日板块涨跌</span>
-                        <span className="text-xs text-muted-foreground">收盘</span>
+                        {/* 数据为 MAX(trade_date)(非交易日/未刷新时是上一交易日),如实标注避免「今日」误导 */}
+                        <span className="text-xs text-muted-foreground">板块涨跌</span>
+                        <span className="text-xs text-muted-foreground">最近交易日收盘</span>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1">
                         {marketToday.map((m: any) => {
@@ -387,7 +388,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
                   <h3 className="text-sm font-semibold text-foreground mb-3">
                     信号分类占比
                   </h3>
-                  <CategoryDonutChart items={watchedItems} totalSignals={stats?.total_signals} />
+                  <CategoryDonutChart items={watchedItems} />
                 </div>
               </div>
               </div>

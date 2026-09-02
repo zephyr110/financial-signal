@@ -26,7 +26,7 @@ const TOOLTIP_STYLE = {
 /**
  * Donut chart — category distribution of quality signals (score ≥ 3).
  */
-export default function CategoryDonutChart({ items, totalSignals }) {
+export default function CategoryDonutChart({ items }) {
   if (!items || items.length === 0) {
     return (
       <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
@@ -92,7 +92,7 @@ export default function CategoryDonutChart({ items, totalSignals }) {
             className="fill-foreground"
             style={{ fontSize: 20, fontWeight: 700 }}
           >
-            {totalSignals ?? total}
+            {total}
           </text>
           <text
             x="50%"

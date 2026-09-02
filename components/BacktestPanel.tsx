@@ -11,6 +11,7 @@ interface BacktestRow {
   avg_d3: number;
   avg_d7: number;
   win_rate: number | null;
+  directional_count?: number | null;
 }
 
 type TabKey = "score" | "industry";
@@ -20,9 +21,10 @@ const WIN_RATE_HINT =
   "方向命中率 = 看多信号次日板块上涨 / 看空信号次日下跌的比例;中性/混合事件不计入分母(样本列 = 总事件数)";
 
 // 表格网格列模板（fr 权重自适应：行业列相对收窄，数值列相对加宽，表头与两种行共用，改列宽需同步）：
-// 行业 1.4fr | 均分 0.9fr | 样本 1.4fr | 3×涨跌幅 1fr | 命中率 1.6fr | 方向 0.8fr
-const HEADER_GRID = "hidden sm:grid grid-cols-[1.4fr_0.9fr_1.4fr_1fr_1fr_1fr_1.6fr_0.8fr]";
-const ROW_GRID = "grid grid-cols-[1fr_40px_1fr] sm:grid-cols-[1.4fr_0.9fr_1.4fr_1fr_1fr_1fr_1.6fr_0.8fr]";
+// 行业 1.4fr | 档位 0.9fr | 样本 1.4fr | 3×涨跌幅 1fr | 命中率 1.6fr
+// 注:已移除「方向」列——旧列用 T+1 均值符号冒充信号方向,与新修的方向命中率口径同表矛盾
+const HEADER_GRID = "hidden sm:grid grid-cols-[1.4fr_0.9fr_1.4fr_1fr_1fr_1fr_1.6fr]";
+const ROW_GRID = "grid grid-cols-[1fr_40px_1fr] sm:grid-cols-[1.4fr_0.9fr_1.4fr_1fr_1fr_1fr_1.6fr]";
 
 export default function BacktestPanel() {
   const [byScore, setByScore] = useState<BacktestRow[] | null>(null);
@@ -137,7 +139,7 @@ export default function BacktestPanel() {
                 <span>{tab === "industry" ? "行业" : "分数"}</span>
                 {tab === "industry" ? (
                   <SortableHeader
-                    label="均分"
+                    label="档位"
                     active={sortKey === "score"}
                     dir={sortDir}
                     onClick={() => toggleSort("score")}
@@ -160,7 +162,6 @@ export default function BacktestPanel() {
                 ) : (
                   <span title={WIN_RATE_HINT}>命中率</span>
                 )}
-                <span>方向</span>
               </div>
           </div>
 
@@ -184,14 +185,18 @@ export default function BacktestPanel() {
                       <SampleCell samples={row.samples} tier={tier} />
                       <div className="sm:hidden text-xs text-muted-foreground">
                         {showNumbers
-                          ? `${row.avg_d1 > 0 ? "看涨" : "看跌"} · ${tier === "reference" ? "~" : ""}样本 ${row.samples} · T+1 ${fmtPct(row.avg_d1, tier)} · T+3 ${fmtPct(row.avg_d3, tier)} · T+7 ${fmtPct(row.avg_d7, tier)}`
+                          ? `${tier === "reference" ? "~" : ""}样本 ${row.samples} · T+1 ${fmtPct(row.avg_d1, tier)} · T+3 ${fmtPct(row.avg_d3, tier)} · T+7 ${fmtPct(row.avg_d7, tier)}`
                           : tierProgress(row.samples)}
                       </div>
                       <ReturnCell value={row.avg_d1} show={showNumbers} tier={tier} />
                       <ReturnCell value={row.avg_d3} show={showNumbers} tier={tier} />
                       <ReturnCell value={row.avg_d7} show={showNumbers} tier={tier} />
-                      <WinRateCell rate={row.win_rate} show={showNumbers} tier={tier} />
-                      <DirectionCell value={row.avg_d1} show={showNumbers} />
+                      <WinRateCell
+                        rate={row.win_rate}
+                        directionalCount={row.directional_count}
+                        show={showNumbers}
+                        tier={tier}
+                      />
                     </div>
                   );
                 })}
@@ -220,8 +225,12 @@ export default function BacktestPanel() {
                         <ReturnCell value={row.avg_d1} show={showNumbers} tier={tier} />
                         <ReturnCell value={row.avg_d3} show={showNumbers} tier={tier} />
                         <ReturnCell value={row.avg_d7} show={showNumbers} tier={tier} />
-                        <WinRateCell rate={row.win_rate} show={showNumbers} tier={tier} />
-                        <DirectionCell value={row.avg_d1} show={showNumbers} />
+                        <WinRateCell
+                          rate={row.win_rate}
+                          directionalCount={row.directional_count}
+                          show={showNumbers}
+                          tier={tier}
+                        />
                       </div>
                     );
                   })}
@@ -268,25 +277,6 @@ function SortableHeader({
         <ChevronsUpDown className="h-3 w-3 opacity-40" />
       )}
     </button>
-  );
-}
-
-/** 方向列：T+1 平均涨跌幅 > 0 → 看涨（红），否则看跌（绿），A 股红涨绿跌惯例。 */
-function DirectionCell({ value, show = true }: { value: number; show?: boolean }) {
-  if (!show || value == null)
-    return <span className="hidden text-xs text-muted-foreground sm:block">—</span>;
-  const bull = value > 0;
-  return (
-    <span
-      className={cn(
-        "hidden sm:inline-flex items-center justify-center rounded px-1.5 py-0.5 text-xs font-medium",
-        bull
-          ? "bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400"
-          : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400"
-      )}
-    >
-      {bull ? "看涨" : "看跌"}
-    </span>
   );
 }
 
@@ -356,11 +346,27 @@ function ReturnCell({ value, show = true, tier }: { value: number; show?: boolea
   );
 }
 
-function WinRateCell({ rate, show = true, tier }: { rate: number | null; show?: boolean; tier?: BacktestTier }) {
+function WinRateCell({
+  rate,
+  directionalCount,
+  show = true,
+  tier,
+}: {
+  rate: number | null;
+  directionalCount?: number | null;
+  show?: boolean;
+  tier?: BacktestTier;
+}) {
   // rate 为 NULL = 该组无带方向事件(全部中性/混合/遗留),展示 "—" 而非参与数字
   const hasRate = show && rate != null;
+  const hint =
+    rate == null
+      ? "无带方向样本,不计命中率"
+      : directionalCount != null
+        ? `方向命中率(分母=${directionalCount} 个多/空事件;样本列含中性/混合事件)`
+        : WIN_RATE_HINT;
   return (
-    <div className="hidden sm:flex items-center gap-1.5" title={rate == null ? "无带方向样本,不计命中率" : undefined}>
+    <div className="hidden sm:flex items-center gap-1.5" title={hint}>
       <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
         <div
           className={cn("h-full rounded-full transition-all", hasRate ? "bg-primary" : "bg-border")}
