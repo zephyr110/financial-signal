@@ -8,7 +8,7 @@ import SignalBadge from "../../components/SignalBadge";
 import ErrorBanner from "../../components/ErrorBanner";
 import WatchlistButton from "../../components/WatchlistButton";
 import { cn } from "@/lib/utils";
-import { CATEGORY_LABELS, CATEGORY_COLORS, SCORE_LABELS } from "@/lib/constants";
+import { CATEGORY_LABELS, CATEGORY_COLORS, SCORE_LABELS, sourceDisplayName } from "@/lib/constants";
 import { getEventThreads, getEventThreadById } from "../../lib/db";
 import { getThreadMarketContext } from "../../lib/market";
 import { getBacktestTier, shouldShowNumbers, TIER_LABELS } from "@/lib/backtest";
@@ -213,7 +213,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
                             </a>
                           )}
                           {origin.source && (
-                            <span className="text-xs text-muted-foreground">{origin.source}</span>
+                            <span className="text-xs text-muted-foreground">{sourceDisplayName(origin.source)}</span>
                           )}
                         </div>
                       </div>

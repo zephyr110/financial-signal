@@ -2,17 +2,9 @@ import Link from "next/link";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { cn } from "@/lib/utils";
-import { CATEGORY_LABELS, CATEGORY_COLORS, SCORE_COLORS } from "@/lib/constants";
+import { CATEGORY_LABELS, CATEGORY_COLORS, SCORE_COLORS, sourceDisplayName } from "@/lib/constants";
 import { parseItemTime, formatTime, formatDate } from "@/lib/format";
 import { track } from "@/lib/track";
-
-const SOURCE_LABELS = {
-  sina: '新浪',
-  '10jqka': '同花顺',
-  wallstreetcn: '华尔街见闻',
-  eastmoney: '东财',
-  cls: '财联社',
-};
 
 export default function AnalysisNewsCard({ item }) {
   const time = parseItemTime(item);
@@ -46,7 +38,7 @@ export default function AnalysisNewsCard({ item }) {
 
               {item.source && (
                 <Badge variant="secondary" className="text-xs px-1.5 py-0">
-                  {SOURCE_LABELS[item.source] || item.source}
+                  {sourceDisplayName(item.source)}
                 </Badge>
               )}
 

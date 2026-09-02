@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   FILTER_KEYWORDS,
   CATEGORY_LABELS, CATEGORY_COLORS, SCORE_COLORS, SCORE_TO_IMPACT,
+  sourceDisplayName,
 } from '../lib/constants'
 
 describe('FILTER_KEYWORDS', () => {
@@ -35,5 +36,18 @@ describe('SCORE_COLORS', () => {
     for (let i = 1; i <= 5; i++) {
       expect(SCORE_COLORS[i]).toBeTruthy()
     }
+  })
+})
+
+describe('sourceDisplayName', () => {
+  it('maps known source ids to Chinese labels', () => {
+    expect(sourceDisplayName('10jqka')).toBe('同花顺')
+    expect(sourceDisplayName('sina')).toBe('新浪')
+    expect(sourceDisplayName('wallstreetcn')).toBe('华尔街见闻')
+  })
+
+  it('falls back to raw id or 未知', () => {
+    expect(sourceDisplayName('custom_feed')).toBe('custom_feed')
+    expect(sourceDisplayName(null)).toBe('未知')
   })
 })

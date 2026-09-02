@@ -8,6 +8,7 @@ import { getBacktestTier, shouldShowNumbers, TIER_LABELS } from "@/lib/backtest"
 import {
   CATEGORY_LABELS,
   CATEGORY_COLORS,
+  sourceDisplayName,
 } from "@/lib/constants";
 
 const STAGE_LABELS: Record<string, string> = {
@@ -313,7 +314,7 @@ export default function SignalDetail({
         </h3>
         <div className="flex items-center justify-between flex-wrap gap-1.5 mb-2">
           <p className="text-xs text-muted-foreground">
-            来源：{signal.source || "未知"} · {formatDate(signal.published_at)}
+            来源：{sourceDisplayName(signal.source)} · {formatDate(signal.published_at)}
           </p>
           {signal.docurl && (
             <a

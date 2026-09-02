@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Loader2, SearchX } from "lucide-react";
 import SignalBadge from "./SignalBadge";
-import { CATEGORY_LABELS } from "@/lib/constants";
+import { CATEGORY_LABELS, sourceDisplayName } from "@/lib/constants";
 
 interface SearchResultItem {
   id: number;
@@ -109,7 +109,7 @@ export default function SignalSearchResults({
                     ))}
                     {item.source && (
                       <span className="text-xs text-muted-foreground ml-auto">
-                        {item.source}
+                        {sourceDisplayName(item.source)}
                       </span>
                     )}
                     <span className="text-xs text-muted-foreground">

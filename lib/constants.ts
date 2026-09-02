@@ -58,3 +58,18 @@ export const INDUSTRY_ALIASES: Record<string, string> = {
 export function industryDisplayName(name: string): string {
   return INDUSTRY_ALIASES[name] ?? name;
 }
+
+// --- 新闻信源展示名（DB/API 存 id，前端统一映射） ---
+
+export const SOURCE_LABELS: Record<string, string> = {
+  sina: '新浪',
+  '10jqka': '同花顺',
+  wallstreetcn: '华尔街见闻',
+  eastmoney: '东方财富',
+  cls: '财联社',
+};
+
+export function sourceDisplayName(source: string | null | undefined): string {
+  if (!source) return '未知';
+  return SOURCE_LABELS[source] ?? source;
+}
