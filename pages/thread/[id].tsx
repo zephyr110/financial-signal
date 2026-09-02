@@ -319,7 +319,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
                           <thead>
                             <tr className="text-muted-foreground border-b">
                               <th className="text-left py-2 pr-4 font-medium">行业回测</th>
-                              <th className="text-right py-2 px-2 font-medium">样本</th>
+                              <th className="text-right py-2 px-2 font-medium">方向样本</th>
                               <th className="text-right py-2 px-2 font-medium">T+1</th>
                               <th className="text-right py-2 px-2 font-medium">T+3</th>
                               <th className="text-right py-2 px-2 font-medium">T+7</th>
@@ -328,8 +328,9 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
                           </thead>
                           <tbody>
                             {thread.backtest.map((row: any) => {
-                              // P2.3 可信度分层：样本不足只显示行业名 + 进度
-                              const tier = getBacktestTier(row.samples);
+                              // P2.3 可信度分层:以方向样本数为准
+                              const dirCount = row.directional_count ?? row.samples;
+                              const tier = getBacktestTier(dirCount);
                               const showNumbers = shouldShowNumbers(tier);
                               return (
                                 <tr key={row.industry} className="border-b last:border-0">
@@ -348,8 +349,8 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
                                       </span>
                                     </span>
                                   </td>
-                                  <td className="py-2 px-2 text-right tabular-nums">
-                                    {row.samples}
+                                  <td className="py-2 px-2 text-right tabular-nums" title={dirCount !== row.samples ? `总事件 ${row.samples}(含中性/混合)` : undefined}>
+                                    {dirCount}
                                     {!showNumbers && (
                                       <span className="ml-1 text-xs text-muted-foreground">/10</span>
                                     )}

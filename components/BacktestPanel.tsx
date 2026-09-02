@@ -18,10 +18,10 @@ type TabKey = "score" | "industry";
 
 // 口径说明(胜率 1.6fr 列表头与单元格悬浮提示共用):分母仅计带方向事件,中性/混合不计
 const WIN_RATE_HINT =
-  "方向命中率 = 看多信号次日板块上涨 / 看空信号次日下跌的比例;中性/混合事件不计入分母(样本列 = 总事件数)";
+  "方向命中率 = 看多信号次日板块上涨 / 看空信号次日下跌的比例;中性/混合事件不计入分母;可信度分层以方向样本数为准";
 
 // 表格网格列模板（fr 权重自适应：行业列相对收窄，数值列相对加宽，表头与两种行共用，改列宽需同步）：
-// 行业 1.4fr | 档位 0.9fr | 样本 1.4fr | 3×涨跌幅 1fr | 命中率 1.6fr
+// 行业 1.4fr | 档位 0.9fr | 方向样本 1.4fr | 3×涨跌幅 1fr | 命中率 1.6fr
 // 注:已移除「方向」列——旧列用 T+1 均值符号冒充信号方向,与新修的方向命中率口径同表矛盾
 const HEADER_GRID = "hidden sm:grid grid-cols-[1.4fr_0.9fr_1.4fr_1fr_1fr_1fr_1.6fr]";
 const ROW_GRID = "grid grid-cols-[1fr_40px_1fr] sm:grid-cols-[1.4fr_0.9fr_1.4fr_1fr_1fr_1fr_1.6fr]";
@@ -147,7 +147,7 @@ export default function BacktestPanel() {
                 ) : (
                   <span />
                 )}
-                <span>样本</span>
+                <span>方向样本</span>
                 <span>T+1</span>
                 <span>T+3</span>
                 <span>T+7</span>
@@ -170,8 +170,9 @@ export default function BacktestPanel() {
               {/* Industry view */}
               {tab === "industry" &&
                 sortedIndustry.map((row) => {
-                  // P2.3 可信度分层：样本不足只显示行业名 + 进度（不展示数字，R4 只改展示不改数据）
-                  const tier = getBacktestTier(row.samples);
+                  // P2.3 可信度分层:以方向样本数(命中率分母)衡量,总事件含中性/混合会虚高精度
+                  const dirCount = row.directional_count ?? row.samples;
+                  const tier = getBacktestTier(dirCount);
                   const showNumbers = shouldShowNumbers(tier);
                   return (
                     <div
@@ -182,11 +183,11 @@ export default function BacktestPanel() {
                         {row.industry}
                       </span>
                       <ScoreBadge score={row.signal_score} />
-                      <SampleCell samples={row.samples} tier={tier} />
+                      <SampleCell directional={dirCount} total={row.samples} tier={tier} />
                       <div className="sm:hidden text-xs text-muted-foreground">
                         {showNumbers
-                          ? `${tier === "reference" ? "~" : ""}样本 ${row.samples} · T+1 ${fmtPct(row.avg_d1, tier)} · T+3 ${fmtPct(row.avg_d3, tier)} · T+7 ${fmtPct(row.avg_d7, tier)}`
-                          : tierProgress(row.samples)}
+                          ? `${tier === "reference" ? "~" : ""}方向样本 ${dirCount} · T+1 ${fmtPct(row.avg_d1, tier)} · T+3 ${fmtPct(row.avg_d3, tier)} · T+7 ${fmtPct(row.avg_d7, tier)}`
+                          : tierProgress(dirCount)}
                       </div>
                       <ReturnCell value={row.avg_d1} show={showNumbers} tier={tier} />
                       <ReturnCell value={row.avg_d3} show={showNumbers} tier={tier} />
@@ -206,8 +207,9 @@ export default function BacktestPanel() {
                 (byScore as BacktestRow[])
                   ?.sort((a, b) => (b.signal_score ?? 0) - (a.signal_score ?? 0))
                   .map((row, i) => {
-                    // 分数组同样受分层约束：样本不足不展示收益/胜率数字
-                    const tier = getBacktestTier(row.samples);
+                    // 分数组同样受分层约束:以方向样本数为准
+                    const dirCount = row.directional_count ?? row.samples;
+                    const tier = getBacktestTier(dirCount);
                     const showNumbers = shouldShowNumbers(tier);
                     return (
                       <div
@@ -216,11 +218,11 @@ export default function BacktestPanel() {
                       >
                         <ScoreBadge score={row.signal_score} />
                         <span className="w-6" />
-                        <SampleCell samples={row.samples} tier={tier} />
+                        <SampleCell directional={dirCount} total={row.samples} tier={tier} />
                         <div className="sm:hidden text-xs text-muted-foreground">
                           {showNumbers
-                            ? `${tier === "reference" ? "~" : ""}样本 ${row.samples} · T+1 ${fmtPct(row.avg_d1, tier)} · T+3 ${fmtPct(row.avg_d3, tier)} · T+7 ${fmtPct(row.avg_d7, tier)}`
-                            : tierProgress(row.samples)}
+                            ? `${tier === "reference" ? "~" : ""}方向样本 ${dirCount} · T+1 ${fmtPct(row.avg_d1, tier)} · T+3 ${fmtPct(row.avg_d3, tier)} · T+7 ${fmtPct(row.avg_d7, tier)}`
+                            : tierProgress(dirCount)}
                         </div>
                         <ReturnCell value={row.avg_d1} show={showNumbers} tier={tier} />
                         <ReturnCell value={row.avg_d3} show={showNumbers} tier={tier} />
@@ -280,8 +282,19 @@ function SortableHeader({
   );
 }
 
-/** 样本列：充足=绿徽章数字、参考=琥珀 ~数字（与行内 ~ 约定一致）、积累=灰进度。 */
-function SampleCell({ samples, tier }: { samples: number; tier: BacktestTier }) {
+/** 方向样本列：充足=绿徽章数字、参考=琥珀 ~数字、积累=灰进度。
+ * 数值 = 多/空事件数(命中率分母,tier 依据);total 为总事件(含中性/混合),差异时经 tooltip 披露。 */
+function SampleCell({
+  directional,
+  total,
+  tier,
+}: {
+  directional: number;
+  total?: number | null;
+  tier: BacktestTier;
+}) {
+  const note =
+    total != null && total !== directional ? `（总事件 ${total},含中性/混合）` : "";
   return (
     <span
       className={cn(
@@ -292,8 +305,13 @@ function SampleCell({ samples, tier }: { samples: number; tier: BacktestTier }) 
           "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
         tier === "accumulating" && "bg-muted text-muted-foreground"
       )}
+      title={note || undefined}
     >
-      {tier === "accumulating" ? tierProgress(samples) : tier === "reference" ? `~${samples}` : samples}
+      {tier === "accumulating"
+        ? tierProgress(directional)
+        : tier === "reference"
+          ? `~${directional}`
+          : directional}
     </span>
   );
 }

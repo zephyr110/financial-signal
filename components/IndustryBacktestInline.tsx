@@ -9,6 +9,7 @@ interface BacktestIndustryRow {
   avg_d3: number | null;
   avg_d7: number | null;
   win_rate: number | null;
+  directional_count?: number | null;
 }
 
 interface IndustryBacktestInlineProps {
@@ -44,8 +45,9 @@ export default function IndustryBacktestInline({
 
   if (!match) return null;
 
-  // P2.3 可信度分层：样本不足时只展示行业名 + 进度，不展示数字（R4：只改展示不改数据）
-  const tier = getBacktestTier(match.samples);
+  // P2.3 可信度分层:以方向样本数(命中率分母)为准——总事件含中性/混合会虚高精度
+  const dirCount = match.directional_count ?? match.samples;
+  const tier = getBacktestTier(dirCount);
   if (tier === 'accumulating') {
     return (
       <div
@@ -63,12 +65,12 @@ export default function IndustryBacktestInline({
         }}
         role={onViewDetail ? "button" : undefined}
         tabIndex={onViewDetail ? 0 : undefined}
-        title={`${match.industry} · 近30天回测 · ${tierProgress(match.samples)}`}
+        title={`${match.industry} · 近30天回测 · ${tierProgress(dirCount)}`}
       >
         <Loader2 className="h-3 w-3 shrink-0 animate-pulse" />
         <span className="font-medium">{match.industry}</span>
         <span>·</span>
-        <span className="text-muted-foreground/80">{tierProgress(match.samples)} · 数据积累中</span>
+        <span className="text-muted-foreground/80">{tierProgress(dirCount)} · 数据积累中</span>
       </div>
     );
   }
@@ -96,7 +98,7 @@ export default function IndustryBacktestInline({
       }}
       role={onViewDetail ? "button" : undefined}
       tabIndex={onViewDetail ? 0 : undefined}
-      title={`${match.industry} · 近30天回测 · ${match.samples} 个样本${isReference ? ` · ${TIER_LABELS.reference}` : ""}`}
+      title={`${match.industry} · 近30天回测 · 方向样本 ${dirCount}${dirCount !== match.samples ? `（总事件 ${match.samples}）` : ""}${isReference ? ` · ${TIER_LABELS.reference}` : ""}`}
     >
       <BarChart3 className="h-3 w-3 shrink-0" />
       <span className="font-medium">{match.industry}</span>

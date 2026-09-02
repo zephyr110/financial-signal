@@ -18,8 +18,8 @@ describe('P2.3 回测可信度分层', () => {
   });
 
   it('进度文案与档位标签', () => {
-    expect(tierProgress(7)).toBe('样本 7/10');
-    expect(tierProgress(0)).toBe('样本 0/10');
+    expect(tierProgress(7)).toBe('多空样本 7/10');
+    expect(tierProgress(0)).toBe('多空样本 0/10');
     expect(TIER_LABELS.accumulating).toBe('数据积累中');
     expect(TIER_LABELS.reference).toBe('仅供参考');
     expect(TIER_LABELS.sufficient).toBe('样本充足');
