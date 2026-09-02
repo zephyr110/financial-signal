@@ -1,5 +1,6 @@
 import { createClient } from '@libsql/client';
 import { industryDisplayName } from './constants';
+import { cachedRead, readCacheKey, READ_CACHE_TTL } from './read-cache';
 import crypto from 'crypto';
 import path from 'path';
 
@@ -626,6 +627,10 @@ function industryFilterClause(industries: string[] | null | undefined): { clause
 }
 
 export async function getAnalyzedNews({ minScore = 1, limit = 50, hoursBack = 24, cursor = 0, industries = null } = {}) {
+  const effectiveCursor = cursor || 9999999;
+  const isFirstPage = effectiveCursor >= 9999999;
+
+  const load = async () => {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const safeMin = Number.isFinite(minScore) ? Math.min(5, Math.max(1, minScore)) : 1;
@@ -643,13 +648,25 @@ export async function getAnalyzedNews({ minScore = 1, limit = 50, hoursBack = 24
       ORDER BY a.id DESC
       LIMIT ?
     `,
-    args: [safeMin, since, cursor || 9999999, ...indFilter.args, limit],
+    args: [safeMin, since, effectiveCursor, ...indFilter.args, limit],
   });
   return result.rows;
+  };
+
+  if (!isFirstPage) return load();
+  return cachedRead(
+    industryCacheKey('analyzedNews', hoursBack, industries, `${minScore}:${limit}`),
+    READ_CACHE_TTL.analysisAgg,
+    load,
+  );
 }
 
 /** Get overview stats for the analysis panel. */
 export async function getAnalysisStats(hoursBack = 24) {
+  return cachedRead(
+    readCacheKey(['analysisStats', hoursBack]),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
@@ -672,6 +689,8 @@ export async function getAnalysisStats(hoursBack = 24) {
     critical_count: 0,
     significant_count: 0,
   };
+    },
+  );
 }
 
 /** Aggregate DB counts for the admin/stats endpoint. */
@@ -691,8 +710,16 @@ export async function getDbCounts() {
   };
 }
 
+function industryCacheKey(name: string, hoursBack: number, industries: string[] | null, extra = ''): string {
+  return readCacheKey([name, hoursBack, ...(industries || []).slice().sort(), extra]);
+}
+
 /** Get industry-level aggregated signal strength for the heatmap. */
 export async function getIndustryHeatmap(hoursBack = 24, industries: string[] | null = null) {
+  return cachedRead(
+    industryCacheKey('heatmap', hoursBack, industries),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
@@ -734,10 +761,16 @@ export async function getIndustryHeatmap(hoursBack = 24, industries: string[] | 
       sentiment: data.positive > data.negative ? 'positive' : data.negative > data.positive ? 'negative' : 'neutral',
     }))
     .sort((a, b) => b.signalCount - a.signalCount);
+    },
+  );
 }
 
 /** 近 hoursBack 内 ≥3 分信号的情感分布（按 category × sentiment 聚合，与热力图同窗口） */
 export async function getSentimentBreakdown(hoursBack = 24, industries: string[] | null = null) {
+  return cachedRead(
+    industryCacheKey('sentiment', hoursBack, industries),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
@@ -758,10 +791,16 @@ export async function getSentimentBreakdown(hoursBack = 24, industries: string[]
     sentiment: r.sentiment,
     cnt: Number(r.cnt) || 0,
   }));
+    },
+  );
 }
 
 /** Get hourly trend data for top industries (signal_score >= 3). */
 export async function getIndustryTrend(hoursBack = 24, industries: string[] | null = null) {
+  return cachedRead(
+    industryCacheKey('trend', hoursBack, industries),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
@@ -826,6 +865,8 @@ export async function getIndustryTrend(hoursBack = 24, industries: string[] | nu
     }));
 
   return data;
+    },
+  );
 }
 
 // --- Event Threads CRUD ---
@@ -881,6 +922,10 @@ export function normalizeThreadTitle(title: string | null | undefined): string {
 
 /** Get recent event threads. limit 用于 ISR 预渲染裁剪（P1.5 构建期 DB 解耦）。 */
 export async function getEventThreads(hoursBack = 24, limit = 500, industries: string[] | null = null) {
+  return cachedRead(
+    industryCacheKey('threads', hoursBack, industries, String(limit)),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) ? Math.min(hoursBack, 24 * 30) : 24;
   const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 1000) : 500;
@@ -903,6 +948,8 @@ export async function getEventThreads(hoursBack = 24, limit = 500, industries: s
     if (inds.length === 0) return false;
     return inds.some((ind) => watchedSet.has(industryDisplayName(ind)));
   });
+    },
+  );
 }
 
 /** Get a single event thread by id, with its linked signals (news_ids → analysis rows). */
@@ -1280,7 +1327,7 @@ export async function getRelatedSignals(
 export async function searchSignals({
   query,
   minScore = 1,
-  hoursBack = 720,
+  hoursBack = 168,
   cursor,
   limit = 20,
 }: {
@@ -1294,7 +1341,7 @@ export async function searchSignals({
   const safeQuery = String(query).trim();
   if (safeQuery.length < 2) return { items: [], nextCursor: null, total: 0 };
 
-  const safeHours = Number.isFinite(hoursBack) ? Math.min(hoursBack, 2160) : 720;
+  const safeHours = Number.isFinite(hoursBack) ? Math.min(hoursBack, 2160) : 168;
   const safeMin = Number.isFinite(minScore) ? Math.min(5, Math.max(1, minScore)) : 1;
   const safeLimit = Math.min(limit || 20, 50);
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
@@ -1307,8 +1354,7 @@ export async function searchSignals({
     .replace(/_/g, '\\_');
   const likePattern = `%${escaped}%`;
 
-  const countResult = await db.execute({
-    sql: `
+  const countSql = `
       SELECT COUNT(*) as total
       FROM analysis_result a
       JOIN news_archive n ON n.id = a.news_id
@@ -1321,14 +1367,10 @@ export async function searchSignals({
           OR EXISTS (SELECT 1 FROM json_each(a.industries) WHERE json_each.value LIKE ? ESCAPE '\\')
           OR EXISTS (SELECT 1 FROM json_each(a.companies) WHERE json_each.value LIKE ? ESCAPE '\\')
         )
-    `,
-    args: [since, safeMin, likePattern, likePattern, likePattern, likePattern, likePattern],
-  });
+    `;
+  const countArgs = [since, safeMin, likePattern, likePattern, likePattern, likePattern, likePattern];
 
-  const total = (countResult.rows[0] as Record<string, unknown>)?.total as number || 0;
-
-  const result = await db.execute({
-    sql: `
+  const selectSql = `
       SELECT a.id, a.signal_score, a.category, a.impact_level, a.industries, a.companies,
              a.sentiment, a.summary, n.content as news_content, n.source, n.published_at
       FROM analysis_result a
@@ -1344,30 +1386,53 @@ export async function searchSignals({
         )
       ORDER BY a.signal_score DESC, n.published_at DESC
       LIMIT ? OFFSET ?
-    `,
-    args: [since, safeMin, likePattern, likePattern, likePattern, likePattern, likePattern, safeLimit + 1, offset],
-  });
+    `;
+  const selectArgs = [since, safeMin, likePattern, likePattern, likePattern, likePattern, likePattern, safeLimit + 1, offset];
 
+  const mapRows = (rows: Record<string, unknown>[]) =>
+    rows.map((row) => ({
+      id: rowId(row.id),
+      signal_score: row.signal_score,
+      category: row.category,
+      impact_level: row.impact_level,
+      industries: tryParseJson(row.industries as string),
+      companies: tryParseJson(row.companies as string),
+      sentiment: row.sentiment,
+      summary: row.summary,
+      source: row.source,
+      published_at: row.published_at,
+    }));
+
+  // 首屏：COUNT + SELECT 一并缓存；翻页跳过 COUNT 全表扫描
+  if (offset === 0) {
+    return cachedRead(
+      readCacheKey(['search', safeQuery, safeHours, safeMin, safeLimit]),
+      READ_CACHE_TTL.search,
+      async () => {
+        const [countResult, result] = await Promise.all([
+          db.execute({ sql: countSql, args: countArgs }),
+          db.execute({ sql: selectSql, args: selectArgs }),
+        ]);
+        const total = Number((countResult.rows[0] as Record<string, unknown>)?.total) || 0;
+        const rows = result.rows.slice(0, safeLimit);
+        const hasMore = result.rows.length > safeLimit;
+        return {
+          items: mapRows(rows as Record<string, unknown>[]),
+          nextCursor: hasMore ? offset + safeLimit : null,
+          total,
+        };
+      },
+    );
+  }
+
+  const result = await db.execute({ sql: selectSql, args: selectArgs });
   const rows = result.rows.slice(0, safeLimit);
   const hasMore = result.rows.length > safeLimit;
 
-  const items = rows.map((row: Record<string, unknown>) => ({
-    id: rowId(row.id),
-    signal_score: row.signal_score,
-    category: row.category,
-    impact_level: row.impact_level,
-    industries: tryParseJson(row.industries as string),
-    companies: tryParseJson(row.companies as string),
-    sentiment: row.sentiment,
-    summary: row.summary,
-    source: row.source,
-    published_at: row.published_at,
-  }));
-
   return {
-    items,
+    items: mapRows(rows as Record<string, unknown>[]),
     nextCursor: hasMore ? offset + safeLimit : null,
-    total,
+    total: 0,
   };
 }
 
@@ -1383,6 +1448,10 @@ export async function getAnalysisStatsWithComparison(
   previousHoursBack = 24,
   industries: string[] | null = null,
 ) {
+  return cachedRead(
+    industryCacheKey('statsCmp', currentHoursBack, industries, String(previousHoursBack)),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
   const db = await getDb();
   const safeCur = Number.isFinite(currentHoursBack) ? Math.min(currentHoursBack, 720) : 24;
   const safePrev = Number.isFinite(previousHoursBack) ? Math.min(previousHoursBack, 720) : 24;
@@ -1423,6 +1492,8 @@ export async function getAnalysisStatsWithComparison(
     current: (currentResult.rows[0] as Record<string, unknown>) || defaultStats,
     previous: (previousResult.rows[0] as Record<string, unknown>) || defaultStats,
   };
+    },
+  );
 }
 
 // ── F6: Company Dimension ──
@@ -1432,6 +1503,10 @@ export async function getAnalysisStatsWithComparison(
  * Only includes signals with score >= 3.
  */
 export async function getCompanyHeatmap(hoursBack = 24, industries: string[] | null = null) {
+  return cachedRead(
+    industryCacheKey('companyHeatmap', hoursBack, industries),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
   const db = await getDb();
   const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
@@ -1475,6 +1550,8 @@ export async function getCompanyHeatmap(hoursBack = 24, industries: string[] | n
     }))
     .sort((a, b) => b.signalCount - a.signalCount)
     .slice(0, 10);
+    },
+  );
 }
 
 // ── F7: Backtest by Industry ──

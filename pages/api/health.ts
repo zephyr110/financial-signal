@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { getDb } from '../../lib/db';
 import { getPipelineHealth } from '../../lib/pipeline';
+import { cachedRead, readCacheKey, READ_CACHE_TTL } from '../../lib/read-cache';
 
 /**
  * P1.7 健康探活端点（公开，无 auth——供 UptimeRobot / Uptime Kuma 等外部探活服务轮询）。
@@ -8,6 +9,8 @@ import { getPipelineHealth } from '../../lib/pipeline';
  * GET /api/health
  * - DB 不可达 → 503 { ok: false }
  * - DB 正常 → 200 { ok: true, db, pipeline: <24h 各段聚合> }
+ *
+ * HEAD /api/health — 仅 SELECT 1，跳过 pipeline 聚合以降低 Turso 读。
  *
  * 外部探活配置：监控 https://<APP_URL>/api/health，期望 HTTP 200。
  */
@@ -35,6 +38,8 @@ export default async function handler(req, res) {
     && localDbPath && !localDbPath.startsWith(':')
     && !fs.existsSync(localDbPath)
   ) {
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.method === 'HEAD') return res.status(200).end();
     const payload = {
       ok: true,
       db: 'missing',
@@ -42,8 +47,20 @@ export default async function handler(req, res) {
       latency_ms: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     };
-    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json(payload);
+  }
+
+  // HEAD 探活：仅 DB ping，不跑 pipeline 聚合
+  if (req.method === 'HEAD') {
+    try {
+      const db = await getDb();
+      await db.execute({ sql: 'SELECT 1', args: [] });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).end();
+    } catch {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(503).end();
+    }
   }
 
   // 1. DB 连通性
@@ -57,11 +74,15 @@ export default async function handler(req, res) {
     dbError = err instanceof Error ? err.message : String(err);
   }
 
-  // 2. 管线 24h 聚合（DB 挂了就不查）
+  // 2. 管线 24h 聚合（DB 挂了就不查；结果 15min 进程内缓存）
   let pipeline = null;
   if (dbOk) {
     try {
-      pipeline = await getPipelineHealth(24);
+      pipeline = await cachedRead(
+        readCacheKey(['pipelineHealth', 24]),
+        READ_CACHE_TTL.pipelineHealth,
+        () => getPipelineHealth(24),
+      );
     } catch (err) {
       dbOk = false;
       dbError = `pipeline aggregation failed: ${err instanceof Error ? err.message : String(err)}`;

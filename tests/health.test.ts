@@ -28,6 +28,7 @@ function mockRes() {
     status(code: number) { this._status = code; return this },
     setHeader() { return this },
     json(body: unknown) { this._body = body; return this },
+    end() { return this },
   }
   return res
 }
@@ -69,7 +70,7 @@ describe('GET /api/health', () => {
     await handler(mockReq('HEAD'), res)
 
     expect(res._status).toBe(200)
-    expect(res._body.db).toBe('missing')
+    expect(res._body).toBeNull()
     expect(getDb).not.toHaveBeenCalled()
   })
 

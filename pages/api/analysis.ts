@@ -30,7 +30,7 @@ export default async function handler(req: any, res: any) {
       getAnalysisStatsWithComparison(hoursBack, hoursBack, industries),
       getIndustryHeatmap(hoursBack, industries),
       getIndustryTrend(trendHours, industries),
-      getEventThreads(hoursBack, 500, industries),
+      getEventThreads(hoursBack, 200, industries),
       getCompanyHeatmap(hoursBack, industries),
       getTodayMarketData(8),
       getSentimentBreakdown(hoursBack, industries),
@@ -49,7 +49,8 @@ export default async function handler(req: any, res: any) {
     }));
 
     // Next cursor is the smallest analysis_result.id in this batch
-    const nextCursor = items.length === 50 ? items[items.length - 1].id : null;
+    const last = items[items.length - 1];
+    const nextCursor = items.length === 50 ? (last?.analysis_id ?? last?.id) : null;
 
     const sentimentBreakdown = aggregateSentimentRows(sentimentRows);
 

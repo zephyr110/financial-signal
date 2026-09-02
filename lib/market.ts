@@ -3,6 +3,7 @@
  * Fetches daily quote for 申万 industry sector indices via the quote API.
  */
 import { getDb, getBacktestByIndustry } from './db';
+import { cachedRead, readCacheKey, READ_CACHE_TTL } from './read-cache';
 import { INDUSTRY_ALIASES } from './constants';
 
 export type EventDirection = 'long' | 'short' | 'neutral' | 'mixed';
@@ -259,6 +260,11 @@ export async function runBacktest(daysBack = 30) {
  * Falls back to the latest available trade_date when today is a non-trading day.
  */
 export async function getTodayMarketData(limit = 8) {
+  const safeLimit = Math.min(limit, 20);
+  return cachedRead(
+    readCacheKey(['marketToday', safeLimit]),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
   const db = await getDb();
   const result = await db.execute({
     sql: `SELECT name, close, change_pct FROM market_data
@@ -266,9 +272,11 @@ export async function getTodayMarketData(limit = 8) {
             AND change_pct IS NOT NULL
           ORDER BY ABS(change_pct) DESC
           LIMIT ?`,
-    args: [Math.min(limit, 20)],
+    args: [safeLimit],
   });
   return result.rows;
+    },
+  );
 }
 
 /**

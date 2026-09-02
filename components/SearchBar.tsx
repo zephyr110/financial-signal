@@ -41,7 +41,7 @@ export default function SearchBar({
 }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [minScore, setMinScore] = useState(1);
-  const [hoursBack, setHoursBack] = useState(720);
+  const [hoursBack, setHoursBack] = useState(168);
   const [showScoreDropdown, setShowScoreDropdown] = useState(false);
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,7 +49,7 @@ export default function SearchBar({
 
   // 最新筛选值快照:防抖回调执行时可能已过了多次渲染,闭包里的旧值会让
   // 旧防抖覆盖新筛选(输入过程中改分数/时间窗)。定时器触发时一律读 ref。
-  const filtersRef = useRef({ query: "", minScore: 1, hoursBack: 720 });
+  const filtersRef = useRef({ query: "", minScore: 1, hoursBack: 168 });
   filtersRef.current = { query, minScore, hoursBack };
 
   const triggerSearch = useCallback(

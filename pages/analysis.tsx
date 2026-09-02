@@ -22,7 +22,9 @@ import ErrorBanner from "../components/ErrorBanner";
 import SearchBar from "../components/SearchBar";
 import SignalSearchResults from "../components/SignalSearchResults";
 import WatchlistPanel from "../components/WatchlistPanel";
-import { getAnalyzedNews, getAnalysisStats, getIndustryHeatmap, getIndustryTrend, getEventThreads } from "../lib/db";
+import { getAnalyzedNews, getAnalysisStats, getIndustryHeatmap, getIndustryTrend, getEventThreads, getCompanyHeatmap, getSentimentBreakdown } from "../lib/db";
+import { getTodayMarketData } from "../lib/market";
+import { aggregateSentimentRows } from "@/lib/sentiment";
 import { useWatchedIndustries } from "../lib/useWatchedIndustries";
 import { industryDisplayName } from "@/lib/constants";
 import { computeSentimentBreakdown } from "@/lib/sentiment";
@@ -74,20 +76,34 @@ function normTrendRows(rows: any[] | null | undefined): Record<string, unknown>[
   });
 }
 
-export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ssgHeatmap, trend: ssgTrend, threads: ssgThreads, companyHeatmap: ssgCompanyHeatmap, error: ssgError }) {
+export default function Analysis({
+  stats: ssgStats,
+  items: ssgItems,
+  heatmap: ssgHeatmap,
+  trend: ssgTrend,
+  threads: ssgThreads,
+  companyHeatmap: ssgCompanyHeatmap,
+  sentimentBreakdown: ssgSentimentBreakdown,
+  marketToday: ssgMarketToday,
+  error: ssgError,
+}) {
   const [items, setItems] = useState(() => normSignalItems(ssgItems));
   const [stats, setStats] = useState(ssgStats);
   const [heatmap, setHeatmap] = useState(ssgHeatmap || []);
   const [trend, setTrend] = useState(ssgTrend || []);
   const [threads, setThreads] = useState(ssgThreads || []);
-  const [serverSentimentBreakdown, setServerSentimentBreakdown] = useState<any[]>([]);
+  const [serverSentimentBreakdown, setServerSentimentBreakdown] = useState<any[]>(ssgSentimentBreakdown || []);
   const [companyHeatmap, setCompanyHeatmap] = useState(ssgCompanyHeatmap || []);
-  const [marketToday, setMarketToday] = useState<any[]>([]);
+  const [marketToday, setMarketToday] = useState<any[]>(ssgMarketToday || []);
   const [viewMode, setViewMode] = useState<"industry" | "company">("industry");
   const [error, setError] = useState(ssgError ?? null);
   const [fetching, setFetching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [nextCursor, setNextCursor] = useState<number | null>(() => {
+    if (!ssgItems || ssgItems.length < 50) return null;
+    const last = ssgItems[ssgItems.length - 1];
+    return last?.analysis_id ?? last?.id ?? null;
+  });
   const [cardFilter, setCardFilter] = useState(null);
   const [scoreFilter, setScoreFilter] = useState(null);
   const [trendHours, setTrendHours] = useState(168);
@@ -103,7 +119,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const [searchNextCursor, setSearchNextCursor] = useState<number | null>(null);
-  const searchParamsRef = useRef<{ minScore: number; hoursBack: number }>({ minScore: 1, hoursBack: 720 });
+  const searchParamsRef = useRef<{ minScore: number; hoursBack: number }>({ minScore: 1, hoursBack: 168 });
   // 竞态守卫:新搜索/刷新作废在途请求与过期响应(旧响应不得覆盖新状态)
   const searchAbortRef = useRef<AbortController | null>(null);
   const searchGenRef = useRef(0);
@@ -146,11 +162,16 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
     }
   }, [trendHours, watchedEff]);
 
+  // SSG 已提供默认视图数据时跳过 mount 双读（无关注行业、trend=168h、无 SSG 错误）
+  const skipInitialFetch =
+    !ssgError && watchedEff.length === 0 && trendHours === 168;
+
   useEffect(() => {
+    if (skipInitialFetch) return;
     const controller = new AbortController();
     doRefresh(controller.signal);
     return () => controller.abort();
-  }, [doRefresh]);
+  }, [doRefresh, skipInitialFetch]);
 
   // Apply industry filter first, then score/card filters on top
   const watchedItems = useMemo(() => filterByWatched(items), [items, filterByWatched]);
@@ -586,12 +607,15 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
 
 export async function getStaticProps() {
   try {
-    const [news, stats, heatmap, trend, threads] = await Promise.all([
+    const [news, stats, heatmap, trend, threads, companyHeatmap, sentimentRows, marketToday] = await Promise.all([
       getAnalyzedNews({ minScore: 1, hoursBack: 24, limit: 50 }),
       getAnalysisStats(24),
       getIndustryHeatmap(24),
-      getIndustryTrend(24),
-      getEventThreads(24),
+      getIndustryTrend(168),
+      getEventThreads(24, 200),
+      getCompanyHeatmap(24),
+      getSentimentBreakdown(24),
+      getTodayMarketData(8),
     ]);
     const items = news.map((item) => {
       // Strip heavy text fields not needed for timeline rendering
@@ -611,7 +635,9 @@ export async function getStaticProps() {
         trend: trend || [],
         threads: threads || [],
         error: null,
-        companyHeatmap: [],
+        companyHeatmap: companyHeatmap || [],
+        sentimentBreakdown: aggregateSentimentRows(sentimentRows),
+        marketToday: marketToday || [],
       },
       revalidate: 600,
     };
@@ -626,6 +652,8 @@ export async function getStaticProps() {
         threads: [],
         error: "暂时无法获取分析数据，请稍后刷新",
         companyHeatmap: [],
+        sentimentBreakdown: [],
+        marketToday: [],
       },
       revalidate: 60,
     };
