@@ -1,4 +1,5 @@
-import { getAnalyzedNews, getAnalysisStatsWithComparison, getIndustryHeatmap, getIndustryTrend, getEventThreads, getCompanyHeatmap } from '../../lib/db';
+import { getAnalyzedNews, getAnalysisStatsWithComparison, getIndustryHeatmap, getIndustryTrend, getEventThreads, getCompanyHeatmap, getSentimentBreakdown } from '../../lib/db';
+import { aggregateSentimentRows } from '../../lib/sentiment';
 import { getTodayMarketData } from '../../lib/market';
 import { safeParse } from '../../lib/utils';
 
@@ -24,7 +25,7 @@ export default async function handler(req: any, res: any) {
       ? watchedParam.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 30)
       : null;
 
-    const [news, statsComparison, heatmap, trend, threads, companyHeatmap, marketToday] = await Promise.all([
+    const [news, statsComparison, heatmap, trend, threads, companyHeatmap, marketToday, sentimentRows] = await Promise.all([
       getAnalyzedNews({ minScore, hoursBack, limit: 50, cursor, industries }),
       getAnalysisStatsWithComparison(hoursBack, hoursBack, industries),
       getIndustryHeatmap(hoursBack, industries),
@@ -32,6 +33,7 @@ export default async function handler(req: any, res: any) {
       getEventThreads(hoursBack, 500, industries),
       getCompanyHeatmap(hoursBack, industries),
       getTodayMarketData(8),
+      getSentimentBreakdown(hoursBack, industries),
     ]);
 
     const stats = {
@@ -49,8 +51,7 @@ export default async function handler(req: any, res: any) {
     // Next cursor is the smallest analysis_result.id in this batch
     const nextCursor = items.length === 50 ? items[items.length - 1].id : null;
 
-    // Compute sentiment breakdown by category (only score >= 3)
-    const sentimentBreakdown = computeSentimentBreakdown(items);
+    const sentimentBreakdown = aggregateSentimentRows(sentimentRows);
 
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=300');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -59,33 +60,4 @@ export default async function handler(req: any, res: any) {
     console.error('Analysis API error:', error);
     res.status(500).json({ error: 'Failed to fetch analysis' });
   }
-}
-
-/**
- * Compute sentiment distribution by category for signals with score >= 3.
- */
-function computeSentimentBreakdown(items: any[]) {
-  const categories = ['policy', 'geopolitics', 'industry', 'company', 'macro', 'market_rumor'];
-  const sentiments = ['positive', 'negative', 'neutral', 'mixed'];
-
-  const result: Record<string, Record<string, number>> = {};
-  for (const cat of categories) {
-    result[cat] = { positive: 0, negative: 0, neutral: 0, mixed: 0 };
-  }
-
-  for (const item of items) {
-    if (item.signal_score == null || item.signal_score < 3) continue;
-    const cat = item.category || 'macro';
-    const sent = item.sentiment || 'neutral';
-    if (result[cat] && result[cat][sent] !== undefined) {
-      result[cat][sent]++;
-    }
-  }
-
-  return categories
-    .map((cat) => ({
-      category: cat,
-      ...result[cat],
-    }))
-    .filter((d: any) => d.positive + d.negative + d.neutral + d.mixed > 0);
 }

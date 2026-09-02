@@ -8,6 +8,10 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { CATEGORY_LABELS } from "@/lib/constants";
+import {
+  summarizeOverallSentiment,
+  type SentimentBreakdownRow,
+} from "@/lib/sentiment";
 
 // A股惯例：红涨绿跌 → 看多红、看空绿
 const SENTIMENT_COLORS = {
@@ -36,23 +40,17 @@ const TOOLTIP_STYLE = {
   itemStyle: { color: "var(--muted-foreground)" },
 };
 
-interface SentimentBreakdownItem {
-  category: string;
-  positive: number;
-  negative: number;
-  neutral: number;
-  mixed: number;
-}
-
 interface SentimentChartProps {
-  data: SentimentBreakdownItem[];
+  data: SentimentBreakdownRow[];
+  /** 样本说明（如「近 24 小时全部 ≥3 分信号」） */
+  sampleNote?: string;
 }
 
 /**
  * Stacked bar chart — sentiment distribution by signal category.
  * Only includes signals with score >= 3.
  */
-export default function SentimentChart({ data }: SentimentChartProps) {
+export default function SentimentChart({ data, sampleNote }: SentimentChartProps) {
   if (!data || data.length === 0) {
     return (
       <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
@@ -61,41 +59,25 @@ export default function SentimentChart({ data }: SentimentChartProps) {
     );
   }
 
-  // Compute overall sentiment summary
-  let totalPositive = 0;
-  let totalNegative = 0;
-  let totalNeutral = 0;
-  let totalMixed = 0;
+  const chartData = data.map((d) => ({
+    name: CATEGORY_LABELS[d.category] || d.category,
+    positive: d.positive,
+    negative: d.negative,
+    neutral: d.neutral,
+    mixed: d.mixed,
+  }));
 
-  const chartData = data.map((d) => {
-    totalPositive += d.positive;
-    totalNegative += d.negative;
-    totalNeutral += d.neutral;
-    totalMixed += d.mixed;
+  const {
+    label: overallLabel,
+    positivePct,
+    negativePct,
+    neutralPct,
+    mixedPct,
+    total,
+  } = summarizeOverallSentiment(data);
 
-    return {
-      name: CATEGORY_LABELS[d.category] || d.category,
-      positive: d.positive,
-      negative: d.negative,
-      neutral: d.neutral,
-      mixed: d.mixed,
-    };
-  });
-
-  const grandTotal = totalPositive + totalNegative + totalNeutral + totalMixed;
-  const positivePct =
-    grandTotal > 0 ? Math.round((totalPositive / grandTotal) * 100) : 0;
-  const negativePct =
-    grandTotal > 0 ? Math.round((totalNegative / grandTotal) * 100) : 0;
-  const neutralPct =
-    grandTotal > 0 ? Math.round((totalNeutral / grandTotal) * 100) : 0;
-  const mixedPct =
-    grandTotal > 0 ? Math.round((totalMixed / grandTotal) * 100) : 0;
-
-  // 结论只看单向过半;中性/混合占多数时如实报「多空分歧」,不再用两两比较硬造方向
-  let overallLabel = "多空分歧";
-  if (positivePct >= 50) overallLabel = "偏积极 ↑";
-  else if (negativePct >= 50) overallLabel = "偏消极 ↓";
+  const note =
+    sampleNote ?? `近 24 小时全部 ≥3 分信号（共 ${total} 条）`;
 
   return (
     <div>
@@ -149,7 +131,7 @@ export default function SentimentChart({ data }: SentimentChartProps) {
 
       {/* Overall summary */}
       <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1">
-        整体情绪：{overallLabel}（看多 {positivePct}% · 看空 {negativePct}% · 中性 {neutralPct}% · 混合 {mixedPct}%）· 仅统计 ≥3 分信号（样本：当前页已加载批次）
+        整体情绪：{overallLabel}（看多 {positivePct}% · 看空 {negativePct}% · 中性 {neutralPct}% · 混合 {mixedPct}%）· {note}
       </p>
     </div>
   );

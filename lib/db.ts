@@ -736,6 +736,30 @@ export async function getIndustryHeatmap(hoursBack = 24, industries: string[] | 
     .sort((a, b) => b.signalCount - a.signalCount);
 }
 
+/** 近 hoursBack 内 ≥3 分信号的情感分布（按 category × sentiment 聚合，与热力图同窗口） */
+export async function getSentimentBreakdown(hoursBack = 24, industries: string[] | null = null) {
+  const db = await getDb();
+  const safeHours = Number.isFinite(hoursBack) && hoursBack > 0 ? hoursBack : 24;
+  const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
+  const indFilter = industryFilterClause(industries);
+  const result = await db.execute({
+    sql: `
+      SELECT a.category, a.sentiment, COUNT(*) as cnt
+      FROM analysis_result a
+      JOIN news_archive n ON n.id = a.news_id
+      WHERE n.published_at >= ?
+        AND a.signal_score >= 3${indFilter.clause}
+      GROUP BY a.category, a.sentiment
+    `,
+    args: [since, ...indFilter.args],
+  });
+  return result.rows.map((r: Record<string, unknown>) => ({
+    category: r.category,
+    sentiment: r.sentiment,
+    cnt: Number(r.cnt) || 0,
+  }));
+}
+
 /** Get hourly trend data for top industries (signal_score >= 3). */
 export async function getIndustryTrend(hoursBack = 24, industries: string[] | null = null) {
   const db = await getDb();

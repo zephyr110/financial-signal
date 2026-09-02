@@ -25,6 +25,7 @@ import WatchlistPanel from "../components/WatchlistPanel";
 import { getAnalyzedNews, getAnalysisStats, getIndustryHeatmap, getIndustryTrend, getEventThreads } from "../lib/db";
 import { useWatchedIndustries } from "../lib/useWatchedIndustries";
 import { industryDisplayName } from "@/lib/constants";
+import { computeSentimentBreakdown } from "@/lib/sentiment";
 import { safeParse } from "../lib/utils";
 
 function applyFilters(allItems, cardFilter, scoreFilter, maxScore) {
@@ -73,13 +74,13 @@ function normTrendRows(rows: any[] | null | undefined): Record<string, unknown>[
   });
 }
 
-export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ssgHeatmap, trend: ssgTrend, threads: ssgThreads, sentimentBreakdown: ssgSentiment, companyHeatmap: ssgCompanyHeatmap, error: ssgError }) {
+export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ssgHeatmap, trend: ssgTrend, threads: ssgThreads, companyHeatmap: ssgCompanyHeatmap, error: ssgError }) {
   const [items, setItems] = useState(() => normSignalItems(ssgItems));
   const [stats, setStats] = useState(ssgStats);
   const [heatmap, setHeatmap] = useState(ssgHeatmap || []);
   const [trend, setTrend] = useState(ssgTrend || []);
   const [threads, setThreads] = useState(ssgThreads || []);
-  const [sentimentBreakdown, setSentimentBreakdown] = useState(ssgSentiment || []);
+  const [serverSentimentBreakdown, setServerSentimentBreakdown] = useState<any[]>([]);
   const [companyHeatmap, setCompanyHeatmap] = useState(ssgCompanyHeatmap || []);
   const [marketToday, setMarketToday] = useState<any[]>([]);
   const [viewMode, setViewMode] = useState<"industry" | "company">("industry");
@@ -132,7 +133,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
       setHeatmap(data.heatmap || []);
       setTrend(data.trend || []);
       setThreads(data.threads || []);
-      setSentimentBreakdown(data.sentimentBreakdown || []);
+      setServerSentimentBreakdown(data.sentimentBreakdown || []);
       setCompanyHeatmap(data.companyHeatmap || []);
       setMarketToday(data.marketToday || []);
       setNextCursor(data.nextCursor || null);
@@ -251,6 +252,28 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
   const filteredItems = useMemo(() => {
     return applyFilters(watchedItems, cardFilter, scoreFilter, stats?.max_score || 0);
   }, [watchedItems, cardFilter, scoreFilter, stats?.max_score]);
+
+  const hasListFilters = cardFilter != null || scoreFilter != null;
+
+  // 默认：服务端全窗口聚合（与热力图同口径）；概览/分数筛选时：与分类占比、时间线同用 filteredItems
+  const sentimentBreakdown = useMemo(() => {
+    if (hasListFilters) {
+      return computeSentimentBreakdown(filteredItems);
+    }
+    if (serverSentimentBreakdown.length > 0) {
+      return serverSentimentBreakdown;
+    }
+    return computeSentimentBreakdown(filteredItems);
+  }, [hasListFilters, filteredItems, serverSentimentBreakdown]);
+
+  const sentimentSampleNote = useMemo(() => {
+    if (!hasListFilters) return undefined;
+    const total = sentimentBreakdown.reduce(
+      (s, d) => s + d.positive + d.negative + d.neutral + d.mixed,
+      0,
+    );
+    return `当前筛选范围内 ≥3 分信号（共 ${total} 条）`;
+  }, [hasListFilters, sentimentBreakdown]);
 
   // 展示归一:heatmap/trend 在消费处统一到板块名(LLM 原始名与行情板块名同屏一致)
   const normHeatmap = useMemo(() => normHeatmapRows(heatmap), [heatmap]);
@@ -440,7 +463,7 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
                   <h3 className="text-sm font-semibold text-foreground mb-3">
                     信号分类占比
                   </h3>
-                  <CategoryDonutChart items={watchedItems} />
+                  <CategoryDonutChart items={filteredItems} />
                 </div>
               </div>
               </div>
@@ -448,11 +471,14 @@ export default function Analysis({ stats: ssgStats, items: ssgItems, heatmap: ss
               {/* Sentiment distribution (full width below the 2-col grid) */}
               {sentimentBreakdown.length > 0 && (
                 <div id="sentiment" className="scroll-mt-28">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">
+                  <h3 className="text-sm font-semibold text-foreground mb-1">
                     情感分布
                   </h3>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    按信号分类展示多空情绪；单条新闻仅有一个情感标签，多行业标注时同向计入
+                  </p>
                   <div className="bg-card border rounded-xl p-4 sm:p-5 mb-6">
-                    <SentimentChart data={sentimentBreakdown} />
+                    <SentimentChart data={sentimentBreakdown} sampleNote={sentimentSampleNote} />
                   </div>
                 </div>
               )}
@@ -585,7 +611,6 @@ export async function getStaticProps() {
         trend: trend || [],
         threads: threads || [],
         error: null,
-        sentimentBreakdown: [],
         companyHeatmap: [],
       },
       revalidate: 600,
@@ -600,7 +625,6 @@ export async function getStaticProps() {
         trend: [],
         threads: [],
         error: "暂时无法获取分析数据，请稍后刷新",
-        sentimentBreakdown: [],
         companyHeatmap: [],
       },
       revalidate: 60,
