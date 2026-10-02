@@ -6,8 +6,13 @@
 const store = new Map<string, { at: number; value: unknown }>();
 
 export const READ_CACHE_TTL = {
-  /** 分析聚合、热力图、趋势 */
-  analysisAgg: 5 * 60 * 1000,
+  /** 分析聚合、热力图、趋势。15min:须长于分析页 ISR revalidate(600s),
+   * 否则再生成时缓存恰好过期、每次 ISR 都穿透到 DB(写路径 clearReadCache 保新鲜) */
+  analysisAgg: 15 * 60 * 1000,
+  /** 新闻列表/可用日期(首页 ISR revalidate 300s,TTL 略长以覆盖再生成间隔) */
+  newsList: 6 * 60 * 1000,
+  /** 埋点价值指标聚合 + 管理端计数(低频变化,挡重复全窗口聚合) */
+  eventMetrics: 5 * 60 * 1000,
   /** 搜索 COUNT + 首屏结果 */
   search: 2 * 60 * 1000,
   /** 健康检查 pipeline 聚合 */

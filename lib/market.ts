@@ -3,7 +3,7 @@
  * Fetches daily quote for 申万 industry sector indices via the quote API.
  */
 import { getDb, getBacktestByIndustry } from './db';
-import { cachedRead, readCacheKey, READ_CACHE_TTL } from './read-cache';
+import { cachedRead, readCacheKey, READ_CACHE_TTL, clearReadCache } from './read-cache';
 import { INDUSTRY_ALIASES } from './constants';
 
 export type EventDirection = 'long' | 'short' | 'neutral' | 'mixed';
@@ -139,18 +139,26 @@ export async function saveMarketData(rows) {
   const db = await getDb();
   const today = new Date().toISOString().slice(0, 10);
   let inserted = 0;
-  for (const row of rows) {
+  // 批量写入(每批 50,仿 insertNewsBatch):29 个板块逐条往返 → 1 次/批
+  for (let i = 0; i < rows.length; i += 50) {
+    const batch = rows.slice(i, i + 50);
+    const values = batch.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const args = batch.flatMap((row) => [
+      row.code, row.name, row.type, today, row.close, row.change_pct, row.volume,
+    ]);
     try {
       const result = await db.execute({
         sql: `INSERT OR REPLACE INTO market_data (code, name, type, trade_date, close, change_pct, volume)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [row.code, row.name, row.type, today, row.close, row.change_pct, row.volume],
+              VALUES ${values}`,
+        args,
       });
       inserted += result.rowsAffected || 0;
     } catch (err) {
-      console.error(`[market] Insert error for ${row.code}:`, err.message);
+      console.error(`[market] Batch insert error:`, err.message);
     }
   }
+  // 写后失效行情读缓存(否则 getTodayMarketData 要等 TTL 过后才展示新数据)
+  if (inserted > 0) clearReadCache('marketToday');
   console.log(`[market] Saved ${inserted} rows for ${today}`);
   return inserted;
 }

@@ -76,6 +76,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 4, name: 'app_session.user_id(会话按用户关联+token 存哈希)', up: migrationSessionUserId },
   { version: 5, name: 'backtest_result.direction(方向命中率:多/空/中性/混合)', up: migrationBacktestDirection },
   { version: 6, name: 'event_thread_signal 关联表 + 历史回填', up: migrationEventThreadSignal },
+  { version: 7, name: 'event_log.created_at 索引', up: migrationEventLogCreatedIndex },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -119,6 +120,15 @@ async function migrationEventThreadSignal(db) {
     `,
     args: [],
   });
+}
+
+/** v7：event_log.created_at 索引——保留清理(pruneEventLog)与按窗口聚合
+ * (getEventAnalytics/getEventMetrics)都按该列过滤,无索引时埋点表膨胀后
+ * 退化为全表扫描(免费额度下 reads 最先吃紧)。 */
+async function migrationEventLogCreatedIndex(db) {
+  try {
+    await db.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_event_created ON event_log(created_at)', args: [] });
+  } catch { /* 并发实例已先建索引 */ }
 }
 
 async function migrate(db) {
@@ -410,6 +420,7 @@ export async function insertNews({ source, source_id, title, content, published_
     args: [source, source_id, title ?? null, content, published_at, docurl],
   });
   if (result.rowsAffected === 0) return null;
+  clearNewsListCache();
   return rowId(result.lastInsertRowid);
 }
 
@@ -435,6 +446,7 @@ export async function insertNewsBatch(items) {
       console.error('[db] Batch insert error:', err.message);
     }
   }
+  if (inserted > 0) clearNewsListCache();
   return inserted;
 }
 
@@ -578,31 +590,49 @@ export async function getArchivedNews({ daysBack = 7, limit = 500 } = {}) {
   return result.rows;
 }
 
-/** Get list of distinct dates with news in the past N days. */
+/** Get list of distinct dates with news in the past N days(走 idx_news_published 范围)。 */
 export async function getAvailableDates(daysBack = 7) {
-  const db = await getDb();
-  const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
-  const result = await db.execute({
-    sql: `SELECT DISTINCT DATE(published_at) as date FROM news_archive
-          WHERE published_at >= ?
-          ORDER BY date DESC`,
-    args: [since],
+  return cachedRead(readCacheKey(['availDates', daysBack]), READ_CACHE_TTL.newsList, async () => {
+    const db = await getDb();
+    const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    const result = await db.execute({
+      sql: `SELECT DISTINCT DATE(published_at) as date FROM news_archive
+            WHERE published_at >= ?
+            ORDER BY date DESC`,
+      args: [since],
+    });
+    return result.rows.map(r => r.date);
   });
-  return result.rows.map(r => r.date);
 }
 
-/** Get news for a specific date. */
+/** Get news for a specific date(UTC, YYYY-MM-DD)。
+ * 范围条件走 idx_news_published——原 DATE(published_at)=? 使索引失效,首页 ISR
+ * 每 5 分钟再生成都全表扫描,行读随数据量线性增长(Turso 免费额度下 reads 最先吃紧)。
+ * 日期串是任意同日时间串的严格前缀,对 ISO-T/空格两种存储格式均与 DATE() 等价。 */
 export async function getNewsByDate(date: string, limit = 200) {
-  const db = await getDb();
-  const result = await db.execute({
-    sql: `SELECT id, source, source_id, title, content, published_at
-          FROM news_archive
-          WHERE DATE(published_at) = ?
-          ORDER BY published_at DESC
-          LIMIT ?`,
-    args: [date, limit],
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+  const start = new Date(`${date}T00:00:00Z`);
+  // 往返校验(如 2026-02-30 会被 Date 滚动到 3 月):非法日期返回空,与原 DATE() 语义一致
+  if (Number.isNaN(start.getTime()) || start.toISOString().slice(0, 10) !== date) return [];
+  const next = new Date(start.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return cachedRead(readCacheKey(['newsByDate', date, limit]), READ_CACHE_TTL.newsList, async () => {
+    const db = await getDb();
+    const result = await db.execute({
+      sql: `SELECT id, source, source_id, title, content, published_at
+            FROM news_archive
+            WHERE published_at >= ? AND published_at < ?
+            ORDER BY published_at DESC
+            LIMIT ?`,
+      args: [date, next, limit],
+    });
+    return result.rows;
   });
-  return result.rows;
+}
+
+/** 新闻写入后失效列表缓存(仅前缀清,不影响分析聚合等其他缓存)。 */
+function clearNewsListCache(): void {
+  clearReadCache('newsByDate|');
+  clearReadCache('availDates|');
 }
 
 // --- Analysis CRUD ---
@@ -797,21 +827,24 @@ export async function getAnalysisStats(hoursBack = 24) {
   );
 }
 
-/** Aggregate DB counts for the admin/stats endpoint. */
+/** Aggregate DB counts for the admin/stats endpoint.
+ * 4 条全表 COUNT/GROUP BY,行读 ≈ 2N+2A——短缓存挡住反复调用的重复全扫。 */
 export async function getDbCounts() {
-  const db = await getDb();
-  const [totalNews, analyzedNews, bySource, byScore] = await Promise.all([
-    db.execute({ sql: 'SELECT COUNT(*) as c FROM news_archive', args: [] }),
-    db.execute({ sql: 'SELECT COUNT(*) as c FROM analysis_result', args: [] }),
-    db.execute({ sql: 'SELECT source, COUNT(*) as c FROM news_archive GROUP BY source', args: [] }),
-    db.execute({ sql: 'SELECT signal_score, COUNT(*) as c FROM analysis_result GROUP BY signal_score ORDER BY signal_score DESC', args: [] }),
-  ]);
-  return {
-    total_news: totalNews.rows[0]?.c ?? 0,
-    analyzed_news: analyzedNews.rows[0]?.c ?? 0,
-    by_source: bySource.rows,
-    by_score: byScore.rows,
-  };
+  return cachedRead(readCacheKey(['dbCounts']), READ_CACHE_TTL.eventMetrics, async () => {
+    const db = await getDb();
+    const [totalNews, analyzedNews, bySource, byScore] = await Promise.all([
+      db.execute({ sql: 'SELECT COUNT(*) as c FROM news_archive', args: [] }),
+      db.execute({ sql: 'SELECT COUNT(*) as c FROM analysis_result', args: [] }),
+      db.execute({ sql: 'SELECT source, COUNT(*) as c FROM news_archive GROUP BY source', args: [] }),
+      db.execute({ sql: 'SELECT signal_score, COUNT(*) as c FROM analysis_result GROUP BY signal_score ORDER BY signal_score DESC', args: [] }),
+    ]);
+    return {
+      total_news: totalNews.rows[0]?.c ?? 0,
+      analyzed_news: analyzedNews.rows[0]?.c ?? 0,
+      by_source: bySource.rows,
+      by_score: byScore.rows,
+    };
+  });
 }
 
 function industryCacheKey(name: string, hoursBack: number, industries: string[] | null, extra = ''): string {
@@ -1372,6 +1405,7 @@ export async function getRelatedSignals(
   industries: string[],
   companies: string[],
   limit = 5,
+  daysBack = 90,
 ) {
   const db = await getDb();
 
@@ -1390,7 +1424,10 @@ export async function getRelatedSignals(
 
   if (conditions.length === 0) return [];
 
-  args.push(id, limit);
+  // 时间下界:无界时 json_each 对全表逐行求值,signal 页每次 ISR 再生成都全量扫描。
+  // 90 天窗口与「相关信号」语义相符,且让规划器可先走 idx_news_published 范围。
+  const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+  args.push(id, since, limit);
 
   const result = await db.execute({
     sql: `
@@ -1400,6 +1437,7 @@ export async function getRelatedSignals(
       WHERE (${conditions.join(" OR ")})
         AND a.id != ?
         AND a.signal_score >= 3
+        AND n.published_at >= ?
       ORDER BY n.published_at DESC
       LIMIT ?
     `,
@@ -1783,9 +1821,12 @@ export async function pruneEventLog(retentionDays = 90) {
   const safeDays = Number.isFinite(retentionDays) ? Math.max(retentionDays, 30) : 90;
   try {
     const db = await getDb();
+    // 直接比较 created_at(与写入同为 datetime('now') 的 'YYYY-MM-DD HH:MM:SS' 格式):
+    // julianday(created_at) 对列做函数运算 → 无法用 idx_event_created,表越大扫得越贵
+    const cutoff = isoToSqlite(new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000));
     await db.execute({
-      sql: 'DELETE FROM event_log WHERE julianday(created_at) < julianday(\'now\', ?)',
-      args: [`-${safeDays} days`],
+      sql: 'DELETE FROM event_log WHERE created_at < ?',
+      args: [cutoff],
     });
   } catch (err) {
     // 清理失败不允许影响埋点写入
@@ -1800,7 +1841,9 @@ export async function pruneEventLog(retentionDays = 90) {
 export async function getEventAnalytics(days = 7) {
   const db = await getDb();
   const safeDays = Number.isFinite(days) ? Math.min(Math.max(days, 1), 90) : 7;
-  const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
+  // created_at 为 'YYYY-MM-DD HH:MM:SS'(datetime('now'));用同格式边界比较,
+  // 原 toISOString() 的 'T' 分隔符在同日内排序大于空格 → 窗口边界日整日被排除
+  const since = isoToSqlite(new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000));
   const result = await db.execute({
     sql: `SELECT date(created_at) as day, event_type,
                  COUNT(*) as count,
@@ -1827,60 +1870,63 @@ export async function getEventAnalytics(days = 7) {
  *   前一个 7 天窗口出现过（跨周回访，即周回访率的分子/分母）
  */
 export async function getEventMetrics(days = 7) {
-  const db = await getDb();
   const safeDays = Number.isFinite(days) ? Math.min(Math.max(days, 1), 90) : 7;
-  const now = Date.now();
-  const since = new Date(now - safeDays * 24 * 60 * 60 * 1000).toISOString();
+  return cachedRead(readCacheKey(['eventMetrics', safeDays]), READ_CACHE_TTL.eventMetrics, async () => {
+    const db = await getDb();
+    const now = Date.now();
+    // 与 created_at(datetime('now') 空格格式)同格式比较,见 getEventAnalytics 注释
+    const since = isoToSqlite(new Date(now - safeDays * 24 * 60 * 60 * 1000));
 
-  const [typeRows, sessionRows, weeklyRows] = await Promise.all([
-    db.execute({
-      sql: `SELECT event_type, COUNT(*) as count,
-                   COUNT(DISTINCT json_extract(payload, '$.session')) as sessions
-            FROM event_log
-            WHERE created_at >= ?
-            GROUP BY event_type`,
-      args: [since],
-    }),
-    db.execute({
-      sql: `SELECT COUNT(DISTINCT json_extract(payload, '$.session')) as total
-            FROM event_log
-            WHERE created_at >= ?`,
-      args: [since],
-    }),
-    // 周回访：最近 7 天去重 session ∩ 前 7 天窗口去重 session
-    db.execute({
-      sql: `SELECT COUNT(*) as recent_sessions,
-                   SUM(CASE WHEN older.session IS NOT NULL THEN 1 ELSE 0 END) as returning_sessions
-            FROM (
-              SELECT DISTINCT json_extract(payload, '$.session') as session
+    const [typeRows, sessionRows, weeklyRows] = await Promise.all([
+      db.execute({
+        sql: `SELECT event_type, COUNT(*) as count,
+                     COUNT(DISTINCT json_extract(payload, '$.session')) as sessions
               FROM event_log
-              WHERE created_at >= ? AND created_at < ?
-            ) recent
-            LEFT JOIN (
-              SELECT DISTINCT json_extract(payload, '$.session') as session
+              WHERE created_at >= ?
+              GROUP BY event_type`,
+        args: [since],
+      }),
+      db.execute({
+        sql: `SELECT COUNT(DISTINCT json_extract(payload, '$.session')) as total
               FROM event_log
-              WHERE created_at >= ? AND created_at < ?
-            ) older ON recent.session = older.session`,
-      args: [
-        new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        new Date(now).toISOString(),
-        new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString(),
-        new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      ],
-    }),
-  ]);
+              WHERE created_at >= ?`,
+        args: [since],
+      }),
+      // 周回访：最近 7 天去重 session ∩ 前 7 天窗口去重 session
+      db.execute({
+        sql: `SELECT COUNT(*) as recent_sessions,
+                     SUM(CASE WHEN older.session IS NOT NULL THEN 1 ELSE 0 END) as returning_sessions
+              FROM (
+                SELECT DISTINCT json_extract(payload, '$.session') as session
+                FROM event_log
+                WHERE created_at >= ? AND created_at < ?
+              ) recent
+              LEFT JOIN (
+                SELECT DISTINCT json_extract(payload, '$.session') as session
+                FROM event_log
+                WHERE created_at >= ? AND created_at < ?
+              ) older ON recent.session = older.session`,
+        args: [
+          isoToSqlite(new Date(now - 7 * 24 * 60 * 60 * 1000)),
+          isoToSqlite(new Date(now)),
+          isoToSqlite(new Date(now - 14 * 24 * 60 * 60 * 1000)),
+          isoToSqlite(new Date(now - 7 * 24 * 60 * 60 * 1000)),
+        ],
+      }),
+    ]);
 
-  const weeklyRow = weeklyRows.rows[0] as Record<string, unknown> | undefined;
-  return {
-    uniqueSessions: Number(sessionRows.rows[0]?.total || 0),
-    events: typeRows.rows.map((r: Record<string, unknown>) => ({
-      event_type: r.event_type as string,
-      count: Number(r.count || 0),
-      sessions: Number(r.sessions || 0),
-    })),
-    weeklyReturn: {
-      recentSessions: Number(weeklyRow?.recent_sessions || 0),
-      returning: Number(weeklyRow?.returning_sessions || 0),
-    },
-  };
+    const weeklyRow = weeklyRows.rows[0] as Record<string, unknown> | undefined;
+    return {
+      uniqueSessions: Number(sessionRows.rows[0]?.total || 0),
+      events: typeRows.rows.map((r: Record<string, unknown>) => ({
+        event_type: r.event_type as string,
+        count: Number(r.count || 0),
+        sessions: Number(r.sessions || 0),
+      })),
+      weeklyReturn: {
+        recentSessions: Number(weeklyRow?.recent_sessions || 0),
+        returning: Number(weeklyRow?.returning_sessions || 0),
+      },
+    };
+  });
 }
