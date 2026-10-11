@@ -64,20 +64,11 @@ function StatusBadge({ tool }: { tool: ToolCallInfo }) {
   );
 }
 
-/** 单轮思考 + 工具调用：进行中展开，完成后自动折叠（shadcn Collapsible + 过渡动画） */
+/** 单轮思考 + 工具调用：默认折叠，用户可点击展开（shadcn Collapsible + 过渡动画） */
 export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) {
   const { tools, active, thinking, compaction } = processing;
-  const [open, setOpen] = useState(active);
+  const [open, setOpen] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
-
-  useEffect(() => {
-    if (active) {
-      setOpen(true);
-      return;
-    }
-    const timer = window.setTimeout(() => setOpen(false), 600);
-    return () => window.clearTimeout(timer);
-  }, [active]);
 
   const doneCount = tools.filter((t) => t.status === "done").length;
   const errorCount = tools.filter((t) => t.status === "error").length;
