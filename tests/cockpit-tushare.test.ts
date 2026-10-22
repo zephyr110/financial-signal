@@ -44,7 +44,7 @@ const ALL_MARKET_ROWS = [
   ['688001.SH', '20261022', 40, 42, 39.8, 42, 40, 5, 40000, 4_000_000],
 ]
 
-function makeFetch({ limitFails = false } = {}): FetchLike {
+function makeFetch({ limitFails = false, prevDailyEmpty = false } = {}): FetchLike {
   return vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as {
       api_name: string
@@ -76,6 +76,12 @@ function makeFetch({ limitFails = false } = {}): FetchLike {
               ['600519.SH', '20261021', 1570, 1590, 1560, 1580, 10000, 900_000],
               ['600519.SH', '20261022', 1580, 1620, 1570, 1600, 12345, 1_000_000],
             ],
+          )
+        }
+        if (prevDailyEmpty && body.params.trade_date === '20261021') {
+          return table(
+            ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'pre_close', 'pct_chg', 'vol', 'amount'],
+            [],
           )
         }
         return table(
@@ -180,6 +186,54 @@ describe('Tushare 收盘入库', () => {
       args: [],
     })
     expect(Number(calendar.rows[0]?.n)).toBe(4)
+  })
+
+  it('显式历史日期按锚点取 30 天日历窗口，而不是沿用今天', async () => {
+    const db = await dbModule.getDb()
+    await db.execute({ sql: 'DELETE FROM trading_calendar', args: [] })
+    const fetchImpl = makeFetch()
+
+    await tushareApi.ensureTradingCalendar({
+      anchorDate: '2026-10-21',
+      token: 'test-token',
+      fetchImpl,
+    })
+
+    const calls = (fetchImpl as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls
+      .map(([, init]) => JSON.parse(String(init?.body || '{}')) as {
+        api_name: string
+        params: Record<string, unknown>
+      })
+    const calendarCall = calls.filter((call) => call.api_name === 'trade_cal').pop()
+    expect(calendarCall?.params).toMatchObject({
+      start_date: '20260921',
+      end_date: '20261021',
+    })
+
+    const open = await db.execute({
+      sql: "SELECT COUNT(*) AS n FROM trading_calendar WHERE is_open = 1",
+      args: [],
+    })
+    expect(Number(open.rows[0]?.n)).toBe(4)
+  })
+
+  it('前一日成交额缺失时记 null 并警告，不伪造 0%', async () => {
+    const db = await dbModule.getDb()
+    await db.execute({ sql: "DELETE FROM market_overview WHERE trade_date = '2026-10-21'", args: [] })
+
+    const result = await tushareApi.ingestTushare({
+      tradeDate: '2026-10-22',
+      token: 'test-token',
+      fetchImpl: makeFetch({ prevDailyEmpty: true }),
+    })
+
+    expect(result.turnover).toEqual({ value: 100, changePct: null })
+    expect(result.warnings.join(' ')).toContain('前一开市日成交额不可用')
+    const overview = await db.execute({
+      sql: 'SELECT turnover_json FROM market_overview WHERE trade_date = ?',
+      args: ['2026-10-22'],
+    })
+    expect(JSON.parse(String(overview.rows[0]?.turnover_json))).toEqual({ value: 100, changePct: null })
   })
 
   it('涨跌停接口失败时标记不可用并保留其它数据', async () => {

@@ -67,7 +67,8 @@ export interface Breadth {
 
 export interface Turnover {
   value: number
-  changePct: number
+  /** null 表示前一开市日成交额不可用，不能当成 0% 持平。 */
+  changePct: number | null
   source: SourceRef
 }
 

@@ -5,10 +5,16 @@ import { Disclosure } from './bits'
 
 const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
+  daily_close: '收盘全链路',
+  market_ingest: '行情入库',
   thesis_review: '论点复核',
   ask: '向简报提问',
   weekly_review: '周度复盘',
   symbol_deep_dive: '个股深挖',
+}
+
+function warningsText(value: unknown): string {
+  return Array.isArray(value) ? value.map(String).filter(Boolean).join('\n') : ''
 }
 
 interface TaskResultView {
@@ -26,6 +32,28 @@ function resultView(task: TaskRecord): TaskResultView | null {
         body: [result.claim, result.confidence ? `置信度：${String(result.confidence)}` : '']
           .filter(Boolean)
           .join('\n'),
+      }
+    case 'daily_close': {
+      const ingest = result.ingest && typeof result.ingest === 'object'
+        ? result.ingest as Record<string, unknown>
+        : {}
+      return {
+        title: `简报 v${String(result.version ?? '—')} · ${String(result.tradeDate ?? '')}`,
+        body: [
+          result.claim ? String(result.claim) : '',
+          `行情 ${String(ingest.bars ?? 0)} 根日线 · 公告 ${String(result.documents ?? 0)} 条`,
+          warningsText(result.warnings),
+        ].filter(Boolean).join('\n'),
+      }
+    }
+    case 'market_ingest':
+      return {
+        title: `行情入库 ${String(result.tradeDate ?? '')}`,
+        body: [
+          `${String(result.bars ?? 0)} 根日线 · ${String(result.indices ?? 0)} 个指数`,
+          result.limitUpDownAvailable === false ? '涨跌停统计不可用' : '',
+          warningsText(result.warnings),
+        ].filter(Boolean).join('\n'),
       }
     case 'thesis_review':
       return {
@@ -80,11 +108,15 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
   const hasActive = tasks.some((task) => task.status === 'queued' || task.status === 'running')
 
   useEffect(() => {
-    if (!hasActive) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     let controller: AbortController | null = null
     let failures = 0
+    let idleTicks = 0
+    // 空闲也要轮询，否则页面打开后 cron 入队的任务永远不会出现。
+    let previousActive = new Set(
+      initialTasks.filter((task) => task.status === 'queued' || task.status === 'running').map((task) => task.id),
+    )
 
     const loadFull = async () => {
       const res = await fetch('/api/cockpit/tasks?limit=50', { headers: { Accept: 'application/json' } })
@@ -105,26 +137,39 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
         if (cancelled) return
         failures = 0
         const active = Array.isArray(json.data) ? json.data : []
-        if (active.length === 0) {
-          await loadFull()
-          // 空窗口之后可能刚好派发了新任务；继续轮询，任务全结束时由 hasActive 关掉 effect。
+        const activeIds = new Set(active.map((task) => task.id))
+        // 已知活跃任务消失说明它已完成/失败，需全量刷新拿到最终结果。
+        const disappeared = [...previousActive].some((id) => !activeIds.has(id))
+        previousActive = activeIds
+
+        if (active.length > 0) {
+          idleTicks = 0
+          setTasks((current) => {
+            const merged = new Map(current.map((task) => [task.id, task]))
+            for (const task of active) merged.set(task.id, task)
+            return [...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          })
+          if (disappeared) await loadFull()
+          if (cancelled) return
           timer = setTimeout(tick, 2500)
           return
         }
-        setTasks((current) => {
-          const merged = new Map(current.map((task) => [task.id, task]))
-          for (const task of active) merged.set(task.id, task)
-          return [...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        })
-        timer = setTimeout(tick, 2500)
+
+        idleTicks += 1
+        // 空闲低频刷新兜底：任务可能在两次轮询之间完成，也要出现在流水里。
+        if (disappeared || idleTicks % 4 === 0) await loadFull()
+        if (cancelled) return
+        timer = setTimeout(tick, 15000)
       } catch (err) {
         if (cancelled || (err instanceof Error && err.name === 'AbortError')) return
         failures += 1
         if (failures >= 5) {
-          setError('自动刷新连续失败，请刷新页面查看任务状态。')
+          setError('自动刷新连续失败，正在降低刷新频率。')
+          failures = 0
+          timer = setTimeout(tick, 60000)
           return
         }
-        timer = setTimeout(tick, Math.min(3000 * 2 ** failures, 15000))
+        timer = setTimeout(tick, Math.min(3000 * 2 ** failures, 30000))
       }
     }
 
@@ -134,7 +179,9 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       if (timer) clearTimeout(timer)
       controller?.abort()
     }
-  }, [hasActive])
+    // initialTasks 只用于初始化活跃集合；后续状态由轮询接管。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function run(
     type: string,

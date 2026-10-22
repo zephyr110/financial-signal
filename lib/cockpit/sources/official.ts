@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { getDb } from '../../db'
 import { todayShanghai } from '../format'
+import { fetchWithTimeout } from './http'
 import {
   assertNoDemoData,
   ensureCockpitSources,
@@ -141,9 +142,9 @@ async function fetchSseAnnouncements(
     securityType: '0101,120100,020100,020200,120200',
     reportType2: 'DQBG',
     reportType: 'ALL',
-    beginDate: '',
-    endDate: '',
-    'pageHelp.pageSize': '30',
+    beginDate: startDate,
+    endDate,
+    'pageHelp.pageSize': '100',
     'pageHelp.pageCount': '50',
     'pageHelp.pageNo': '1',
     'pageHelp.beginPage': '1',
@@ -265,7 +266,9 @@ async function fetchCsrcPolicy(
   const html = await res.text()
   const pattern = /<li>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>\s*<span class="date">([0-9-]{10})<\/span>/g
   const docs: DocInput[] = []
+  let matched = 0
   for (const match of html.matchAll(pattern)) {
+    matched += 1
     const path = match[1]
     const title = stripTags(match[2])
     const date = match[3]
@@ -280,6 +283,8 @@ async function fetchCsrcPolicy(
       url: path.startsWith('http') ? path : `${SOURCE.csrc.base}${path}`,
     })
   }
+  // 一条都匹配不到通常是页面改版/反爬；不能当作“本期无政策”标记来源健康。
+  if (matched === 0) throw new Error('证监会政策列表未解析到条目，页面结构可能已变化')
   return docs
 }
 
@@ -288,7 +293,7 @@ export async function ingestOfficialDocuments(options: {
   fetchImpl?: FetchLike
   maxCodes?: number
 } = {}): Promise<OfficialIngestResult> {
-  const fetchImpl = options.fetchImpl || fetch
+  const fetchImpl = fetchWithTimeout(options.fetchImpl || fetch)
   await ensureCockpitSources()
   await assertNoDemoData()
 

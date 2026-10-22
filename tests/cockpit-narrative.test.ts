@@ -72,7 +72,28 @@ describe('叙述层与问答降级', () => {
     })
     expect(await narrative.generateBriefNarrative(payload, 'task-1')).toBeNull()
 
-    expect(await usageCount()).toBe(2)
+    chatCompletion.mockResolvedValueOnce({
+      content: '涨幅１２％，量能配合。',
+      usage: { prompt_tokens: 100, completion_tokens: 20 },
+      model: 'mock-model',
+    })
+    expect(await narrative.generateBriefNarrative(payload, 'task-1')).toBeNull()
+
+    chatCompletion.mockResolvedValueOnce({
+      content: '证据仍不足，建议继续持有并观望。',
+      usage: { prompt_tokens: 100, completion_tokens: 20 },
+      model: 'mock-model',
+    })
+    expect(await narrative.generateBriefNarrative(payload, 'task-1')).toBeNull()
+
+    chatCompletion.mockResolvedValueOnce({
+      content: '成交额较前一日放大三成。',
+      usage: { prompt_tokens: 100, completion_tokens: 20 },
+      model: 'mock-model',
+    })
+    expect(await narrative.generateBriefNarrative(payload, 'task-1')).toBeNull()
+
+    expect(await usageCount()).toBe(5)
     const db = await dbModule.getDb()
     const usage = await db.execute({
       sql: 'SELECT task_id, model, prompt_tokens, completion_tokens, cost_micros FROM llm_usage ORDER BY rowid',

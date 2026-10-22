@@ -44,14 +44,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ data: await getWatchlist(), meta: await buildMeta() })
     }
 
-    const note = typeof body.note === 'string' ? body.note.trim() : ''
+    // 未提供 note（如编辑器只改代码）时保留旧备注；显式空串才清空。
+    const noteProvided = Object.prototype.hasOwnProperty.call(body, 'note')
+    if (noteProvided && typeof body.note !== 'string') {
+      return sendError(req, res, 400, 'INVALID_NOTE', '备注应为字符串')
+    }
+    const note = noteProvided ? String(body.note).trim() : ''
     if (note.length > 200) {
       return sendError(req, res, 400, 'INVALID_NOTE', '备注最多 200 字')
     }
     await db.execute({
       sql: `INSERT INTO watchlist_items (code, note, created_at) VALUES (?, ?, ?)
-            ON CONFLICT(code) DO UPDATE SET note = excluded.note`,
-      args: [code, note || null, new Date().toISOString()],
+            ON CONFLICT(code) DO UPDATE SET note =
+              CASE WHEN ? = 1 THEN excluded.note ELSE watchlist_items.note END`,
+      args: [code, note || null, new Date().toISOString(), noteProvided ? 1 : 0],
     })
     noStore(res)
     return res.status(201).json({ data: await getWatchlist(), meta: await buildMeta() })

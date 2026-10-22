@@ -129,11 +129,13 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
   evidence.push({
     id: 'counter:turnover',
     kind: 'counter',
-    label: facts.turnover.changePct >= 3
-      ? `成交额较前一日放大 ${facts.turnover.changePct.toFixed(1)}%，放量分化使趋势确认度下降。`
-      : facts.turnover.changePct <= -3
-        ? `成交额较前一日收缩 ${Math.abs(facts.turnover.changePct).toFixed(1)}%，缩量使方向信号变弱。`
-        : `成交额变化 ${formatSignedPct(facts.turnover.changePct, 1)}，量能未给出额外确认。`,
+    label: facts.turnover.changePct === null
+      ? '前一开市日成交额缺失，无法判断量能变化。'
+      : facts.turnover.changePct >= 3
+        ? `成交额较前一日放大 ${facts.turnover.changePct.toFixed(1)}%，放量分化使趋势确认度下降。`
+        : facts.turnover.changePct <= -3
+          ? `成交额较前一日收缩 ${Math.abs(facts.turnover.changePct).toFixed(1)}%，缩量使方向信号变弱。`
+          : `成交额变化 ${formatSignedPct(facts.turnover.changePct, 1)}，量能未给出额外确认。`,
     source: facts.turnover.source,
   })
   evidence.push({
@@ -207,7 +209,7 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
       : upRatio < 0.5
         ? '验证上涨家数占比能否回到 50% 以上，确认指数上涨是否有广度支撑。'
         : '验证上涨宽度能否延续，以及领涨方向是否从少数标的扩散。',
-    facts.turnover.changePct >= 3
+    facts.turnover.changePct !== null && facts.turnover.changePct >= 3
       ? '观察成交额放大后能否维持，放量分化需要后续方向确认。'
       : '观察成交额是否配合方向变化；缩量或量能背离时降低置信度。',
     weakened

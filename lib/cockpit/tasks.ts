@@ -148,6 +148,7 @@ export async function getTaskEvents(id: string, afterSeq = 0): Promise<TaskEvent
 /**
  * 同 type + 参数 + 交易日只允许一个任务。显式 key 可用于“今天只生成一次日报”。
  * 排队/运行/成功任务原样返回；失败或取消的任务重置为排队，让同参数可以重试。
+ * force 时已成功任务改用唯一 key 新建，真正触发重建而不是被幂等键吞掉。
  */
 export async function enqueueTask(input: {
   type: TaskType
@@ -156,10 +157,11 @@ export async function enqueueTask(input: {
 }): Promise<TaskRecord> {
   if (!TASK_TYPES.includes(input.type)) throw new Error(`未知任务类型: ${input.type}`)
   const params = input.params && typeof input.params === 'object' ? input.params : {}
+  const force = params.force === true
   const paramDate = typeof params.tradeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.tradeDate)
     ? params.tradeDate
     : todayShanghai()
-  const idempotencyKey = input.idempotencyKey || defaultIdempotencyKey(input.type, params, paramDate)
+  let idempotencyKey = input.idempotencyKey || defaultIdempotencyKey(input.type, params, paramDate)
   const db = await getDb()
   const tx = await db.transaction('write')
   try {
@@ -167,7 +169,11 @@ export async function enqueueTask(input: {
       sql: 'SELECT * FROM tasks WHERE idempotency_key = ?',
       args: [idempotencyKey],
     })
-    const existing = existingRes.rows[0] as unknown as Row | undefined
+    let existing = existingRes.rows[0] as unknown as Row | undefined
+    if (existing && force && existing.status === 'succeeded') {
+      idempotencyKey = `${idempotencyKey}:force:${crypto.randomUUID()}`
+      existing = undefined
+    }
     if (existing) {
       const id = str(existing.id)
       if (existing.status === 'failed' || existing.status === 'canceled') {
@@ -244,8 +250,9 @@ export async function claimNextTask(): Promise<TaskRecord | null> {
   const tx = await db.transaction('write')
   try {
     await tx.execute({
+      // heartbeat 为空说明进程在首次心跳前就崩了，同样按租约过期回收。
       sql: `UPDATE tasks SET status = 'queued', step = '租约过期，等待重试', heartbeat_at = NULL
-            WHERE status = 'running' AND heartbeat_at IS NOT NULL AND heartbeat_at < ?`,
+            WHERE status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at < ?)`,
       args: [staleBefore],
     })
     // 单任务串行：已有 worker 在跑时其它进程/请求只排队，不能再并行认领。
@@ -551,6 +558,13 @@ async function finishTask(
       error: patch.errorMessage || null,
       result: patch.result || null,
     }, db)
+    // 模型调用成本记在 llm_usage；任务结束后汇总，任务中心才能展示真实花费。
+    await db.execute({
+      sql: `UPDATE tasks SET cost_micros =
+              COALESCE((SELECT SUM(cost_micros) FROM llm_usage WHERE task_id = ?), 0)
+            WHERE id = ?`,
+      args: [task.id, task.id],
+    })
   }
   const row = await getTaskRow(task.id)
   if (!patch.requeue && (status === 'succeeded' || status === 'failed')) {

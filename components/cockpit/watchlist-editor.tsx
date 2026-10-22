@@ -100,8 +100,8 @@ export function WatchlistRemove({ code, name }: { code: string; name: string }) 
     } catch {
       setError('网络连接失败，未移除。')
     } finally {
+      // 失败时保持确认态，否则错误提示会随按钮一起被卸载。
       setBusy(false)
-      setConfirming(false)
     }
   }
 

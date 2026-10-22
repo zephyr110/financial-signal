@@ -2,7 +2,7 @@ import crypto from 'crypto'
 import { getDb } from '../db'
 import { chatCompletion } from '../llm/client'
 import { getEffectiveLlmConfig, PRICING } from '../llm/config'
-import { findAdviceLanguage } from './validators'
+import { containsNumericClaim, findAdviceLanguage, findStrongAdvice } from './validators'
 import type { TodayPayload } from './types'
 
 /**
@@ -12,7 +12,6 @@ import type { TodayPayload } from './types'
 
 export const NARRATIVE_PROMPT_VERSION = 'daily-narrative-v1'
 const NARRATIVE_MAX = 320
-const STRONG_ADVICE = /建议|推荐|操作|买入|卖出|加仓|减仓|清仓|抄底|逃顶|止损|止盈|目标价/
 
 export interface NarrativeResult {
   text: string
@@ -34,8 +33,8 @@ export async function llmConfigured(): Promise<boolean> {
 
 function textIsSafe(text: string, maxLen: number, forbidDigits = false): boolean {
   if (!text || text.length > maxLen) return false
-  if (forbidDigits && /\d/.test(text)) return false
-  return findAdviceLanguage(text).length === 0 && !STRONG_ADVICE.test(text)
+  if (forbidDigits && containsNumericClaim(text)) return false
+  return findAdviceLanguage(text).length === 0 && !findStrongAdvice(text)
 }
 
 async function recordUsage(input: {

@@ -14,17 +14,23 @@ export function PortfolioEditor() {
     event.preventDefault()
     setError(null)
     setSuccess(null)
-    const shareCount = Number(shares)
-    if (!Number.isSafeInteger(shareCount) || shareCount <= 0) {
+    const shareText = shares.trim()
+    const shareCount = Number(shareText)
+    if (!/^\d+$/.test(shareText) || !Number.isSafeInteger(shareCount) || shareCount <= 0) {
       setError('股数需为正整数。')
       return
     }
-    const costYuan = Number(cost)
-    if (!Number.isFinite(costYuan) || costYuan < 0) {
-      setError('成本价需为不小于 0 的数字。')
+    const costText = cost.trim()
+    if (!/^\d+(?:\.\d{1,2})?$/.test(costText)) {
+      setError('成本价需为不小于 0 的数字，最多两位小数。')
       return
     }
-    const avgCostCents = Math.round(costYuan * 100)
+    const [yuan, fraction = ''] = costText.split('.')
+    const avgCostCents = Number(yuan) * 100 + Number(fraction.padEnd(2, '0'))
+    if (!Number.isSafeInteger(avgCostCents)) {
+      setError('成本价超出可记录范围。')
+      return
+    }
     setBusy(true)
     try {
       const res = await fetch('/api/cockpit/portfolio', {
@@ -128,8 +134,8 @@ export function PortfolioRemove({ code, name }: { code: string; name: string }) 
     } catch {
       setError('网络连接失败，未移除。')
     } finally {
+      // 失败时保持确认态，否则错误提示会随按钮一起被卸载。
       setBusy(false)
-      setConfirming(false)
     }
   }
 

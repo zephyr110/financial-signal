@@ -15,6 +15,12 @@ import type {
 
 type Row = Record<string, unknown>
 
+function optNum(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
 function num(value: unknown, fallback = 0): number {
   const n = Number(value)
   return Number.isFinite(n) ? n : fallback
@@ -169,7 +175,7 @@ export async function buildFactPack(tradeDate: string): Promise<FactPack> {
   const turnoverRaw = parseJson<Partial<Turnover>>(overview.turnover_json, {})
   const turnover: Turnover = {
     value: num(turnoverRaw.value),
-    changePct: num(turnoverRaw.changePct),
+    changePct: optNum(turnoverRaw.changePct),
     source: overviewSource,
   }
 

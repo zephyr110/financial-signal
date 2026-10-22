@@ -2,14 +2,24 @@ import { useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import type { ThesisStatus, ThesisView } from '@/lib/cockpit/types'
+import { thesisStatusLabel } from '@/lib/cockpit/format'
 
-const STATUS_OPTIONS: Array<{ value: ThesisStatus; label: string }> = [
-  { value: 'active', label: '观察中' },
-  { value: 'strengthened', label: '证据增强' },
-  { value: 'weakened', label: '证据减弱' },
-  { value: 'broken', label: '已失效' },
-  { value: 'review_due', label: '待复核' },
-]
+const STATUS_OPTIONS: ThesisStatus[] = ['active', 'strengthened', 'weakened', 'broken', 'review_due']
+
+interface ApiErrorBody {
+  error?: {
+    message?: string
+    details?: { issues?: Array<{ message?: string }> } | null
+  }
+}
+
+function apiErrorMessage(json: ApiErrorBody, fallback: string): string {
+  const issues = json.error?.details?.issues
+    ?.map((issue) => issue.message)
+    .filter((message): message is string => Boolean(message))
+  const base = json.error?.message || fallback
+  return issues && issues.length > 0 ? `${base}：${issues.join('；')}` : base
+}
 
 export function ThesisComposer({ initial }: { initial?: ThesisView }) {
   const router = useRouter()
@@ -60,9 +70,9 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
           invalidation: lines,
         }),
       })
-      const json = await res.json() as { error?: { message?: string } }
+      const json = await res.json() as ApiErrorBody
       if (!res.ok) {
-        setError(json.error?.message || '保存论点失败。')
+        setError(apiErrorMessage(json, '保存论点失败。'))
         return
       }
       // 表单收在 Disclosure 里；保存后收起并清空草稿，避免误重复提交。
@@ -133,7 +143,7 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
             onChange={(event) => setStatus(event.target.value as ThesisStatus)}
           >
             {STATUS_OPTIONS.map((option) => (
-              <option value={option.value} key={option.value}>{option.label}</option>
+              <option value={option} key={option}>{thesisStatusLabel(option)}</option>
             ))}
           </select>
         </div>
@@ -157,7 +167,7 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
             id="thesis-claim"
             value={claim}
             required
-            maxLength={500}
+            maxLength={300}
             placeholder="一句话写明你认为会发生什么，以及为什么。"
             onChange={(event) => setClaim(event.target.value)}
           />
@@ -220,9 +230,10 @@ export function ThesisActions({ thesis }: { thesis: ThesisView }) {
         method: 'DELETE',
         headers: { Accept: 'application/json' },
       })
-      const json = await res.json() as { error?: { message?: string } }
+      const json = await res.json() as ApiErrorBody
       if (!res.ok) {
-        setError(json.error?.message || '删除论点失败。')
+        // 保持确认态，否则错误提示会随按钮一起被卸载。
+        setError(apiErrorMessage(json, '删除论点失败。'))
         return
       }
       await router.replace('/research')
@@ -230,7 +241,6 @@ export function ThesisActions({ thesis }: { thesis: ThesisView }) {
       setError('网络连接失败，未删除。')
     } finally {
       setBusy(false)
-      setConfirming(false)
     }
   }
 

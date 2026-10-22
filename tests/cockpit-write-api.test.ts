@@ -83,9 +83,20 @@ describe('驾驶舱写入接口', () => {
       expect(updated._body.data[0]).toMatchObject({ code: '600519.SH', note: '再看一周' })
     })
 
+    it('未携带 note 时保留旧备注，显式空串才清空', async () => {
+      const kept = mockRes()
+      await watchlistHandler(mockReq('POST', { body: { code: '600519' } }), kept)
+      expect(kept._body.data[0]).toMatchObject({ code: '600519.SH', note: '再看一周' })
+
+      const cleared = mockRes()
+      await watchlistHandler(mockReq('POST', { body: { code: '600519', note: '' } }), cleared)
+      expect(cleared._body.data[0].note == null).toBe(true)
+    })
+
     it.each([
       [{ code: '60051' }, 'INVALID_CODE'],
       [{ code: '600519', note: 'x'.repeat(201) }, 'INVALID_NOTE'],
+      [{ code: '600519', note: 123 }, 'INVALID_NOTE'],
     ])('非法输入 %j 返回 400', async (body, code) => {
       const res = mockRes()
       await watchlistHandler(mockReq('POST', { body }), res)
@@ -130,6 +141,11 @@ describe('驾驶舱写入接口', () => {
       [{ code: '600519', shares: 0, avgCostCents: 100 }, 'INVALID_SHARES'],
       [{ code: '600519', shares: 100, avgCostCents: -1 }, 'INVALID_COST'],
       [{ code: '600519', shares: 100, avgCostCents: 1.5 }, 'INVALID_COST'],
+      [{ code: '600519', shares: null, avgCostCents: 100 }, 'INVALID_SHARES'],
+      [{ code: '600519', shares: '', avgCostCents: 100 }, 'INVALID_SHARES'],
+      [{ code: '600519', shares: 100, avgCostCents: null }, 'INVALID_COST'],
+      [{ code: '600519', shares: 100, avgCostCents: '' }, 'INVALID_COST'],
+      [{ code: '600519', shares: 100, avgCostCents: true }, 'INVALID_COST'],
       [{ shares: 100, avgCostCents: 100 }, 'INVALID_CODE'],
     ])('非法输入 %j 返回 400', async (body, code) => {
       const res = mockRes()
@@ -163,6 +179,23 @@ describe('驾驶舱写入接口', () => {
         args: [],
       })
       expect(Number(demo.rows[0]?.shares)).toBe(10)
+    })
+
+    it('DELETE 能找到仅存在于示例账户的持仓', async () => {
+      const db = await dbModule.getDb()
+      await db.execute({
+        sql: `INSERT INTO positions (account_id, code, shares, avg_cost_cents, updated_at)
+              VALUES ('demo-account', '000999.SZ', 10, 1000, ?)`,
+        args: [new Date().toISOString()],
+      })
+      const res = mockRes()
+      await portfolioHandler(mockReq('DELETE', { query: { code: '000999.SZ' } }), res)
+      expect(res._status).toBe(200)
+      const row = await db.execute({
+        sql: "SELECT COUNT(*) AS n FROM positions WHERE account_id = 'demo-account' AND code = '000999.SZ'",
+        args: [],
+      })
+      expect(Number(row.rows[0]?.n)).toBe(0)
     })
 
     it('DELETE 只移除当前账户的持仓', async () => {
@@ -234,6 +267,16 @@ describe('驾驶舱写入接口', () => {
       await thesesHandler(mockReq('POST', { body }), res)
       expect(res._status).toBe(400)
       expect(res._body.error.code).toBe(code)
+    })
+
+    it('主张超过 300 字时返回字段级原因', async () => {
+      const res = mockRes()
+      await thesesHandler(mockReq('POST', {
+        body: { ...validBody, claim: 'x'.repeat(301) },
+      }), res)
+      expect(res._status).toBe(400)
+      expect(res._body.error.code).toBe('THESIS_VALIDATION')
+      expect(res._body.error.details.issues[0].message).toContain('300')
     })
 
     it('跨站修订被拒绝', async () => {

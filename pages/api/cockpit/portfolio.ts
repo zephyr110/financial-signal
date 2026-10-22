@@ -20,6 +20,15 @@ function bodyObject(body: unknown): Record<string, unknown> {
   return body && typeof body === 'object' ? body as Record<string, unknown> : {}
 }
 
+function integerValue(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? value : null
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+    const n = Number(value.trim())
+    return Number.isSafeInteger(n) ? n : null
+  }
+  return null
+}
+
 /** 真实持仓永远落在非示例账户；示例账户仅作为空库演示沙箱。 */
 async function resolveAccount(): Promise<string> {
   const db = await getDb()
@@ -53,24 +62,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!code) {
       return sendError(req, res, 400, 'INVALID_CODE', '股票代码应为 600519、600519.SH 或 SH600519')
     }
-    const accountId = await resolveAccount()
     const db = await getDb()
 
     if (req.method === 'DELETE') {
-      await db.execute({
-        sql: 'DELETE FROM positions WHERE account_id = ? AND code = ?',
-        args: [accountId, code],
+      // DELETE 不创建账户：先找该代码现有持仓所属账户，示例账户兜底。
+      const owner = await db.execute({
+        sql: `SELECT account_id FROM positions WHERE code = ?
+              ORDER BY CASE WHEN account_id = 'demo-account' THEN 1 ELSE 0 END LIMIT 1`,
+        args: [code],
       })
+      const accountId = owner.rows[0] ? String(owner.rows[0].account_id) : null
+      if (accountId) {
+        await db.execute({
+          sql: 'DELETE FROM positions WHERE account_id = ? AND code = ?',
+          args: [accountId, code],
+        })
+      }
       noStore(res)
       return res.status(200).json({ data: await getPortfolio(), meta: await buildMeta() })
     }
 
-    const shares = Number(body.shares)
-    if (!Number.isSafeInteger(shares) || shares <= 0 || shares > 1_000_000_000) {
+    const accountId = await resolveAccount()
+    const shares = integerValue(body.shares)
+    if (shares === null || shares <= 0 || shares > 1_000_000_000) {
       return sendError(req, res, 400, 'INVALID_SHARES', '股数需为 1–1,000,000,000 的整数')
     }
-    const cents = Number(body.avgCostCents)
-    if (!Number.isSafeInteger(cents) || cents < 0 || cents > 100_000_000_000) {
+    const cents = integerValue(body.avgCostCents)
+    if (cents === null || cents < 0 || cents > 100_000_000_000) {
       return sendError(req, res, 400, 'INVALID_COST', '成本价需以整数分表示，且不超过 10 亿元')
     }
     const now = new Date().toISOString()

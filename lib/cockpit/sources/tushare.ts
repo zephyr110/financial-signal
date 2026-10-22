@@ -1,6 +1,7 @@
 import { getDb } from '../../db'
 import { getSetting, SETTING_KEYS } from '../../settings'
 import { todayShanghai } from '../format'
+import { fetchWithTimeout, type FetchLike } from './http'
 import {
   assertNoDemoData,
   ensureCockpitSources,
@@ -21,10 +22,12 @@ const INDEXES = [
   { code: '399006.SZ', name: '创业板指', exchange: 'SZSE' },
 ] as const
 const HISTORY_DAYS = 45
+const HISTORY_LOOKBACK_BARS = 20
 const MAX_HISTORY_CODES = 60
+const CALENDAR_WINDOW_DAYS = 30
+const CALENDAR_MIN_ROWS = 15
 
 type Row = Record<string, unknown>
-type FetchLike = typeof fetch
 
 interface TushareResponse {
   code?: number
@@ -38,7 +41,7 @@ export interface TushareIngestResult {
   indices: number
   universe: number
   breadth: { up: number; flat: number; down: number; limitUp: number; limitDown: number }
-  turnover: { value: number; changePct: number }
+  turnover: { value: number; changePct: number | null }
   limitUpDownAvailable: boolean
   warnings: string[]
 }
@@ -92,7 +95,7 @@ async function tushareFetch(
   token: string,
   fetchImpl: FetchLike,
 ): Promise<Row[]> {
-  const res = await fetchImpl(API_URL, {
+  const res = await fetchWithTimeout(fetchImpl)(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ api_name: apiName, token, params, fields }),
@@ -112,6 +115,83 @@ async function tushareFetch(
 async function resolveToken(): Promise<string | null> {
   const fromSetting = await getSetting(SETTING_KEYS.TUSHARE_TOKEN).catch(() => null)
   return (fromSetting || process.env.TUSHARE_TOKEN || '').trim() || null
+}
+
+export async function hasTushareToken(): Promise<boolean> {
+  return Boolean(await resolveToken())
+}
+
+async function upsertCalendar(rows: Row[], fetchedAt: string): Promise<void> {
+  const db = await getDb()
+  const tx = await db.transaction('write')
+  try {
+    for (const row of rows) {
+      const date = dashed(str(row.cal_date))
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+      await tx.execute({
+        sql: `INSERT INTO trading_calendar (trade_date, is_open, source_id, updated_at)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(trade_date) DO UPDATE SET
+                is_open = excluded.is_open, source_id = excluded.source_id,
+                updated_at = excluded.updated_at`,
+        args: [date, Number(row.is_open) === 1 ? 1 : 0, SOURCE_ID, fetchedAt],
+      })
+    }
+    await tx.commit()
+  } catch (err) {
+    try { await tx.rollback() } catch { /* tx already closed */ }
+    throw err
+  }
+}
+
+/**
+ * 保证锚点日期前后 30 天的交易日历在库中；显式回补历史日期也按该日期取窗口。
+ * 只补齐缺失窗口，已有足够行且含锚点日时直接读库。
+ */
+export async function ensureTradingCalendar(options: {
+  anchorDate: string
+  token?: string
+  fetchImpl?: FetchLike
+}): Promise<{ openDates: string[]; fetched: boolean }> {
+  const { anchorDate } = options
+  const startDate = addDays(anchorDate, -CALENDAR_WINDOW_DAYS)
+  const db = await getDb()
+  const [countRes, anchorRes] = await Promise.all([
+    db.execute({
+      sql: 'SELECT COUNT(*) AS n FROM trading_calendar WHERE trade_date BETWEEN ? AND ?',
+      args: [startDate, anchorDate],
+    }),
+    db.execute({
+      sql: 'SELECT 1 AS ok FROM trading_calendar WHERE trade_date = ? LIMIT 1',
+      args: [anchorDate],
+    }),
+  ])
+  // 锚点行缺失时重拉：否则今天休市/新交易日会沿用旧窗口选错目标日。
+  const fresh = num(countRes.rows[0]?.n) >= CALENDAR_MIN_ROWS && Boolean(anchorRes.rows[0])
+  let fetched = false
+  if (!fresh) {
+    const token = (options.token || await resolveToken())?.trim()
+    if (!token) throw new Error('未配置 Tushare token；请在设置的数据源中填写，或设置 TUSHARE_TOKEN')
+    const rows = await tushareFetch(
+      'trade_cal',
+      { exchange: 'SSE', start_date: compact(startDate), end_date: compact(anchorDate) },
+      'exchange,cal_date,is_open,pretrade_date',
+      token,
+      options.fetchImpl || fetch,
+    )
+    await upsertCalendar(rows, new Date().toISOString())
+    fetched = true
+  }
+  const res = await db.execute({
+    sql: `SELECT trade_date FROM trading_calendar
+          WHERE is_open = 1 AND trade_date BETWEEN ? AND ?
+          ORDER BY trade_date ASC`,
+    args: [startDate, anchorDate],
+  })
+  const openDates = res.rows
+    .map((row) => str(row.trade_date))
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+  return { openDates, fetched }
 }
 
 /** A 股收盘数据在 15:00 后才稳定；16:00 前自动回退到上一交易日，避免拿当天半截数据。 */
@@ -273,20 +353,40 @@ async function upsertSymbols(rows: Row[], fetchedAt: string): Promise<void> {
   }
 }
 
-async function countExistingBars(codes: string[], tradeDate: string): Promise<Map<string, number>> {
+async function expectedHistoryDates(tradeDate: string): Promise<string[]> {
   const db = await getDb()
-  const counts = new Map<string, number>()
-  if (codes.length === 0) return counts
+  const res = await db.execute({
+    sql: `SELECT trade_date FROM trading_calendar
+          WHERE is_open = 1 AND trade_date <= ?
+          ORDER BY trade_date DESC LIMIT ?`,
+    args: [tradeDate, HISTORY_LOOKBACK_BARS],
+  })
+  return res.rows.map((row) => str(row.trade_date)).sort()
+}
+
+async function codesWithFullHistory(codes: string[], dates: string[]): Promise<Set<string>> {
+  const complete = new Set<string>()
+  if (codes.length === 0 || dates.length === 0) return complete
+  const db = await getDb()
   const placeholders = codes.map(() => '?').join(', ')
   const res = await db.execute({
-    sql: `SELECT code, COUNT(*) AS n FROM market_bars
-          WHERE adjust_type = 'raw' AND is_demo = 0 AND trade_date <= ?
-            AND code IN (${placeholders})
-          GROUP BY code`,
-    args: [tradeDate, ...codes],
+    sql: `SELECT code, trade_date FROM market_bars
+          WHERE adjust_type = 'raw' AND is_demo = 0
+            AND trade_date BETWEEN ? AND ? AND code IN (${placeholders})`,
+    args: [dates[0], dates[dates.length - 1], ...codes],
   })
-  for (const row of res.rows) counts.set(str(row.code), num(row.n))
-  return counts
+  const seen = new Map<string, Set<string>>()
+  for (const row of res.rows) {
+    const code = str(row.code)
+    const set = seen.get(code) || new Set<string>()
+    set.add(str(row.trade_date))
+    seen.set(code, set)
+  }
+  for (const code of codes) {
+    const set = seen.get(code)
+    if (set && dates.every((date) => set.has(date))) complete.add(code)
+  }
+  return complete
 }
 
 export async function ingestTushare(options: {
@@ -301,41 +401,17 @@ export async function ingestTushare(options: {
   const token = (options.token || await resolveToken())?.trim()
   if (!token) throw new Error('未配置 Tushare token；请在设置的数据源中填写，或设置 TUSHARE_TOKEN')
 
-  const today = todayShanghai()
   const warnings: string[] = []
   try {
-    const calendarRows = await tushareFetch(
-      'trade_cal',
-      { exchange: 'SSE', start_date: compact(addDays(today, -30)), end_date: compact(today) },
-      'exchange,cal_date,is_open,pretrade_date',
+    const anchorDate = options.tradeDate || todayShanghai()
+    const calendar = await ensureTradingCalendar({
+      anchorDate,
       token,
       fetchImpl,
-    )
-    const openDates = calendarRows
-      .filter((row) => Number(row.is_open) === 1)
-      .map((row) => dashed(str(row.cal_date)))
-      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
-      .sort()
-    const tradeDate = chooseTradeDate(openDates, options.tradeDate)
+    })
+    const tradeDate = chooseTradeDate(calendar.openDates, options.tradeDate)
     const fetchedAt = new Date().toISOString()
-
     const db = await getDb()
-    const calTx = await db.transaction('write')
-    try {
-      for (const row of calendarRows) {
-        const date = dashed(str(row.cal_date))
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
-        await calTx.execute({
-          sql: `INSERT OR IGNORE INTO trading_calendar (trade_date, is_open, source_id, updated_at)
-                VALUES (?, ?, ?, ?)`,
-          args: [date, Number(row.is_open) === 1 ? 1 : 0, SOURCE_ID, fetchedAt],
-        })
-      }
-      await calTx.commit()
-    } catch (err) {
-      try { await calTx.rollback() } catch { /* tx already closed */ }
-      throw err
-    }
 
     const basics = await tushareFetch(
       'stock_basic',
@@ -420,24 +496,24 @@ export async function ingestTushare(options: {
         warnings.push(`前一日成交额缺失：${err instanceof Error ? err.message : String(err)}`)
       }
     }
-    const turnoverChange = prevTurnover && prevTurnover > 0
+    const turnoverChange = prevTurnover !== null && prevTurnover > 0
       ? round2(((turnoverValue - prevTurnover) / prevTurnover) * 100)
-      : 0
+      : null
+    if (turnoverChange === null) {
+      warnings.push('前一开市日成交额不可用，成交额变化未计算')
+    }
 
     const universe = await resolveUniverse()
     const historyCodes = universe.slice(0, MAX_HISTORY_CODES)
     if (universe.length > MAX_HISTORY_CODES) {
-      warnings.push(`研究标的超过 ${MAX_HISTORY_CODES} 个，仅回补前 ${MAX_HISTORY_CODES} 个的历史日线`)
+      warnings.push(`研究标的 ${universe.length} 个，历史日线仅回补前 ${MAX_HISTORY_CODES} 个；当日 bar 全部写入`)
     }
-    const existing = await countExistingBars(historyCodes, tradeDate)
+    const expectedDates = await expectedHistoryDates(tradeDate)
+    const completeHistory = await codesWithFullHistory(historyCodes, expectedDates)
     const universeBars: BarInput[] = []
     const missing: string[] = []
     for (const code of historyCodes) {
-      if (existing.get(code) || 0) continue
-      if (!dailyByCode.has(code)) {
-        missing.push(code)
-        continue
-      }
+      if (!dailyByCode.has(code) || completeHistory.has(code)) continue
       const rows = await tushareFetch(
         'daily',
         { ts_code: code, start_date: compact(addDays(tradeDate, -HISTORY_DAYS)), end_date: compact(tradeDate) },
@@ -447,10 +523,11 @@ export async function ingestTushare(options: {
       )
       universeBars.push(...rows.map(barFrom).filter((bar): bar is BarInput => bar !== null && bar.tradeDate <= tradeDate))
     }
-    for (const code of historyCodes) {
+    // 当日 bar 不受历史回补上限影响，避免第 61 个标的当天缺行情。
+    for (const code of universe) {
       const row = dailyByCode.get(code)
       if (!row) {
-        if (!missing.includes(code)) missing.push(code)
+        missing.push(code)
         continue
       }
       const bar = barFrom(row)
@@ -485,7 +562,7 @@ export async function ingestTushare(options: {
       tradeDate,
       bars: dedupedBars.size,
       indices: indexCount,
-      universe: historyCodes.length,
+      universe: universe.length,
       breadth: { up, flat, down, limitUp, limitDown },
       turnover: { value: turnoverValue, changePct: turnoverChange },
       limitUpDownAvailable,

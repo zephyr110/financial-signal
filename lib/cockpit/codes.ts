@@ -9,7 +9,10 @@ export function normalizeCode(input: unknown): string | null {
   const value = input.trim().toUpperCase()
   if (CODE_RE.test(value)) return value
   if (/^\d{6}$/.test(value)) {
-    const suffix = value.startsWith('6') ? 'SH' : value.startsWith('4') || value.startsWith('8') ? 'BJ' : 'SZ'
+    // 北交所：4/8 开头及 920 新代码段；沪市：5 基金、6 股票、9 B 股、11 转债、7 申购。
+    const suffix = /^(4|8|92)/.test(value)
+      ? 'BJ'
+      : /^(5|6|9|11|7)/.test(value) ? 'SH' : 'SZ'
     return `${value}.${suffix}`
   }
   const prefixed = value.match(/^(SH|SZ|BJ)(\d{6})$/)

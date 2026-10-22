@@ -8,10 +8,27 @@ import type {
 } from './types'
 
 const ADVICE_PATTERNS: Array<{ re: RegExp; message: string }> = [
-  { re: /买入|卖出|加仓|减仓|清仓|抄底|逃顶|满仓|空仓/, message: '出现交易动作指令' },
+  { re: /买入|卖出|加仓|减仓|清仓|建仓|补仓|低吸|高抛|离场|入场|抄底|逃顶|满仓|空仓/, message: '出现交易动作指令' },
   { re: /目标价|止盈|止损|预期收益|翻倍/, message: '出现价格目标或收益承诺' },
   { re: /(建议|推荐)(买|卖|持有|加仓|减仓)/, message: '出现直接买卖建议' },
 ]
+
+// 叙述/问答层额外拦截仓位姿态词；用户手写论点仍走 ADVICE_PATTERNS。
+const STRONG_ADVICE = /建议|推荐|操作|买入|卖出|加仓|减仓|清仓|建仓|补仓|离场|入场|持有|观望|抄底|逃顶|止损|止盈|目标价/
+
+const CHINESE_NUMERAL = '[零〇一二三四五六七八九十百千万亿两]'
+const NUMERIC_CLAIM = new RegExp(
+  `\\d|${CHINESE_NUMERAL}+(?:成|倍|个百分点|个点|%)|百分之${CHINESE_NUMERAL}+`,
+)
+
+/** 全角数字、中文数字与百分比都算数字主张；仅“一定/一致”这类无单位词不误伤。 */
+export function containsNumericClaim(text: string): boolean {
+  return NUMERIC_CLAIM.test(text.normalize('NFKC'))
+}
+
+export function findStrongAdvice(text: string): boolean {
+  return STRONG_ADVICE.test(text)
+}
 
 /** 返回命中的违规片段；空数组表示通过。只检查生成内容，不检查页脚免责声明。 */
 export function findAdviceLanguage(text: string): string[] {
@@ -163,8 +180,11 @@ export function validateBriefPayload(
       issue(issues, 'narrative.shape', '模型叙述层缺少正文或模型标识')
     } else {
       checkText(issues, 'narrative', payload.narrative.text, 320)
-      if (/\d/.test(payload.narrative.text)) {
+      if (containsNumericClaim(payload.narrative.text)) {
         issue(issues, 'narrative.numbers', '模型叙述层不得引入数字；数字只由事实区展示')
+      }
+      if (findStrongAdvice(payload.narrative.text)) {
+        issue(issues, 'narrative.advice', '模型叙述层不得出现交易指令或仓位姿态')
       }
     }
   }

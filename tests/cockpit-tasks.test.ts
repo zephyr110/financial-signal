@@ -148,6 +148,75 @@ describe('cockpit task queue', () => {
     await db.execute({ sql: "DELETE FROM tasks WHERE id IN ('heartbeat-running','heartbeat-done')", args: [] })
   })
 
+  it('force 重跑已成功任务时改用唯一幂等键新建', async () => {
+    const key = 'force-rerun-key'
+    const first = await tasks.enqueueTask({
+      type: 'daily_brief',
+      params: { tradeDate: demo.DEMO_TRADE_DATE, force: true },
+      idempotencyKey: key,
+    })
+    await tasks.drainTasks()
+    expect((await tasks.getTask(first.id))?.status).toBe('succeeded')
+
+    const second = await tasks.enqueueTask({
+      type: 'daily_brief',
+      params: { tradeDate: demo.DEMO_TRADE_DATE, force: true },
+      idempotencyKey: key,
+    })
+    expect(second.id).not.toBe(first.id)
+    expect(second.status).toBe('queued')
+
+    const db = await dbModule.getDb()
+    const row = await db.execute({
+      sql: 'SELECT idempotency_key FROM tasks WHERE id = ?',
+      args: [second.id],
+    })
+    expect(String(row.rows[0]?.idempotency_key).startsWith(`${key}:force:`)).toBe(true)
+    await tasks.cancelTask(second.id)
+  })
+
+  it('heartbeat 为空的 running 任务按租约过期回收', async () => {
+    const db = await dbModule.getDb()
+    const now = new Date().toISOString()
+    await db.execute({
+      sql: `INSERT INTO tasks
+            (id, type, params_json, status, progress, step, idempotency_key, attempts,
+             model, cost_micros, created_at, started_at, heartbeat_at)
+            VALUES ('lease-null', 'daily_brief', '{}', 'running', 5, '执行中', 'lease-null-key', 1,
+                    'deterministic', 0, ?, ?, NULL)`,
+      args: [now, now],
+    })
+
+    const claimed = await tasks.claimNextTask()
+    expect(claimed?.id).toBe('lease-null')
+    expect(claimed?.status).toBe('running')
+    expect(claimed?.attempts).toBe(2)
+
+    await db.execute({ sql: "DELETE FROM task_events WHERE task_id = 'lease-null'", args: [] })
+    await db.execute({ sql: "DELETE FROM tasks WHERE id = 'lease-null'", args: [] })
+  })
+
+  it('任务结束后把 llm_usage 成本汇总到成本字段', async () => {
+    const queued = await tasks.enqueueTask({
+      type: 'daily_brief',
+      params: { tradeDate: demo.DEMO_TRADE_DATE },
+      idempotencyKey: 'cost-rollup-key',
+    })
+    const db = await dbModule.getDb()
+    await db.execute({
+      sql: `INSERT INTO llm_usage
+            (id, task_id, model, prompt_tokens, completion_tokens, cost_micros, latency_ms, created_at)
+            VALUES ('usage-cost-test', ?, 'mock-model', 10, 5, 42, 12, ?)`,
+      args: [queued.id, new Date().toISOString()],
+    })
+
+    const done = await tasks.processNextTask()
+    expect(done?.id).toBe(queued.id)
+    expect(done?.status).toBe('succeeded')
+    expect(done?.costMicros).toBe(42)
+    await db.execute({ sql: "DELETE FROM llm_usage WHERE id = 'usage-cost-test'", args: [] })
+  })
+
   it('任务列表按时间倒序且 limit 有上限', async () => {
     const list = await tasks.listTasks(2)
     expect(list).toHaveLength(2)
