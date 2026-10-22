@@ -87,8 +87,8 @@ export function ConfidencePill({ confidence }: { confidence: Confidence }) {
   )
 }
 
-export function DeltaValue({ value }: { value: number }) {
-  if (!Number.isFinite(value)) {
+export function DeltaValue({ value }: { value: number | null | undefined }) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return <span className="ck-delta ck-flat" aria-label="无涨跌数据">—</span>
   }
   const tone = value > 0.00001 ? 'ck-up' : value < -0.00001 ? 'ck-down' : 'ck-flat'

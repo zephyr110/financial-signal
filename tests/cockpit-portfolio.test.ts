@@ -34,6 +34,8 @@ describe('computePortfolio', () => {
       prices: { A: 12 },
     })
     expect(result.totalValue).toBe(12_000)
+    // 收益率的分母只算有价持仓，否则缺价会把真实收益摊薄。
+    expect(result.totalPnlPct).toBe(20)
     expect(result.positions.find((p) => p.code === 'B')?.price).toBeNull()
     expect(result.risks.some((r) => r.title.includes('缺少最新价'))).toBe(true)
   })

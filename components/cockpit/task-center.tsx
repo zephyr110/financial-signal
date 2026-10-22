@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { TaskRecord } from '@/lib/cockpit/types'
-import { formatCost, formatTime, taskStatusLabel } from '@/lib/cockpit/format'
+import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
 
 const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
@@ -59,8 +59,8 @@ function resultView(task: TaskRecord): TaskResultView | null {
       return {
         title: `${String(result.name ?? '')} ${String(result.code ?? '')}`,
         body: [
-          result.price !== undefined ? `最新价 ${String(result.price)}` : '',
-          result.thesisStatus ? `论点状态：${String(result.thesisStatus)}` : '',
+          result.price !== null && result.price !== undefined ? `最新价 ${String(result.price)}` : '暂无最新行情',
+          result.thesisStatus ? `论点状态：${thesisStatusLabel(String(result.thesisStatus))}` : '',
           Array.isArray(result.evidence) ? `${result.evidence.length} 条证据已归档。` : '',
         ].filter(Boolean).join('\n'),
       }
@@ -69,13 +69,7 @@ function resultView(task: TaskRecord): TaskResultView | null {
   }
 }
 
-export function TaskCenter({
-  initialTasks,
-  tradeDate,
-}: {
-  initialTasks: TaskRecord[]
-  tradeDate?: string
-}) {
+export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
   const [tasks, setTasks] = useState<TaskRecord[]>(initialTasks)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -87,19 +81,57 @@ export function TaskCenter({
   useEffect(() => {
     if (!hasActive) return
     let cancelled = false
-    const timer = setInterval(async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let controller: AbortController | null = null
+    let failures = 0
+
+    const loadFull = async () => {
+      const res = await fetch('/api/cockpit/tasks?limit=50', { headers: { Accept: 'application/json' } })
+      if (!res.ok) throw new Error('task list failed')
+      const json = await res.json() as { data?: TaskRecord[] }
+      if (!cancelled && Array.isArray(json.data)) setTasks(json.data)
+    }
+
+    const tick = async () => {
+      controller = new AbortController()
       try {
-        const res = await fetch('/api/cockpit/tasks?limit=50', { headers: { Accept: 'application/json' } })
-        if (!res.ok) return
+        const res = await fetch('/api/cockpit/tasks?active=1', {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error('active task poll failed')
         const json = await res.json() as { data?: TaskRecord[] }
-        if (!cancelled && Array.isArray(json.data)) setTasks(json.data)
-      } catch {
-        /* 轮询失败保持旧列表，下一轮继续 */
+        if (cancelled) return
+        failures = 0
+        const active = Array.isArray(json.data) ? json.data : []
+        if (active.length === 0) {
+          await loadFull()
+          // 空窗口之后可能刚好派发了新任务；继续轮询，任务全结束时由 hasActive 关掉 effect。
+          timer = setTimeout(tick, 2500)
+          return
+        }
+        setTasks((current) => {
+          const merged = new Map(current.map((task) => [task.id, task]))
+          for (const task of active) merged.set(task.id, task)
+          return [...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        })
+        timer = setTimeout(tick, 2500)
+      } catch (err) {
+        if (cancelled || (err instanceof Error && err.name === 'AbortError')) return
+        failures += 1
+        if (failures >= 5) {
+          setError('自动刷新连续失败，请刷新页面查看任务状态。')
+          return
+        }
+        timer = setTimeout(tick, Math.min(3000 * 2 ** failures, 15000))
       }
-    }, 1400)
+    }
+
+    timer = setTimeout(tick, 800)
     return () => {
       cancelled = true
-      clearInterval(timer)
+      if (timer) clearTimeout(timer)
+      controller?.abort()
     }
   }, [hasActive])
 
@@ -128,7 +160,13 @@ export function TaskCenter({
         }
         return [created, ...current]
       })
-      setMessage('任务已进入队列，完成后可在此查看结果。')
+      if (created.status === 'succeeded') {
+        setMessage('相同参数的任务已完成，未重复执行；结果见下方流水。')
+      } else if (created.status === 'running') {
+        setMessage('相同参数的任务正在执行，完成后可在此查看结果。')
+      } else {
+        setMessage('任务已进入队列，完成后可在此查看结果。')
+      }
       if (type === 'ask') setQuestion('')
       if (type === 'symbol_deep_dive') setCode('')
     } catch {
@@ -169,7 +207,7 @@ export function TaskCenter({
             className="ck-task-quick"
             type="button"
             disabled={Boolean(busy)}
-            onClick={() => run('daily_brief', tradeDate ? { tradeDate } : {})}
+            onClick={() => run('daily_brief')}
           >
             <strong>生成今日简报</strong>
             <span>事实包 → 校验 → 版本化</span>
@@ -196,7 +234,7 @@ export function TaskCenter({
             className="ck-task-quick"
             type="button"
             disabled={Boolean(busy)}
-            onClick={() => run('daily_brief', tradeDate ? { tradeDate, force: true } : { force: true })}
+            onClick={() => run('daily_brief', { force: true })}
           >
             <strong>重算并发布新版本</strong>
             <span>保留旧版本，版本号递增</span>

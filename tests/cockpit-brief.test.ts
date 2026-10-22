@@ -13,6 +13,7 @@ let demo: typeof import('../lib/cockpit/demo')
 let repo: typeof import('../lib/cockpit/repo')
 let brief: typeof import('../lib/cockpit/brief')
 let facts: typeof import('../lib/cockpit/facts')
+let validators: typeof import('../lib/cockpit/validators')
 let dbModule: typeof import('../lib/db')
 
 describe('cockpit demo → brief', () => {
@@ -25,6 +26,7 @@ describe('cockpit demo → brief', () => {
     repo = await import('../lib/cockpit/repo')
     brief = await import('../lib/cockpit/brief')
     facts = await import('../lib/cockpit/facts')
+    validators = await import('../lib/cockpit/validators')
     dbModule = await import('../lib/db')
     const result = await demo.ensureCockpitDemoSeed()
     expect(result.seeded).toBe(true)
@@ -75,6 +77,106 @@ describe('cockpit demo → brief', () => {
     const theses = await repo.getTheses()
     expect(theses).toHaveLength(3)
     expect(theses.every((t) => t.invalidation.length > 0)).toBe(true)
+  })
+
+  it('涨跌家数缺失时不下“赚钱效应偏弱”的结论', async () => {
+    const pack = await facts.buildFactPack(demo.DEMO_TRADE_DATE)
+    const payload = brief.buildDailyBrief({
+      ...pack,
+      breadth: { ...pack.breadth, up: 0, flat: 0, down: 0, limitUp: 0, limitDown: 0 },
+    })
+    expect(payload.hero.claim).not.toContain('赚钱效应偏弱')
+    expect(payload.hero.claim).toContain('涨跌家数缺失')
+    expect(payload.hero.evidence.find((item) => item.kind === 'conclusion')?.label)
+      .toContain('补齐涨跌家数')
+  })
+
+  it('次日凌晨（上海）的公告不算进当天简报', async () => {
+    const db = await dbModule.getDb()
+    await db.execute({
+      sql: `INSERT INTO source_documents
+            (id, source_id, doc_type, external_id, title, published_at, fetched_at, is_demo)
+            VALUES ('demo-doc-late', 'demo-announcement', 'announcement', 'late-1',
+                    '【示例】次日早间公告', '2026-10-22T23:30:00.000Z', '2026-10-22T23:30:00.000Z', 1)`,
+      args: [],
+    })
+    try {
+      const pack = await facts.buildFactPack(demo.DEMO_TRADE_DATE)
+      expect(pack.documents.map((doc) => doc.id)).not.toContain('demo-doc-late')
+    } finally {
+      await db.execute({ sql: "DELETE FROM source_documents WHERE id = 'demo-doc-late'", args: [] })
+    }
+  })
+
+  it('没有行情记录时不伪造价格、涨跌与证据', async () => {
+    const db = await dbModule.getDb()
+    await db.execute({
+      sql: `INSERT INTO symbols (code, name, exchange, industry_l1, source_id, updated_at)
+            VALUES ('601999.SH', '无行情标的', 'SSE', '测试', 'demo-market', '2026-10-22T00:00:00.000Z')`,
+      args: [],
+    })
+    try {
+      const stock = await repo.getStockDetail('601999.SH')
+      expect(stock).not.toBeNull()
+      expect(stock!.price).toBeNull()
+      expect(stock!.changePct).toBeNull()
+      expect(stock!.bars).toEqual([])
+      expect(stock!.evidence.some((item) => item.id.startsWith('fact:stock:'))).toBe(false)
+    } finally {
+      await db.execute({ sql: "DELETE FROM symbols WHERE code = '601999.SH'", args: [] })
+    }
+  })
+
+  it('行情只回补到前一日时不把旧收盘当成当日收盘', async () => {
+    const db = await dbModule.getDb()
+    await db.execute({
+      sql: `CREATE TEMP TABLE _bar_backup AS
+            SELECT * FROM market_bars WHERE code = '399006.SZ' AND trade_date = ?`,
+      args: [demo.DEMO_TRADE_DATE],
+    })
+    await db.execute({
+      sql: "DELETE FROM market_bars WHERE code = '399006.SZ' AND trade_date = ?",
+      args: [demo.DEMO_TRADE_DATE],
+    })
+    try {
+      const pack = await facts.buildFactPack(demo.DEMO_TRADE_DATE)
+      expect(pack.indices.some((item) => item.code === '399006.SZ')).toBe(false)
+    } finally {
+      await db.execute({ sql: 'INSERT OR REPLACE INTO market_bars SELECT * FROM _bar_backup', args: [] })
+      await db.execute({ sql: 'DROP TABLE _bar_backup', args: [] })
+    }
+  })
+
+  it('指数缺失时降级简报仍可发布', async () => {
+    const pack = await facts.buildFactPack(demo.DEMO_TRADE_DATE)
+    const payload = brief.buildDailyBrief({ ...pack, indices: [] })
+    const result = validators.validateBriefPayload(
+      payload,
+      new Set(Object.keys(pack.facts)),
+      new Set(pack.dataQuality.map((source) => source.id)),
+    )
+    expect(payload.hero.claim).toContain('指数行情缺失')
+    expect(result.ok).toBe(true)
+  })
+
+  it('论点标题里的交易词不会拖垮整份简报', async () => {
+    const pack = await facts.buildFactPack(demo.DEMO_TRADE_DATE)
+    const weakened = pack.theses.find((thesis) => thesis.status === 'weakened')
+    expect(weakened).toBeTruthy()
+    const poisoned = {
+      ...pack,
+      theses: pack.theses.map((thesis) => thesis.id === weakened!.id
+        ? { ...thesis, title: '白酒止损线 1400' }
+        : thesis),
+    }
+    const payload = brief.buildDailyBrief(poisoned)
+    expect(JSON.stringify(payload)).not.toContain('止损')
+    const result = validators.validateBriefPayload(
+      payload,
+      new Set(Object.keys(pack.facts)),
+      new Set(pack.dataQuality.map((source) => source.id)),
+    )
+    expect(result.ok).toBe(true)
   })
 
   it('重复生成产生新版本而不是覆盖旧报告', async () => {

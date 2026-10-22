@@ -117,6 +117,13 @@ describe('cockpit API', () => {
       expect(listed._body.data[0].reason).toBe('先观察广度能否回到 50% 以上')
     })
 
+    it('小数 limit 不会把非法 SQL 参数传给 SQLite', async () => {
+      const res = mockRes()
+      await journalHandler(mockReq('GET', { query: { limit: '2.5' } }), res)
+      expect(res._status).toBe(200)
+      expect(Array.isArray(res._body.data)).toBe(true)
+    })
+
     it('不支持的方法返回 405 与 Allow', async () => {
       const res = mockRes()
       await journalHandler(mockReq('DELETE'), res)
@@ -147,7 +154,9 @@ describe('cockpit API', () => {
     it.each([
       [{ type: 'daily_brief', params: { tradeDate: '2026/10/22' } }, 'INVALID_DATE'],
       [{ type: 'ask', params: { question: 'x'.repeat(2001) } }, 'INVALID_QUESTION'],
+      [{ type: 'ask', params: { question: '   ' } }, 'INVALID_QUESTION'],
       [{ type: 'symbol_deep_dive', params: { code: 'x'.repeat(21) } }, 'INVALID_CODE'],
+      [{ type: 'symbol_deep_dive', params: { code: '  ' } }, 'INVALID_CODE'],
       [{ type: 'ask', params: { blob: 'x'.repeat(8300) } }, 'PARAMS_TOO_LARGE'],
     ])('非法参数 %j 在入队前拒绝', async (body, code) => {
       const res = mockRes()

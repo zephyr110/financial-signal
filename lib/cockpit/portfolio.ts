@@ -26,7 +26,6 @@ export function computePortfolio(input: PortfolioComputeInput): PortfolioView {
     const rawPrice = input.prices[p.code]
     const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : null
     const cost = p.avgCostCents * p.shares
-    costBasis += cost
     if (price === null) {
       missingCodes.push(p.code)
       rows.push({
@@ -48,6 +47,7 @@ export function computePortfolio(input: PortfolioComputeInput): PortfolioView {
     const pnl = marketValue - cost
     totalValue += marketValue
     totalPnl += pnl
+    costBasis += cost
     rows.push({
       code: p.code,
       name: input.names?.[p.code] || p.code,

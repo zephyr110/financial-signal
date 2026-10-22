@@ -1,5 +1,5 @@
 import type { DocumentSummary } from '@/lib/cockpit/types'
-import { formatTime } from '@/lib/cockpit/format'
+import { dateShanghai, formatTime } from '@/lib/cockpit/format'
 import { EmptyState, SourceChip } from './bits'
 
 function DocumentBody({ doc }: { doc: DocumentSummary }) {
@@ -12,7 +12,7 @@ function DocumentBody({ doc }: { doc: DocumentSummary }) {
         {doc.issuer && <span>{doc.issuer}</span>}
         {doc.documentNo && <span>{doc.documentNo}</span>}
         {doc.subjectCode && <span>{doc.subjectCode}</span>}
-        {doc.publishedAt && <span>{doc.publishedAt.slice(0, 10)} {formatTime(doc.publishedAt)}</span>}
+        {doc.publishedAt && <span>{dateShanghai(doc.publishedAt)} {formatTime(doc.publishedAt)}</span>}
         {doc.status && <span>{doc.status}</span>}
       </div>
       <div className="ck-doc-source">

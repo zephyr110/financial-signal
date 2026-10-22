@@ -100,20 +100,39 @@ export async function buildFactPack(tradeDate: string): Promise<FactPack> {
     db.execute({ sql: 'SELECT * FROM source_registry ORDER BY tier, id', args: [] }),
     db.execute({ sql: 'SELECT * FROM symbols ORDER BY code', args: [] }),
     db.execute({
-      sql: `SELECT code, trade_date, close, open, high, low, volume, amount, source_id, fetched_at, is_demo
-            FROM market_bars
-            WHERE trade_date <= ? AND adjust_type = 'raw'
-            ORDER BY trade_date ASC`,
+      // 只取研究范围内标的的最近 20 根日线；全市场历史会让事实包和快照无谓膨胀。
+      sql: `SELECT code, trade_date, close, source_id, fetched_at, is_demo
+            FROM (
+              SELECT b.code, b.trade_date, b.close, b.source_id, b.fetched_at, b.is_demo,
+                     ROW_NUMBER() OVER (PARTITION BY b.code ORDER BY b.trade_date DESC) AS rn
+              FROM market_bars b
+              WHERE b.trade_date <= ? AND b.adjust_type = 'raw'
+                AND (
+                  b.code IN (SELECT code FROM watchlist_items)
+                  OR b.code IN (
+                    SELECT code FROM positions
+                    WHERE account_id = (SELECT id FROM portfolio_accounts ORDER BY created_at LIMIT 1)
+                      AND shares > 0
+                  )
+                  OR b.code IN (SELECT code FROM symbols WHERE industry_l1 = '指数')
+                )
+            )
+            WHERE rn <= 20
+            ORDER BY code, trade_date ASC`,
       args: [tradeDate],
     }),
     db.execute({
+      // 上海日末 = 当日 16:00Z；排他上界避免把次日凌晨公告算进当天简报。
       sql: `SELECT * FROM source_documents
-            WHERE published_at <= ?
+            WHERE published_at < ?
             ORDER BY published_at DESC LIMIT 12`,
-      args: [`${tradeDate}T23:59:59.999Z`],
+      args: [`${tradeDate}T16:00:00.000Z`],
     }),
     db.execute({
-      sql: 'SELECT code, shares, avg_cost_cents FROM positions WHERE shares > 0 ORDER BY code',
+      sql: `SELECT code, shares, avg_cost_cents FROM positions
+            WHERE account_id = (SELECT id FROM portfolio_accounts ORDER BY created_at LIMIT 1)
+              AND shares > 0
+            ORDER BY code`,
       args: [],
     }),
     db.execute({
@@ -175,6 +194,8 @@ export async function buildFactPack(tradeDate: string): Promise<FactPack> {
 
   for (const [code, bars] of barsByCode) {
     const row = bars[bars.length - 1]
+    // 行情回补滞后时，最后一根可能是前一交易日的；不能把它当成当日收盘写进简报。
+    if (!row || str(row.trade_date) !== tradeDate) continue
     const closes = bars.slice(-20).map((b) => num(b.close))
     if (closes.length === 0) continue
     const sourceId = str(row.source_id)

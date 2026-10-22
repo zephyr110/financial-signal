@@ -72,6 +72,27 @@ describe('cockpit task queue', () => {
     expect(secondAttempt?.error).toBeTruthy()
   })
 
+  it('失败任务可用相同参数重新入队', async () => {
+    const again = await tasks.enqueueTask({
+      type: 'symbol_deep_dive',
+      params: { code: '999999.SH' },
+    })
+    expect(again.status).toBe('queued')
+    expect(again.attempts).toBe(0)
+    await tasks.cancelTask(again.id)
+  })
+
+  it('drain 会把 requeue 的任务连续跑到重试上限', async () => {
+    const queued = await tasks.enqueueTask({
+      type: 'symbol_deep_dive',
+      params: { code: '999998.SH' },
+    })
+    await tasks.drainTasks()
+    const failed = await tasks.getTask(queued.id)
+    expect(failed?.status).toBe('failed')
+    expect(failed?.attempts).toBe(2)
+  })
+
   it('排队任务可取消，取消后不再被执行', async () => {
     const queued = await tasks.enqueueTask({
       type: 'ask',

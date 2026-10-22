@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
-import { formatSignedPct } from './format'
-import { computeConfidence, validateBriefPayload } from './validators'
+import { dateShanghai, formatSignedPct, thesisStatusLabel } from './format'
+import { computeConfidence, findAdviceLanguage, validateBriefPayload } from './validators'
 import { buildFactPack } from './facts'
 import type {
   EvidenceItem,
@@ -45,6 +45,11 @@ function sourceEvidence(id: string, label: string, source: SourceRef, value?: st
   return { id, kind: 'fact', label, value, source }
 }
 
+/** 用户写的论点标题可能含“止损”等词；不能让它把整份系统简报卡在发布校验上。 */
+function safeThesisTitle(title: string): string {
+  return findAdviceLanguage(title).length > 0 ? '相关论点' : title
+}
+
 /**
  * 确定性简报：先算事实与置信度，再组织四段证据。LLM 只可作为后续叙述层，
  * 不能改写这里的数字、来源和置信度。
@@ -55,7 +60,8 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
     ? facts.indices.reduce((sum, item) => sum + item.changePct, 0) / facts.indices.length
     : 0
   const totalBreadth = facts.breadth.up + facts.breadth.flat + facts.breadth.down
-  const upRatio = totalBreadth > 0 ? facts.breadth.up / totalBreadth : 0
+  const hasBreadth = totalBreadth > 0
+  const upRatio = hasBreadth ? facts.breadth.up / totalBreadth : 0
 
   const indexCompleteness = Math.min(1, facts.indices.length / 3)
   const stockCompleteness = Math.min(1, facts.stocks.length / 5)
@@ -63,10 +69,11 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
   const completeness =
     (0.5 * indexCompleteness + 0.35 * stockCompleteness + 0.15 * docCompleteness) *
     (facts.isDemo ? 0.85 : 1)
-  const freshness = facts.asOf.slice(0, 10) === facts.tradeDate ? 1 : 0.6
-  const divergent =
-    (avgChange > 0.1 && upRatio < 0.45) || (avgChange < -0.1 && upRatio > 0.55)
-  const agreement = facts.indices.length === 0 ? 0.2 : divergent ? 0.45 : 0.8
+  const freshness = dateShanghai(facts.asOf) === facts.tradeDate ? 1 : 0.6
+  // 缺失广度不等于 0% 上涨：没有数据时不参与背离判断，只降低一致性。
+  const divergent = hasBreadth &&
+    ((avgChange > 0.1 && upRatio < 0.45) || (avgChange < -0.1 && upRatio > 0.55))
+  const agreement = facts.indices.length === 0 ? 0.2 : !hasBreadth ? 0.55 : divergent ? 0.45 : 0.8
   const confidence = computeConfidence({
     completeness,
     freshness,
@@ -77,6 +84,12 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
   let claim: string
   if (!index) {
     claim = '指数行情缺失，今日只保留数据质量记录，不形成方向判断。'
+  } else if (!hasBreadth) {
+    claim = avgChange > 0.1
+      ? '指数收涨，但涨跌家数缺失，无法验证广度，赚钱效应待数据补齐确认。'
+      : avgChange < -0.1
+        ? '指数回落，但涨跌家数缺失，无法判断个股是否同步走弱。'
+        : '指数窄幅整理，涨跌家数缺失，方向证据不足。'
   } else if (avgChange > 0.1 && upRatio < 0.45) {
     claim = '指数收涨，但上涨家数占比不足一半，赚钱效应偏弱。'
   } else if (avgChange > 0.1) {
@@ -108,7 +121,7 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
   evidence.push({
     id: 'inference:breadth',
     kind: 'inference',
-    label: totalBreadth > 0
+    label: hasBreadth
       ? `上涨家数占比 ${(upRatio * 100).toFixed(1)}%，${upRatio < 0.5 ? '广度弱于指数' : '广度与指数同向'}。`
       : '涨跌家数缺失，无法判断市场广度。',
   })
@@ -125,9 +138,11 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
   evidence.push({
     id: 'conclusion:posture',
     kind: 'conclusion',
-    label: upRatio < 0.5
-      ? '维持中性观察；明日先验证上涨家数占比能否回到 50% 以上。'
-      : '维持中性观察；明日验证上涨宽度能否延续，以及领涨方向是否扩散。',
+    label: !hasBreadth
+      ? '维持中性观察；先补齐涨跌家数数据，再验证指数方向是否有广度支撑。'
+      : upRatio < 0.5
+        ? '维持中性观察；明日先验证上涨家数占比能否回到 50% 以上。'
+        : '维持中性观察；明日验证上涨宽度能否延续，以及领涨方向是否扩散。',
   })
 
   const stockMap = new Map(facts.stocks.map((stock) => [stock.code, stock]))
@@ -166,7 +181,7 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
         code: stock.code,
         name: stock.name,
         headline: `${stock.name} ${formatSignedPct(stock.changePct)}`,
-        detail: `自选股收盘 ${stock.price.toFixed(2)} 元。${thesis ? `关联论点「${thesis.title}」当前为${thesis.status}。` : '尚未建立论点。'}`,
+        detail: `自选股收盘 ${stock.price.toFixed(2)} 元。${thesis ? `关联论点「${safeThesisTitle(thesis.title)}」当前为${thesisStatusLabel(thesis.status)}。` : '尚未建立论点。'}`,
         thesisStatus: thesis?.status,
         evidence: impactEvidence,
       }
@@ -178,7 +193,7 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
       code: stock.code,
       name: stock.name,
       headline: `${stock.name} ${formatSignedPct(stock.changePct)}`,
-      detail: `持仓 ${position.shares} 股，权重 ${weight.toFixed(1)}%，今日对组合贡献 ${contribution >= 0 ? '+' : ''}${round2(contribution).toFixed(2)} 个百分点。${thesis ? `关联论点状态：${thesis.status}。` : ''}`,
+      detail: `持仓 ${position.shares} 股，权重 ${weight.toFixed(1)}%，今日对组合贡献 ${contribution >= 0 ? '+' : ''}${round2(contribution).toFixed(2)} 个百分点。${thesis ? `关联论点状态：${thesisStatusLabel(thesis.status)}。` : ''}`,
       thesisStatus: thesis?.status,
       evidence: impactEvidence,
     }
@@ -186,14 +201,16 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
 
   const weakened = facts.theses.find((thesis) => thesis.status === 'weakened' || thesis.status === 'broken')
   const tomorrow = [
-    upRatio < 0.5
-      ? '验证上涨家数占比能否回到 50% 以上，确认指数上涨是否有广度支撑。'
-      : '验证上涨宽度能否延续，以及领涨方向是否从少数标的扩散。',
+    !hasBreadth
+      ? '先补齐涨跌家数数据，再验证指数方向是否有广度支撑。'
+      : upRatio < 0.5
+        ? '验证上涨家数占比能否回到 50% 以上，确认指数上涨是否有广度支撑。'
+        : '验证上涨宽度能否延续，以及领涨方向是否从少数标的扩散。',
     facts.turnover.changePct >= 3
       ? '观察成交额放大后能否维持，放量分化需要后续方向确认。'
       : '观察成交额是否配合方向变化；缩量或量能背离时降低置信度。',
     weakened
-      ? `复核「${weakened.title}」的失效条件，逐条对照新公告与价格。`
+      ? `复核「${safeThesisTitle(weakened.title)}」的失效条件，逐条对照新公告与价格。`
       : '逐条复核持仓论点，记录支持与反对证据，不因单日涨跌改结论。',
   ]
 
@@ -269,26 +286,37 @@ export async function buildAndStoreDailyReport(
   })
   const snapshotId = snapshot.rows[0] ? Number(snapshot.rows[0].id) : null
 
-  const maxVersionRes = await db.execute({
-    sql: `SELECT COALESCE(MAX(version), 0) AS v FROM reports
-          WHERE kind = 'daily_brief' AND subject_code = '' AND trade_date = ?`,
-    args: [tradeDate],
-  })
-  const version = Number(maxVersionRes.rows[0]?.v || 0) + 1
-  const countRes = await db.execute({
-    sql: "SELECT COUNT(*) AS n FROM reports WHERE kind = 'daily_brief'",
-    args: [],
-  })
-  payload.issueNo = Number(countRes.rows[0]?.n || 0) + 1
-
   const now = new Date().toISOString()
-  const inserted = await db.execute({
-    sql: `INSERT INTO reports
-          (kind, subject_code, trade_date, version, status, payload_json, fact_snapshot_id,
-           model, prompt_version, cost_micros, is_demo, created_at, published_at)
-          VALUES ('daily_brief', '', ?, ?, 'published', ?, ?, ?, ?, 0, ?, ?, ?)`,
-    args: [tradeDate, version, JSON.stringify(payload), snapshotId, 'deterministic', PROMPT_VERSION, facts.isDemo ? 1 : 0, now, now],
-  })
+  // 版本号与期号必须和 INSERT 同一写事务：并行 worker 否则会同时算出 v1 撞唯一索引。
+  const tx = await db.transaction('write')
+  let version = 0
+  let reportId = 0
+  try {
+    const maxVersionRes = await tx.execute({
+      sql: `SELECT COALESCE(MAX(version), 0) AS v FROM reports
+            WHERE kind = 'daily_brief' AND subject_code = '' AND trade_date = ?`,
+      args: [tradeDate],
+    })
+    version = Number(maxVersionRes.rows[0]?.v || 0) + 1
+    const countRes = await tx.execute({
+      sql: "SELECT COUNT(*) AS n FROM reports WHERE kind = 'daily_brief'",
+      args: [],
+    })
+    payload.issueNo = Number(countRes.rows[0]?.n || 0) + 1
+
+    const inserted = await tx.execute({
+      sql: `INSERT INTO reports
+            (kind, subject_code, trade_date, version, status, payload_json, fact_snapshot_id,
+             model, prompt_version, cost_micros, is_demo, created_at, published_at)
+            VALUES ('daily_brief', '', ?, ?, 'published', ?, ?, ?, ?, 0, ?, ?, ?)`,
+      args: [tradeDate, version, JSON.stringify(payload), snapshotId, 'deterministic', PROMPT_VERSION, facts.isDemo ? 1 : 0, now, now],
+    })
+    reportId = Number(inserted.lastInsertRowid)
+    await tx.commit()
+  } catch (err) {
+    try { await tx.rollback() } catch { /* tx already closed */ }
+    throw err
+  }
 
   if (snapshotId !== null) {
     await db.execute({
@@ -298,5 +326,5 @@ export async function buildAndStoreDailyReport(
     })
   }
 
-  return { reportId: Number(inserted.lastInsertRowid), payload, version }
+  return { reportId, payload, version }
 }

@@ -98,7 +98,8 @@ export function validateBriefPayload(
     issue(issues, 'tradeDate', '交易日格式必须为 YYYY-MM-DD')
   }
   if (!Array.isArray(payload.indices) || payload.indices.length === 0) {
-    issue(issues, 'indices', '至少需要一条指数事实')
+    // 指数缺失时 buildDailyBrief 会降级为“不形成方向判断”，仍可发布数据质量记录。
+    issue(issues, 'indices', '指数行情缺失，简报降级为数据质量记录', 'warn')
   }
   if (!Array.isArray(payload.dataQuality) || payload.dataQuality.length === 0) {
     issue(issues, 'dataQuality', '必须展示数据质量')

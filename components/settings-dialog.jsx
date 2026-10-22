@@ -6,7 +6,7 @@ import { CheckCircle2, Clock, Cpu, Database, Info, Loader2, RotateCcw, Save, Use
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
-import { cn } from "@/lib/utils";
+import { clearClientCaches, cn } from "@/lib/utils";
 
 /**
  * 设置弹窗（avatar 菜单 → 设置）：
@@ -184,7 +184,10 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
-        setTimeout(() => router.replace("/login"), 1200);
+        setTimeout(async () => {
+          await clearClientCaches();
+          router.replace("/login");
+        }, 1200);
         return;
       }
       setOkMsg("账号信息已更新");

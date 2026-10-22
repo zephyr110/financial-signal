@@ -116,12 +116,12 @@ export interface TodayPayload {
 export interface WatchlistItem {
   code: string
   name: string
-  price: number
-  changePct: number
+  price: number | null
+  changePct: number | null
   sparkline: number[]
   thesisStatus?: ThesisStatus
   nextEvent?: string
-  source: SourceRef
+  source?: SourceRef
 }
 
 export interface PositionInput {
@@ -181,8 +181,8 @@ export interface StockDetail {
   name: string
   exchange: string
   industry: string
-  price: number
-  changePct: number
+  price: number | null
+  changePct: number | null
   asOf: string
   bars: Array<{ date: string; close: number }>
   evidence: EvidenceItem[]

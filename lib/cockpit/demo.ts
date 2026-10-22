@@ -193,20 +193,111 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
   if (marker.rows[0]) return { seeded: false, tradeDate: DEMO_TRADE_DATE }
 
   const now = new Date().toISOString()
+  // 空库才铺示例；库里已有任何真实记录就整体跳过，避免把示例代码写进真实标的。
+  const tx = await db.transaction('write')
+  try {
+    const claimed = await tx.execute({
+      sql: 'SELECT value FROM app_settings WHERE key = ?',
+      args: [SEED_KEY],
+    })
+    if (claimed.rows[0]) {
+      await tx.commit()
+      return { seeded: false, tradeDate: DEMO_TRADE_DATE }
+    }
+    const real = await tx.execute({ sql: REAL_DATA_SQL, args: [] })
+    if (real.rows[0]) {
+      await tx.commit()
+      return { seeded: false, tradeDate: DEMO_TRADE_DATE }
+    }
+    await seedDemoBase(tx, now)
+    await tx.commit()
+  } catch (err) {
+    try { await tx.rollback() } catch { /* 事务已关闭 */ }
+    throw err
+  }
+
+  const report = await buildAndStoreDailyReport(DEMO_TRADE_DATE)
+  const taskRows = [
+    {
+      id: 'demo-task-brief',
+      type: 'daily_brief',
+      params: JSON.stringify({ tradeDate: DEMO_TRADE_DATE, demo: true }),
+      result: JSON.stringify({ reportId: report.reportId, tradeDate: DEMO_TRADE_DATE, version: report.version }),
+      key: 'demo|daily_brief|2026-10-22',
+      created: '2026-10-22T07:36:00.000Z',
+      started: '2026-10-22T07:36:01.000Z',
+      finished: '2026-10-22T07:36:04.000Z',
+    },
+    {
+      id: 'demo-task-thesis',
+      type: 'thesis_review',
+      params: JSON.stringify({ scope: 'all', demo: true }),
+      result: JSON.stringify({ reviewed: 3, changed: 1 }),
+      key: 'demo|thesis_review|2026-10-22',
+      created: '2026-10-21T12:10:00.000Z',
+      started: '2026-10-21T12:10:01.000Z',
+      finished: '2026-10-21T12:10:03.000Z',
+    },
+  ]
+  const tx2 = await db.transaction('write')
+  try {
+    for (const task of taskRows) {
+      await tx2.execute({
+        sql: `INSERT OR IGNORE INTO tasks
+          (id, type, params_json, status, progress, step, result_json, error_code, error_message,
+           idempotency_key, attempts, model, cost_micros, created_at, started_at, finished_at, heartbeat_at)
+          VALUES (?, ?, ?, 'succeeded', 100, '完成', ?, NULL, NULL, ?, 1, 'deterministic', 0, ?, ?, ?, ?)`,
+        args: [task.id, task.type, task.params, task.result, task.key, task.created, task.started, task.finished, task.finished],
+      })
+      await tx2.execute({
+        sql: `INSERT OR IGNORE INTO task_events (task_id, seq, event_type, payload_json, created_at)
+              VALUES (?, 1, 'succeeded', ?, ?)`,
+        args: [task.id, task.result, task.finished],
+      })
+    }
+
+    await tx2.execute({
+      sql: 'INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)',
+      args: [SEED_KEY, JSON.stringify({ tradeDate: DEMO_TRADE_DATE, seededAt: now }), now],
+    })
+    await tx2.commit()
+  } catch (err) {
+    try { await tx2.rollback() } catch { /* 事务已关闭 */ }
+    throw err
+  }
+
+  return { seeded: true, tradeDate: DEMO_TRADE_DATE }
+}
+
+/** 空库判定：任一真实（非示例）记录存在，就不铺演示数据。 */
+const REAL_DATA_SQL = `SELECT 1 FROM symbols WHERE source_id IS NOT NULL AND source_id <> 'demo-market'
+  UNION ALL SELECT 1 FROM trading_calendar WHERE source_id <> 'demo-market'
+  UNION ALL SELECT 1 FROM source_documents WHERE is_demo = 0
+  UNION ALL SELECT 1 FROM market_bars WHERE is_demo = 0
+  UNION ALL SELECT 1 FROM market_overview WHERE is_demo = 0
+  UNION ALL SELECT 1 FROM positions WHERE account_id <> 'demo-account'
+  UNION ALL SELECT 1 FROM portfolio_accounts WHERE id <> 'demo-account'
+  UNION ALL SELECT 1 FROM theses WHERE id NOT LIKE 'thesis-demo-%'
+  UNION ALL SELECT 1 FROM journal_entries WHERE reason NOT LIKE '【示例】%'
+  UNION ALL SELECT 1 FROM tasks WHERE id NOT LIKE 'demo-task-%'
+  LIMIT 1`
+
+/** 示例基础数据整体走一个写事务；任一条失败就回滚，不留半个库。 */
+async function seedDemoBase(tx: any, now: string): Promise<void> {
   const dates = tradingDaysEnding(DEMO_TRADE_DATE, 30)
   const allCloses = new Map<string, number[]>()
 
   for (const source of SOURCES) {
     if (source.is_demo) {
-      await db.execute({
-        sql: `INSERT OR REPLACE INTO source_registry
+      await tx.execute({
+        sql: `INSERT OR IGNORE INTO source_registry
           (id, name, tier, kind, base_url, terms_url, enabled, last_success_at, last_error,
            consecutive_failures, is_demo, created_at)
           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 1, ?)`,
         args: [source.id, source.name, source.tier, source.kind, source.base_url, source.enabled, source.last_success_at, source.last_error, now],
       })
     } else {
-      await db.execute({
+      await tx.execute({
         sql: `INSERT OR IGNORE INTO source_registry
           (id, name, tier, kind, base_url, terms_url, enabled, last_success_at, last_error,
            consecutive_failures, is_demo, created_at)
@@ -217,15 +308,15 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
   }
 
   for (const [code, name, exchange, industry] of SYMBOLS) {
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO symbols (code, name, exchange, industry_l1, source_id, updated_at)
+    await tx.execute({
+      sql: `INSERT OR IGNORE INTO symbols (code, name, exchange, industry_l1, source_id, updated_at)
             VALUES (?, ?, ?, ?, 'demo-market', ?)`,
       args: [code, name, exchange, industry, now],
     })
   }
   for (const date of dates) {
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO trading_calendar (trade_date, is_open, source_id, updated_at)
+    await tx.execute({
+      sql: `INSERT OR IGNORE INTO trading_calendar (trade_date, is_open, source_id, updated_at)
             VALUES (?, 1, 'demo-market', ?)`,
       args: [date, now],
     })
@@ -243,8 +334,8 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
       const seed = series.seed + i * 17
       const volume = Math.round((800_000 + (seed % 13) * 120_000) * (series.code.startsWith('000001') ? 900 : 1))
       const amount = close * volume
-      await db.execute({
-        sql: `INSERT OR REPLACE INTO market_bars
+      await tx.execute({
+        sql: `INSERT OR IGNORE INTO market_bars
           (code, trade_date, open, high, low, close, volume, amount, adj_factor, adjust_type,
            source_id, fetched_at, is_demo)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'raw', 'demo-market', ?, 1)`,
@@ -253,8 +344,8 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
     }
   }
 
-  await db.execute({
-    sql: `INSERT OR REPLACE INTO market_overview
+  await tx.execute({
+    sql: `INSERT OR IGNORE INTO market_overview
       (trade_date, breadth_json, turnover_json, source_id, is_demo, created_at)
       VALUES (?, ?, ?, 'demo-market', 1, ?)`,
     args: [
@@ -266,8 +357,8 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
   })
 
   for (const doc of makeDocs()) {
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO source_documents
+    await tx.execute({
+      sql: `INSERT OR IGNORE INTO source_documents
         (id, source_id, doc_type, external_id, title, issuer, document_no, published_at,
          effective_at, status, url, content_path, full_text, raw_hash, fetched_at,
          supersedes_id, metadata_json, is_demo)
@@ -280,8 +371,8 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
     })
   }
 
-  await db.execute({
-    sql: `INSERT OR REPLACE INTO portfolio_accounts (id, name, currency, created_at)
+  await tx.execute({
+    sql: `INSERT OR IGNORE INTO portfolio_accounts (id, name, currency, created_at)
           VALUES ('demo-account', '示例账户', 'CNY', ?)`,
     args: [now],
   })
@@ -293,8 +384,8 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
   for (const spec of positionSpecs) {
     const closes = allCloses.get(spec.code) || []
     const last = closes[closes.length - 1] || 1
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO positions
+    await tx.execute({
+      sql: `INSERT OR IGNORE INTO positions
         (account_id, code, shares, avg_cost_cents, opened_at, closed_at, notes, updated_at)
         VALUES ('demo-account', ?, ?, ?, ?, NULL, '示例持仓', ?)`,
       args: [spec.code, spec.shares, Math.round(last * 100 * spec.factor), '2026-09-01', now],
@@ -302,8 +393,8 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
   }
 
   for (const symbol of SYMBOLS.slice(3)) {
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO watchlist_items (code, note, created_at)
+    await tx.execute({
+      sql: `INSERT OR IGNORE INTO watchlist_items (code, note, created_at)
             VALUES (?, '示例自选', ?)`,
       args: [symbol[0], now],
     })
@@ -348,8 +439,8 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
     },
   ]
   for (const thesis of theses) {
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO theses
+    await tx.execute({
+      sql: `INSERT OR IGNORE INTO theses
         (id, code, title, claim, horizon, status, confidence, invalidation_json,
          created_at, updated_at, last_reviewed_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -361,7 +452,7 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
     })
   }
 
-  await db.execute({
+  await tx.execute({
     sql: `DELETE FROM thesis_evidence WHERE thesis_id IN ('thesis-demo-moutai', 'thesis-demo-catl', 'thesis-demo-insurance')`,
     args: [],
   })
@@ -373,7 +464,7 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
     ['thesis-demo-insurance', 'support', '9 月原保险保费收入同比增长 3.1%', 'demo-doc-ann-3', '2026-10-20T11:00:00.000Z'],
   ]
   for (const [thesisId, direction, summary, documentId, observedAt] of evidence) {
-    await db.execute({
+    await tx.execute({
       sql: `INSERT INTO thesis_evidence
         (thesis_id, snapshot_id, direction, fact_key, summary, source_document_id, observed_at, created_at)
         VALUES (?, NULL, ?, NULL, ?, ?, ?, ?)`,
@@ -381,7 +472,7 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
     })
   }
 
-  await db.execute({
+  await tx.execute({
     sql: `DELETE FROM journal_entries WHERE reason LIKE '【示例】%'`,
     args: [],
   })
@@ -391,7 +482,7 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
     ['2026-10-22', null, 'review', '【示例】收盘后检查广度与成交额，确认日报证据链。', null],
   ]
   for (const [entryDate, code, action, reason, outcome] of journal) {
-    await db.execute({
+    await tx.execute({
       sql: `INSERT INTO journal_entries
         (entry_date, code, action, thesis_id, reason, outcome_note, created_at)
         VALUES (?, ?, ?, NULL, ?, ?, ?)`,
@@ -399,48 +490,4 @@ export async function ensureCockpitDemoSeed(): Promise<{ seeded: boolean; tradeD
     })
   }
 
-  const report = await buildAndStoreDailyReport(DEMO_TRADE_DATE)
-  const taskRows = [
-    {
-      id: 'demo-task-brief',
-      type: 'daily_brief',
-      params: JSON.stringify({ tradeDate: DEMO_TRADE_DATE, demo: true }),
-      result: JSON.stringify({ reportId: report.reportId, tradeDate: DEMO_TRADE_DATE, version: report.version }),
-      key: 'demo|daily_brief|2026-10-22',
-      created: '2026-10-22T07:36:00.000Z',
-      started: '2026-10-22T07:36:01.000Z',
-      finished: '2026-10-22T07:36:04.000Z',
-    },
-    {
-      id: 'demo-task-thesis',
-      type: 'thesis_review',
-      params: JSON.stringify({ scope: 'all', demo: true }),
-      result: JSON.stringify({ reviewed: 3, changed: 1 }),
-      key: 'demo|thesis_review|2026-10-22',
-      created: '2026-10-21T12:10:00.000Z',
-      started: '2026-10-21T12:10:01.000Z',
-      finished: '2026-10-21T12:10:03.000Z',
-    },
-  ]
-  for (const task of taskRows) {
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO tasks
-        (id, type, params_json, status, progress, step, result_json, error_code, error_message,
-         idempotency_key, attempts, model, cost_micros, created_at, started_at, finished_at, heartbeat_at)
-        VALUES (?, ?, ?, 'succeeded', 100, '完成', ?, NULL, NULL, ?, 1, 'deterministic', 0, ?, ?, ?, ?)`,
-      args: [task.id, task.type, task.params, task.result, task.key, task.created, task.started, task.finished, task.finished],
-    })
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO task_events (task_id, seq, event_type, payload_json, created_at)
-            VALUES (?, 1, 'succeeded', ?, ?)`,
-      args: [task.id, task.result, task.finished],
-    })
-  }
-
-  await db.execute({
-    sql: `INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)`,
-    args: [SEED_KEY, JSON.stringify({ tradeDate: DEMO_TRADE_DATE, seededAt: now }), now],
-  })
-
-  return { seeded: true, tradeDate: DEMO_TRADE_DATE }
 }

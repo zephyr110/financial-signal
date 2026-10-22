@@ -76,8 +76,9 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
 
   const lastBar = detail.bars[detail.bars.length - 1]
   const closes = detail.bars.map((bar) => bar.close)
-  const low = closes.length > 0 ? Math.min(...closes) : detail.price
-  const high = closes.length > 0 ? Math.max(...closes) : detail.price
+  const hasBars = closes.length > 0
+  const low = hasBars ? Math.min(...closes) : null
+  const high = hasBars ? Math.max(...closes) : null
   const recent = detail.bars.slice(-10).reverse()
   const source = detail.evidence.find((item) => item.source)?.source
 
@@ -119,32 +120,38 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
             </div>
           </div>
           <div className="ck-stock-chart">
-            <Sparkline
-              values={closes}
-              label={`${detail.name}近 ${closes.length} 个交易日收盘价，区间 ${formatPrice(low)} 至 ${formatPrice(high)}`}
-              strokeWidth={1.8}
-            />
-            <div className="ck-chart-caption">
-              <span>近 {closes.length} 个交易日 · 收盘价</span>
-              <span>区间 {formatPrice(low)} — {formatPrice(high)}</span>
-            </div>
-            {recent.length > 1 && (
-              <details className="ck-price-table">
-                <summary>查看价格表（图表的数据视图）</summary>
-                <table>
-                  <thead>
-                    <tr><th>交易日</th><th>收盘价</th></tr>
-                  </thead>
-                  <tbody>
-                    {recent.map((bar) => (
-                      <tr key={bar.date}>
-                        <td>{bar.date}</td>
-                        <td>{formatPrice(bar.close)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </details>
+            {hasBars ? (
+              <>
+                <Sparkline
+                  values={closes}
+                  label={`${detail.name}近 ${closes.length} 个交易日收盘价，区间 ${formatPrice(low)} 至 ${formatPrice(high)}`}
+                  strokeWidth={1.8}
+                />
+                <div className="ck-chart-caption">
+                  <span>近 {closes.length} 个交易日 · 收盘价</span>
+                  <span>区间 {formatPrice(low)} — {formatPrice(high)}</span>
+                </div>
+                {recent.length > 1 && (
+                  <details className="ck-price-table">
+                    <summary>查看价格表（图表的数据视图）</summary>
+                    <table>
+                      <thead>
+                        <tr><th>交易日</th><th>收盘价</th></tr>
+                      </thead>
+                      <tbody>
+                        {recent.map((bar) => (
+                          <tr key={bar.date}>
+                            <td>{bar.date}</td>
+                            <td>{formatPrice(bar.close)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </details>
+                )}
+              </>
+            ) : (
+              <p className="ck-empty-text">已登记该标的，但还没有行情记录；价格、涨跌和走势图暂不展示。</p>
             )}
           </div>
         </article>

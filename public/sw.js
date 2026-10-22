@@ -1,6 +1,5 @@
-/* 收盘手记 service worker：只缓存页面外壳与静态资源，绝不缓存 /api 数据。 */
-const VERSION = 'afterclose-v1'
-const PAGE_CACHE = `${VERSION}-pages`
+/* 收盘手记 service worker：只缓存离线外壳与静态资源，绝不缓存登录后的页面 HTML 或 /api 数据。 */
+const VERSION = 'afterclose-v2'
 const ASSET_CACHE = `${VERSION}-assets`
 const OFFLINE_URL = '/offline.html'
 const PRECACHE = [
@@ -12,7 +11,7 @@ const PRECACHE = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(PAGE_CACHE)
+    caches.open(ASSET_CACHE)
       .then((cache) => cache.addAll(PRECACHE))
       .then(() => self.skipWaiting()),
   )
@@ -29,12 +28,26 @@ self.addEventListener('activate', (event) => {
 })
 
 self.addEventListener('message', (event) => {
-  if (event.data === 'SKIP_WAITING') self.skipWaiting()
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting()
+    return
+  }
+  if (event.data && event.data.type === 'CLEAR_CACHES') {
+    event.waitUntil(
+      caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))),
+    )
+  }
 })
 
 function isStaticAsset(request, url) {
   if (url.pathname.startsWith('/_next/static/')) return true
   return ['style', 'script', 'image', 'font'].includes(request.destination)
+}
+
+async function putAsset(request, response) {
+  if (!response.ok) return
+  const cache = await caches.open(ASSET_CACHE)
+  await cache.put(request, response)
 }
 
 self.addEventListener('fetch', (event) => {
@@ -46,39 +59,50 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/_next/data/')) return
 
   if (request.mode === 'navigate') {
+    // 页面含私有数据，只走网络；失败时给公开离线页，绝不回放缓存 HTML。
     event.respondWith((async () => {
       try {
-        const response = await fetch(request)
-        if (response.ok && !response.redirected) {
-          const copy = response.clone()
-          caches.open(PAGE_CACHE).then((cache) => cache.put(request, copy)).catch(() => {})
-        }
-        return response
+        return await fetch(request)
       } catch {
-        const cached = await caches.match(request)
-        if (cached) return cached
-        const today = await caches.match('/today')
-        if (today) return today
         return (await caches.match(OFFLINE_URL)) || Response.error()
       }
     })())
     return
   }
 
-  if (isStaticAsset(request, url)) {
+  if (!isStaticAsset(request, url)) return
+
+  // 带内容 hash 的构建产物可长期缓存；其余静态资源用 stale-while-revalidate。
+  if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith((async () => {
       const cached = await caches.match(request)
       if (cached) return cached
       try {
         const response = await fetch(request)
-        if (response.ok) {
-          const copy = response.clone()
-          caches.open(ASSET_CACHE).then((cache) => cache.put(request, copy)).catch(() => {})
-        }
+        if (response.ok) await putAsset(request, response.clone())
         return response
       } catch {
         return Response.error()
       }
     })())
+    return
   }
+
+  event.respondWith((async () => {
+    const cached = await caches.match(request)
+    const network = fetch(request)
+      .then(async (response) => {
+        if (response.ok) await putAsset(request, response.clone())
+        return response
+      })
+    if (cached) {
+      event.waitUntil(network.catch(() => {}))
+      return cached
+    }
+    try {
+      return await network
+    } catch {
+      return Response.error()
+    }
+  })())
 })

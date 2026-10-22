@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { SidebarMenuButton, SidebarMenuItem, useSidebar } from "./ui/sidebar";
-import { cn } from "@/lib/utils";
+import { clearClientCaches, cn } from "@/lib/utils";
 import {
   SIDEBAR_FOOTER_ICON_BTN,
   SIDEBAR_FOOTER_ICON_ITEM,
@@ -53,6 +53,7 @@ export default function AvatarMenu({ username = "" }) {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
+      await clearClientCaches();
       router.replace("/login");
     }
   };

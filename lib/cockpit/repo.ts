@@ -1,4 +1,5 @@
 import { getDb } from '../db'
+import { thesisStatusLabel } from './format'
 import { computePortfolio } from './portfolio'
 import type {
   DocumentSummary,
@@ -142,13 +143,26 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
   const [itemsRes, barsRes, thesisRes, sourcesRes, symbolsRes] = await Promise.all([
     db.execute({ sql: 'SELECT code, note, created_at FROM watchlist_items ORDER BY created_at', args: [] }),
     db.execute({
-      sql: `SELECT b.code, b.trade_date, b.close, b.source_id, b.fetched_at, b.is_demo
-            FROM market_bars b JOIN watchlist_items w ON w.code = b.code
-            WHERE b.adjust_type = 'raw'
-            ORDER BY b.code, b.trade_date ASC`,
+      sql: `SELECT code, trade_date, close, source_id, fetched_at, is_demo
+            FROM (
+              SELECT b.code, b.trade_date, b.close, b.source_id, b.fetched_at, b.is_demo,
+                     ROW_NUMBER() OVER (PARTITION BY b.code ORDER BY b.trade_date DESC) AS rn
+              FROM market_bars b JOIN watchlist_items w ON w.code = b.code
+              WHERE b.adjust_type = 'raw'
+            )
+            WHERE rn <= 20
+            ORDER BY code, trade_date ASC`,
       args: [],
     }),
-    db.execute({ sql: 'SELECT code, status FROM theses', args: [] }),
+    db.execute({
+      // 同一标的多条论点时取最近更新的一条，与个股页的口径一致。
+      sql: `SELECT code, status FROM (
+              SELECT code, status,
+                     ROW_NUMBER() OVER (PARTITION BY code ORDER BY updated_at DESC, id DESC) AS rn
+              FROM theses
+            ) WHERE rn = 1`,
+      args: [],
+    }),
     db.execute({ sql: 'SELECT * FROM source_registry', args: [] }),
     db.execute({ sql: 'SELECT code, name FROM symbols', args: [] }),
   ])
@@ -169,16 +183,16 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
     const last = bars[bars.length - 1]
     const closes = bars.map((row) => num(row.close))
     const prev = closes.length > 1 ? closes[closes.length - 2] : null
-    const price = closes[closes.length - 1] ?? 0
-    const sourceId = last ? str(last.source_id) : 'unknown'
+    const price = closes.length > 0 ? closes[closes.length - 1] : null
+    const sourceId = last ? str(last.source_id) : null
     return {
       code,
       name: nameMap.get(code) || code,
       price,
-      changePct: prev && prev > 0 ? round2(((price - prev) / prev) * 100) : 0,
+      changePct: price !== null && prev && prev > 0 ? round2(((price - prev) / prev) * 100) : null,
       sparkline: closes,
       thesisStatus: thesisMap.get(code) as WatchlistItem['thesisStatus'],
-      source: sourceRef(sourceMap.get(sourceId), sourceId, last ? str(last.fetched_at) : ''),
+      source: last && sourceId ? sourceRef(sourceMap.get(sourceId), sourceId, str(last.fetched_at)) : undefined,
     }
   })
 }
@@ -195,23 +209,27 @@ export async function getPortfolio(): Promise<PortfolioView> {
   }
   const accountId = str(account.id)
 
-  const [positionsRes, barsRes, symbolsRes, sourcesRes, thesesRes] = await Promise.all([
+  const [positionsRes, barsRes, symbolsRes, sourcesRes] = await Promise.all([
     db.execute({
       sql: 'SELECT code, shares, avg_cost_cents FROM positions WHERE account_id = ? AND shares > 0',
       args: [accountId],
     }),
     db.execute({
+      // 只取本账户持仓代码的最新价；全市场聚合会白读整库且让 isDemo 被无关行污染。
       sql: `SELECT b.code, b.close, b.source_id, b.fetched_at, b.is_demo
             FROM market_bars b
-            JOIN (SELECT code, MAX(trade_date) AS md FROM market_bars
-                  WHERE adjust_type = 'raw' GROUP BY code) latest
-              ON latest.code = b.code AND latest.md = b.trade_date
+            JOIN (
+              SELECT b2.code, MAX(b2.trade_date) AS md
+              FROM market_bars b2
+              JOIN positions p ON p.code = b2.code
+              WHERE b2.adjust_type = 'raw' AND p.account_id = ? AND p.shares > 0
+              GROUP BY b2.code
+            ) latest ON latest.code = b.code AND latest.md = b.trade_date
             WHERE b.adjust_type = 'raw'`,
-      args: [],
+      args: [accountId],
     }),
     db.execute({ sql: 'SELECT code, name, industry_l1 FROM symbols', args: [] }),
     db.execute({ sql: 'SELECT * FROM source_registry', args: [] }),
-    db.execute({ sql: 'SELECT code, status FROM theses', args: [] }),
   ])
 
   const prices: Record<string, number> = {}
@@ -260,7 +278,7 @@ export async function getJournal(limit = 20): Promise<JournalEntry[]> {
   const db = await getDb()
   const res = await db.execute({
     sql: 'SELECT * FROM journal_entries ORDER BY entry_date DESC, id DESC LIMIT ?',
-    args: [Math.max(1, Math.min(100, limit))],
+    args: [Math.max(1, Math.min(100, Number.isFinite(limit) ? Math.floor(limit) : 20))],
   })
   return (res.rows as unknown as Row[]).map((row) => ({
     id: num(row.id),
@@ -300,23 +318,28 @@ export async function getStockDetail(code: string): Promise<StockDetail | null> 
   const bars = (barsRes.rows as unknown as Row[]).reverse()
   const closes = bars.map((row) => num(row.close))
   const last = bars[bars.length - 1]
-  const lastSourceId = last ? str(last.source_id) : 'unknown'
-  const source = sourceRef(sourceMap.get(lastSourceId), lastSourceId, last ? str(last.fetched_at) : '')
-  const price = closes[closes.length - 1] ?? 0
+  const lastSourceId = last ? str(last.source_id) : null
+  const source = last && lastSourceId
+    ? sourceRef(sourceMap.get(lastSourceId), lastSourceId, str(last.fetched_at))
+    : undefined
+  const price = closes.length > 0 ? closes[closes.length - 1] : null
   const prev = closes.length > 1 ? closes[closes.length - 2] : null
-  const changePct = prev && prev > 0 ? round2(((price - prev) / prev) * 100) : 0
+  const changePct = price !== null && prev && prev > 0 ? round2(((price - prev) / prev) * 100) : null
   const thesis = theses.find((item) => item.code === code)
   const documents = (docsRes.rows as unknown as Row[]).map((row) => documentFromRow(row, sourceMap))
   const isDemo = bars.some((row) => Number(row.is_demo) === 1)
     || documents.some((doc) => doc.source.name.includes('示例'))
 
-  const evidence: EvidenceItem[] = [{
-    id: `fact:stock:${code}`,
-    kind: 'fact',
-    label: `${str(symbol.name)}收盘 ${price.toFixed(2)}，${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`,
-    value: price.toFixed(2),
-    source,
-  }]
+  const evidence: EvidenceItem[] = []
+  if (price !== null && changePct !== null && source) {
+    evidence.push({
+      id: `fact:stock:${code}`,
+      kind: 'fact',
+      label: `${str(symbol.name)}收盘 ${price.toFixed(2)}，${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`,
+      value: price.toFixed(2),
+      source,
+    })
+  }
   if (documents[0]) {
     evidence.push({
       id: `document:${documents[0].id}`,
@@ -329,7 +352,7 @@ export async function getStockDetail(code: string): Promise<StockDetail | null> 
     evidence.push({
       id: 'inference:thesis',
       kind: 'inference',
-      label: `论点「${thesis.title}」当前状态：${thesis.status}；支持 ${thesis.supportCount} 条，反证 ${thesis.opposeCount} 条。`,
+      label: `论点「${thesis.title}」当前状态：${thesisStatusLabel(thesis.status)}；支持 ${thesis.supportCount} 条，反证 ${thesis.opposeCount} 条。`,
     })
     evidence.push({
       id: 'conclusion:thesis',

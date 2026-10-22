@@ -53,7 +53,7 @@ export default function TasksPage({ tasks, latest, sourceHealth, loadError }: Ta
         sourceHealth={sourceHealth}
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
-        <TaskCenter initialTasks={tasks} tradeDate={latest?.tradeDate} />
+        <TaskCenter initialTasks={tasks} />
       </CockpitShell>
     </>
   )

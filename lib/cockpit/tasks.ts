@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
 import { buildAndStoreDailyReport, PROMPT_VERSION } from './brief'
+import { todayShanghai } from './format'
 import { getJournal, getPortfolio, getStockDetail, getTheses, getTodayPayload } from './repo'
 import type { TaskEvent, TaskRecord, TaskStatus, TaskType } from './types'
 
@@ -27,10 +28,6 @@ function parseJson<T>(value: unknown, fallback: T): T {
   } catch {
     return fallback
   }
-}
-
-function todayShanghai(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
 }
 
 function stableStringify(value: unknown): string {
@@ -100,6 +97,17 @@ export async function listTasks(limit = 50): Promise<TaskRecord[]> {
   return (res.rows as unknown as Row[]).map(mapTask)
 }
 
+/** 轮询只取活跃摘要，避免每次 50 条完整结果 + 来源健康度。 */
+export async function listActiveTasks(): Promise<TaskRecord[]> {
+  const db = await getDb()
+  const res = await db.execute({
+    sql: `SELECT * FROM tasks WHERE status IN ('queued', 'running')
+          ORDER BY created_at ASC, rowid ASC`,
+    args: [],
+  })
+  return (res.rows as unknown as Row[]).map(mapTask)
+}
+
 export async function getTaskEvents(id: string, afterSeq = 0): Promise<TaskEvent[]> {
   const db = await getDb()
   const res = await db.execute({
@@ -117,7 +125,7 @@ export async function getTaskEvents(id: string, afterSeq = 0): Promise<TaskEvent
 
 /**
  * 同 type + 参数 + 交易日只允许一个任务。显式 key 可用于“今天只生成一次日报”。
- * 已存在时直接返回旧任务，不重置状态。
+ * 排队/运行/成功任务原样返回；失败或取消的任务重置为排队，让同参数可以重试。
  */
 export async function enqueueTask(input: {
   type: TaskType
@@ -131,25 +139,51 @@ export async function enqueueTask(input: {
     : todayShanghai()
   const idempotencyKey = input.idempotencyKey || defaultIdempotencyKey(input.type, params, paramDate)
   const db = await getDb()
-  const id = crypto.randomUUID()
-  const now = new Date().toISOString()
+  const tx = await db.transaction('write')
+  try {
+    const existingRes = await tx.execute({
+      sql: 'SELECT * FROM tasks WHERE idempotency_key = ?',
+      args: [idempotencyKey],
+    })
+    const existing = existingRes.rows[0] as unknown as Row | undefined
+    if (existing) {
+      const id = str(existing.id)
+      if (existing.status === 'failed' || existing.status === 'canceled') {
+        const now = new Date().toISOString()
+        await tx.execute({
+          sql: `UPDATE tasks SET status = 'queued', progress = 0, step = '已重新入队',
+                result_json = NULL, error_code = NULL, error_message = NULL,
+                attempts = 0, started_at = NULL, finished_at = NULL, heartbeat_at = NULL,
+                created_at = ?
+                WHERE id = ? AND status IN ('failed', 'canceled')`,
+          args: [now, id],
+        })
+        await appendTaskEvent(id, 'queued', { type: input.type, retry: true }, tx)
+        const reset = await tx.execute({ sql: 'SELECT * FROM tasks WHERE id = ?', args: [id] })
+        await tx.commit()
+        if (!reset.rows[0]) throw new Error('任务重新入队失败')
+        return mapTask(reset.rows[0] as unknown as Row)
+      }
+      await tx.commit()
+      return mapTask(existing)
+    }
 
-  const result = await db.execute({
-    sql: `INSERT OR IGNORE INTO tasks
-      (id, type, params_json, status, progress, step, idempotency_key, attempts, model, cost_micros, created_at)
-      VALUES (?, ?, ?, 'queued', 0, '已入队', ?, 0, ?, 0, ?)`,
-    args: [id, input.type, JSON.stringify(params), idempotencyKey, MODEL, now],
-  })
-
-  const existing = await db.execute({
-    sql: 'SELECT * FROM tasks WHERE idempotency_key = ?',
-    args: [idempotencyKey],
-  })
-  if (!existing.rows[0]) throw new Error('任务入队失败')
-  if (Number(result.rowsAffected) > 0) {
-    await appendTaskEvent(id, 'queued', { type: input.type }, db)
+    const id = crypto.randomUUID()
+    await tx.execute({
+      sql: `INSERT INTO tasks
+        (id, type, params_json, status, progress, step, idempotency_key, attempts, model, cost_micros, created_at)
+        VALUES (?, ?, ?, 'queued', 0, '已入队', ?, 0, ?, 0, ?)`,
+      args: [id, input.type, JSON.stringify(params), idempotencyKey, MODEL, new Date().toISOString()],
+    })
+    await appendTaskEvent(id, 'queued', { type: input.type }, tx)
+    const inserted = await tx.execute({ sql: 'SELECT * FROM tasks WHERE id = ?', args: [id] })
+    await tx.commit()
+    if (!inserted.rows[0]) throw new Error('任务入队失败')
+    return mapTask(inserted.rows[0] as unknown as Row)
+  } catch (err) {
+    try { await tx.rollback() } catch { /* tx already closed */ }
+    throw err
   }
-  return mapTask(existing.rows[0] as unknown as Row)
 }
 
 async function setProgress(id: string, progress: number, step: string): Promise<void> {
@@ -171,6 +205,15 @@ export async function claimNextTask(): Promise<TaskRecord | null> {
             WHERE status = 'running' AND heartbeat_at IS NOT NULL AND heartbeat_at < ?`,
       args: [staleBefore],
     })
+    // 单任务串行：已有 worker 在跑时其它进程/请求只排队，不能再并行认领。
+    const running = await tx.execute({
+      sql: "SELECT id FROM tasks WHERE status = 'running' LIMIT 1",
+      args: [],
+    })
+    if (running.rows[0]) {
+      await tx.rollback()
+      return null
+    }
     const candidate = await tx.execute({
       sql: "SELECT id FROM tasks WHERE status = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT 1",
       args: [],
@@ -362,6 +405,31 @@ export async function processNextTask(): Promise<TaskRecord | null> {
       errorMessage: safeMessage,
     })
   }
+}
+
+let drainPromise: Promise<void> | null = null
+
+/**
+ * 持续消化队列直到为空：失败任务 requeue 后立刻再认领一次，重试才真正发生。
+ * 同进程只跑一个 drain；跨进程由 claimNextTask 的 running 行互斥。
+ */
+export async function drainTasks(): Promise<void> {
+  if (drainPromise) return drainPromise
+  drainPromise = (async () => {
+    while (await processNextTask()) { /* 继续下一条 */ }
+  })().finally(() => {
+    drainPromise = null
+  })
+  return drainPromise
+}
+
+/** 响应发出后再执行，避免把 worker 时长算进派发请求。 */
+export function scheduleTaskDrain(delay = 10): void {
+  setTimeout(() => {
+    void drainTasks().catch((err) => {
+      console.error('[cockpit/tasks] worker', err instanceof Error ? err.message : err)
+    })
+  }, delay)
 }
 
 /** 只取消尚未开始的队列任务；运行中的任务交给租约与超时机制。 */

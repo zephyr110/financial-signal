@@ -1,3 +1,4 @@
+import { toDate } from '../format'
 import type { ConfidenceLabel, SourceTier } from './types'
 
 const yuan = new Intl.NumberFormat('zh-CN', {
@@ -15,8 +16,8 @@ export function formatCny(cents: number, compact = false): string {
   return `¥${yuan.format(value)}`
 }
 
-export function formatPrice(value: number): string {
-  if (!Number.isFinite(value)) return '—'
+export function formatPrice(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
   return value.toFixed(2)
 }
 
@@ -45,15 +46,21 @@ export function todayShanghai(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
 }
 
+/** 带时间戳的字段按上海日期展示；直接 slice(0,10) 会把凌晨公告标成前一天。 */
+export function dateShanghai(value?: string): string {
+  const d = toDate(value)
+  if (!d) return ''
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(d)
+}
+
 /** 交易日期本身已是上海日期，避免用本地时区再转一次。 */
 export function formatShortDate(date: string): string {
   return date.slice(5).replace('-', '/')
 }
 
 export function formatTime(iso?: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
+  const d = toDate(iso)
+  if (!d) return '—'
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai',
     hour: '2-digit',

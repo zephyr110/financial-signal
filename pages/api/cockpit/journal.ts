@@ -10,14 +10,11 @@ import {
   sendError,
 } from '../../../lib/cockpit/api'
 import { ensureCockpitDemoSeed } from '../../../lib/cockpit/demo'
+import { todayShanghai } from '../../../lib/cockpit/format'
 import { getJournal } from '../../../lib/cockpit/repo'
 import type { JournalEntry } from '../../../lib/cockpit/types'
 
 const ACTIONS = ['watch', 'buy', 'sell', 'hold', 'avoid', 'review']
-
-function todayShanghai(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
-}
 
 function bodyObject(body: unknown): Record<string, unknown> {
   if (typeof body === 'string') {
