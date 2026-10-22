@@ -1,17 +1,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import {
-  BookOpen,
-  Bot,
-  Briefcase,
-  ListChecks,
-  Newspaper,
-  Settings,
-  Star,
-  SunMedium,
-  TrendingUp,
-} from "lucide-react";
+import { Settings } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -29,41 +19,12 @@ import BrandLogo from "./BrandLogo";
 import AvatarMenu from "./avatar-menu";
 import SettingsDialog from "./settings-dialog";
 import { cn } from "@/lib/utils";
+import { SIDEBAR_GROUPS } from "@/lib/nav";
 import {
   SIDEBAR_FOOTER_ICON_BTN,
   SIDEBAR_FOOTER_ICON_ITEM,
   SIDEBAR_ICON_RAIL_MENU,
 } from "@/lib/sidebar-footer-classes";
-
-const NAV_ITEMS = [
-  { href: "/", label: "新闻快讯", icon: Newspaper, match: (p) => p === "/" },
-  {
-    href: "/analysis",
-    label: "信号分析",
-    icon: TrendingUp,
-    match: (p) =>
-      p === "/analysis" || p.startsWith("/signal/") || p.startsWith("/thread/") || p === "/analytics/value",
-  },
-  { href: "/agent", label: "研究助手", icon: Bot, match: (p) => p === "/agent" },
-];
-
-const COCKPIT_ITEMS = [
-  { href: "/today", label: "今日收盘", icon: SunMedium, match: (p) => p === "/today" },
-  {
-    href: "/watchlist",
-    label: "自选",
-    icon: Star,
-    match: (p) => p === "/watchlist" || p.startsWith("/stock/"),
-  },
-  { href: "/portfolio", label: "持仓", icon: Briefcase, match: (p) => p === "/portfolio" },
-  { href: "/research", label: "研究", icon: BookOpen, match: (p) => p === "/research" },
-  { href: "/tasks", label: "任务", icon: ListChecks, match: (p) => p === "/tasks" },
-];
-
-const NAV_GROUPS = [
-  { label: "导航", items: NAV_ITEMS },
-  { label: "收盘手记", items: COCKPIT_ITEMS },
-];
 
 /**
  * 全局侧栏（sidebar-07 折叠分区模式）：
@@ -108,7 +69,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
       </SidebarHeader>
 
       <SidebarContent className="gap-1">
-        {NAV_GROUPS.map((group) => (
+        {SIDEBAR_GROUPS.map((group) => (
           <SidebarGroup className="gap-1" key={group.label}>
             <SidebarGroupLabel className="mb-1">{group.label}</SidebarGroupLabel>
             <SidebarMenu className="gap-0.5">

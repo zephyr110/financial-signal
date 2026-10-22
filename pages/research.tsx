@@ -92,7 +92,7 @@ export default function ResearchPage({
       </Head>
       <CockpitShell
         title="研究"
-        eyebrow="THESIS & JOURNAL · 论点与日志"
+        eyebrow="论点与日志"
         subtitle="把观点写成可被推翻的句子。价格只负责检验，不负责说服。"
         isDemo={isDemo}
         sourceHealth={sourceHealth}

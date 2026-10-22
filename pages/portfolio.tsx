@@ -53,7 +53,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
       </Head>
       <CockpitShell
         title="持仓"
-        eyebrow="PORTFOLIO · 账本"
+        eyebrow="持仓账本"
         subtitle="先看暴露与集中度，再看单日盈亏。金额按最新收盘价标记，缺价持仓不虚增市值。"
         isDemo={portfolio?.isDemo}
         sourceHealth={sourceHealth}

@@ -53,7 +53,7 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
         </Head>
         <CockpitShell
           title="个股证据"
-          eyebrow={code || 'UNKNOWN SYMBOL'}
+          eyebrow={code || '未识别代码'}
           subtitle="没有找到这个标的的行情或档案。"
           sourceHealth={sourceHealth}
         >

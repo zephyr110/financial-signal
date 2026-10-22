@@ -53,7 +53,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
         </Head>
         <CockpitShell
           title="今日收盘"
-          eyebrow="AFTERCLOSE · POST-CLOSE"
+          eyebrow="收盘简报"
           subtitle="收盘后先看今天的事实，再决定原来的判断是否需要改变。"
           sourceHealth={sourceHealth}
         >
@@ -104,7 +104,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
       >
         <article className="ck-card ck-hero-card" aria-labelledby="brief-claim">
           <div className="ck-hero-top">
-            <span className="ck-hero-kicker">收盘判断 · POST-CLOSE</span>
+            <span className="ck-hero-kicker">收盘判断</span>
             <div className="ck-hero-meta">
               <ConfidencePill confidence={hero.confidence} />
             </div>

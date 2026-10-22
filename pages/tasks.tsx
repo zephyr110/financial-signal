@@ -47,7 +47,7 @@ export default function TasksPage({ tasks, latest, sourceHealth, loadError }: Ta
       </Head>
       <CockpitShell
         title="任务"
-        eyebrow="TASK QUEUE · 串行队列"
+        eyebrow="串行任务队列"
         subtitle="简报、复核、提问与个股深挖串行执行，失败会重试一次，结果写入研究记录。"
         isDemo={isDemo}
         sourceHealth={sourceHealth}

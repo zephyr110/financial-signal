@@ -52,7 +52,7 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
       </Head>
       <CockpitShell
         title="自选"
-        eyebrow="WATCHLIST · 观察名单"
+        eyebrow="观察名单"
         subtitle="只放需要持续验证的标的。价格是事实，论点状态是仍需检验的解释。"
         isDemo={isDemo}
         sourceHealth={sourceHealth}

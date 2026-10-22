@@ -1,82 +1,52 @@
-/* 收盘手记 · 驾驶舱样式。全部作用域在 .ck-root，避免影响旧版页面。 */
+/* 收盘手记 · 驾驶舱内容样式。外壳与旧工作台共用 AppShell，这里只负责内容层。 */
+
+/*
+ * 统一设计令牌：直接复用 globals.css 的中性色与蓝色主色，
+ * 深色模式跟随 .dark，不再维护独立的雾灰绿主题。
+ */
+:root {
+  --ck-bg: var(--background);
+  --ck-surface: var(--card);
+  --ck-surface-2: var(--muted);
+  --ck-surface-3: color-mix(in srgb, var(--muted) 62%, var(--border));
+  --ck-ink: var(--foreground);
+  --ck-muted: var(--muted-foreground);
+  --ck-faint: var(--muted-foreground);
+  --ck-line: var(--border);
+  --ck-line-strong: color-mix(in srgb, var(--border) 55%, var(--foreground));
+  --ck-accent: var(--primary);
+  --ck-accent-strong: color-mix(in srgb, var(--primary) 78%, var(--foreground));
+  --ck-accent-soft: color-mix(in srgb, var(--primary) 10%, var(--background));
+  --ck-copper: var(--chart-5);
+  --ck-copper-soft: color-mix(in srgb, var(--chart-5) 14%, var(--background));
+  --ck-up: var(--chart-3);
+  --ck-up-text: color-mix(in srgb, var(--chart-3) 80%, var(--foreground));
+  --ck-down: var(--chart-2);
+  --ck-down-text: color-mix(in srgb, var(--chart-2) 58%, var(--foreground));
+  --ck-flat: var(--border);
+  --ck-warning: var(--chart-5);
+  --ck-warning-soft: color-mix(in srgb, var(--chart-5) 16%, var(--background));
+  --ck-critical: var(--destructive);
+  --ck-critical-soft: color-mix(in srgb, var(--destructive) 12%, var(--background));
+  --ck-ok: var(--positive);
+  --ck-ok-soft: color-mix(in srgb, var(--positive) 12%, var(--background));
+  --ck-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.25);
+  --ck-serif: var(--ck-sans);
+  --ck-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --ck-mono: var(--ck-sans);
+  --ck-radius: 0.75rem;
+  --ck-radius-sm: 0.5rem;
+  --ck-max: 1120px;
+}
 
 .ck-root {
-  --ck-bg: #eef2f0;
-  --ck-surface: #fcfdfc;
-  --ck-surface-2: #e8eeeb;
-  --ck-surface-3: #dce5e1;
-  --ck-ink: #16201d;
-  --ck-muted: #485550;
-  --ck-faint: #596761;
-  --ck-line: #d8e1dd;
-  --ck-line-strong: #bccbc5;
-  --ck-accent: #1d5b53;
-  --ck-accent-strong: #14453f;
-  --ck-accent-soft: #dceae6;
-  --ck-copper: #985326;
-  --ck-copper-soft: #f5e8dc;
-  --ck-up: #c0493f;
-  --ck-up-text: #a63a31;
-  --ck-down: #2e8b74;
-  --ck-down-text: #1c6b58;
-  --ck-flat: #dbe2df;
-  --ck-warning: #8a5b16;
-  --ck-warning-soft: #f5ead3;
-  --ck-critical: #9a3429;
-  --ck-critical-soft: #f5dfdc;
-  --ck-ok: #1f6b58;
-  --ck-ok-soft: #dcebe6;
-  --ck-shadow: 0 1px 2px rgba(22, 32, 29, 0.03), 0 20px 44px -36px rgba(22, 32, 29, 0.4);
-  --ck-serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
-  --ck-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --ck-mono: "SFMono-Regular", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --ck-radius: 12px;
-  --ck-radius-sm: 8px;
-  --ck-max: 1200px;
-
-  min-height: 100dvh;
-  background: var(--ck-bg);
   color: var(--ck-ink);
   font-family: var(--ck-sans);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-}
-
-.dark .ck-root {
-  --ck-bg: #0f1514;
-  --ck-surface: #16201e;
-  --ck-surface-2: #1c2825;
-  --ck-surface-3: #24322f;
-  --ck-ink: #e8edeb;
-  --ck-muted: #aab6b2;
-  --ck-faint: #93a19d;
-  --ck-line: #2a3734;
-  --ck-line-strong: #3a4a46;
-  --ck-accent: #7dbfb3;
-  --ck-accent-strong: #a3d3c9;
-  --ck-accent-soft: #1c3732;
-  --ck-copper: #d69565;
-  --ck-copper-soft: #322419;
-  --ck-up: #e58579;
-  --ck-up-text: #f0a097;
-  --ck-down: #4fb79b;
-  --ck-down-text: #74cbb4;
-  --ck-flat: #3b4742;
-  --ck-warning: #d6a25a;
-  --ck-warning-soft: #33291a;
-  --ck-critical: #e05d54;
-  --ck-critical-soft: #3a201e;
-  --ck-ok: #74cbb4;
-  --ck-ok-soft: #1b322d;
-  --ck-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 20px 44px -38px rgba(0, 0, 0, 0.8);
-}
-
-.ck-root *,
-.ck-root *::before,
-.ck-root *::after {
-  box-sizing: border-box;
 }
 
 .ck-sr-only {
@@ -96,21 +66,27 @@
   color: var(--ck-ink);
 }
 
-.ck-root a {
+/* 用 :where 降低重置优先级，避免压过组件自身的颜色与间距。 */
+.ck-root :where(a) {
   color: inherit;
   text-decoration: none;
 }
 
-.ck-root button,
-.ck-root input,
-.ck-root select,
-.ck-root textarea {
+.ck-root :where(button, input, select, textarea) {
   font: inherit;
   color: inherit;
 }
 
-.ck-root button {
+.ck-root :where(button) {
   cursor: pointer;
+}
+
+.ck-root :where(h1, h2, h3, p, ul, ol, figure) {
+  margin: 0;
+}
+
+.ck-root :where(ul, ol) {
+  padding: 0;
 }
 
 .ck-root :focus-visible {
@@ -121,208 +97,6 @@
 
 .ck-root svg {
   display: block;
-}
-
-.ck-root h1,
-.ck-root h2,
-.ck-root h3,
-.ck-root p,
-.ck-root ul,
-.ck-root ol,
-.ck-root figure {
-  margin: 0;
-}
-
-.ck-root ul,
-.ck-root ol {
-  padding: 0;
-}
-
-.ck-skip {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 100;
-  transform: translateY(-160%);
-  padding: 8px 12px;
-  border-radius: 4px;
-  background: var(--ck-accent);
-  color: var(--ck-surface) !important;
-  font-size: 13px;
-}
-
-.ck-skip:focus {
-  transform: none;
-}
-
-.ck-app {
-  min-height: 100dvh;
-}
-
-.ck-sidebar {
-  display: none;
-}
-
-.ck-main {
-  min-width: 0;
-  padding-bottom: calc(78px + env(safe-area-inset-bottom));
-}
-
-/* ---------- 顶栏 ---------- */
-
-.ck-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: calc(9px + env(safe-area-inset-top)) 16px 9px;
-  border-bottom: 1px solid var(--ck-line);
-  background: color-mix(in srgb, var(--ck-bg) 88%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.1);
-  backdrop-filter: blur(16px) saturate(1.1);
-}
-
-@supports not (backdrop-filter: blur(1px)) {
-  .ck-topbar {
-    background: var(--ck-bg);
-  }
-}
-
-.ck-topbar-left {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ck-topbar-kicker {
-  flex: none;
-  color: var(--ck-accent);
-  font-family: var(--ck-serif);
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.ck-topbar-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.ck-asof {
-  display: none;
-  color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-}
-
-.ck-icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid var(--ck-line);
-  border-radius: 50%;
-  background: var(--ck-surface);
-  color: var(--ck-muted);
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.ck-icon-button:hover {
-  border-color: var(--ck-line-strong);
-  color: var(--ck-ink);
-}
-
-.ck-icon-button svg {
-  width: 15px;
-  height: 15px;
-}
-
-.ck-content-wrap {
-  width: 100%;
-  max-width: var(--ck-max);
-  margin: 0 auto;
-  padding: 16px 16px 44px;
-}
-
-.ck-main-col {
-  min-width: 0;
-}
-
-/* ---------- 页面标题 ---------- */
-
-.ck-page-head {
-  margin: 2px 0 14px;
-}
-
-.ck-eyebrow {
-  margin-bottom: 5px !important;
-  color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.ck-page-title {
-  color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: clamp(28px, 7vw, 38px);
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.18;
-}
-
-.ck-page-sub {
-  display: -webkit-box;
-  max-width: 58ch;
-  margin-top: 6px !important;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  color: var(--ck-muted);
-  font-size: 13.5px;
-  line-height: 1.65;
-}
-
-.ck-page-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  color: var(--ck-faint);
-  font-size: 12px;
-}
-
-.ck-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 28px;
-  padding-top: 13px;
-  border-top: 1px solid var(--ck-line);
-  color: var(--ck-faint);
-  font-size: 10.5px;
-  line-height: 1.6;
-}
-
-.ck-footer a {
-  color: var(--ck-accent);
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 /* ---------- 演示提示 ---------- */
@@ -377,19 +151,20 @@
 
 .ck-section-title {
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 19px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
+  font-family: var(--ck-sans);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
 }
 
 .ck-section-count {
   margin-left: 5px;
   color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 11px;
+  font-family: var(--ck-sans);
+  font-size: 12px;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
   vertical-align: 2px;
 }
 
@@ -405,7 +180,7 @@
   flex: none;
   color: var(--ck-accent);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -418,7 +193,7 @@
   border: 1px solid var(--ck-line);
   border-radius: var(--ck-radius);
   background: var(--ck-surface);
-  box-shadow: var(--ck-shadow);
+  box-shadow: none;
 }
 
 .ck-card-pad {
@@ -427,10 +202,6 @@
 
 .ck-mobile-only {
   display: block;
-}
-
-.ck-desktop-only {
-  display: none;
 }
 
 .ck-link {
@@ -461,17 +232,17 @@
 
 .ck-button {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 32px;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 13px;
-  border: 1px solid var(--ck-line-strong);
-  border-radius: 7px;
+  padding: 6px 11px;
+  border: 1px solid var(--ck-line);
+  border-radius: var(--ck-radius-sm);
   background: var(--ck-surface);
   color: var(--ck-ink);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1.2;
   text-align: center;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
@@ -522,9 +293,9 @@
 }
 
 .ck-button-small {
-  min-height: 32px;
-  padding: 5px 10px;
-  font-size: 11.5px;
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 12px;
 }
 
 .ck-button svg {
@@ -539,13 +310,13 @@
   max-width: 100%;
   align-items: center;
   gap: 5px;
-  padding: 3px 8px;
+  padding: 2px 7px;
   border: 1px solid var(--ck-line);
   border-radius: 999px;
   background: var(--ck-surface-2);
   color: var(--ck-muted);
-  font-size: 10.5px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.5;
   vertical-align: middle;
 }
 
@@ -565,9 +336,10 @@ a.ck-chip:hover {
 .ck-chip-tier {
   flex: none;
   color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
+  font-family: var(--ck-sans);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .ck-chip-name {
@@ -736,8 +508,6 @@ a.ck-chip:hover {
 .ck-hero-card {
   position: relative;
   overflow: hidden;
-  border-top: 3px solid var(--ck-accent);
-  animation: ck-settle 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .ck-hero-top {
@@ -751,11 +521,10 @@ a.ck-chip:hover {
 
 .ck-hero-kicker {
   color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-family: var(--ck-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .ck-hero-meta {
@@ -766,13 +535,13 @@ a.ck-chip:hover {
 }
 
 .ck-hero-claim {
-  padding: 10px 18px 2px;
+  padding: 8px 18px 2px;
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: clamp(22px, 5.9vw, 34px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.38;
+  font-family: var(--ck-sans);
+  font-size: clamp(20px, 5vw, 26px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
 }
 
 .ck-hero-narrative {
@@ -801,16 +570,6 @@ a.ck-chip:hover {
   gap: 8px;
 }
 
-@keyframes ck-settle {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 
 /* ---------- 证据脊柱 ---------- */
 
@@ -1094,7 +853,7 @@ a.ck-chip:hover {
   border: 1px solid var(--ck-line);
   border-radius: var(--ck-radius);
   background: var(--ck-surface);
-  box-shadow: var(--ck-shadow);
+  box-shadow: none;
 }
 
 .ck-disclosure + .ck-disclosure {
@@ -1108,8 +867,8 @@ a.ck-chip:hover {
   gap: 8px;
   padding: 11px 14px;
   color: var(--ck-ink);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.4;
   list-style: none;
   cursor: pointer;
@@ -1729,9 +1488,9 @@ a.ck-chip:hover {
 
 .ck-empty-title {
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 18px;
-  font-weight: 700;
+  font-family: var(--ck-sans);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .ck-empty-text {
@@ -1768,40 +1527,39 @@ a.ck-chip:hover {
 }
 
 .ck-rail-card {
-  margin-bottom: 12px;
-  padding: 13px;
+  padding: 16px;
   border: 1px solid var(--ck-line);
   border-radius: var(--ck-radius);
   background: var(--ck-surface);
-  box-shadow: var(--ck-shadow);
 }
 
 .ck-rail-title {
-  color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 9px;
+  color: var(--ck-ink);
+  font-family: var(--ck-sans);
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  line-height: 1.4;
 }
 
 .ck-rail-note {
-  margin-top: 7px !important;
+  margin-top: 8px !important;
   color: var(--ck-muted);
-  font-size: 11px;
-  line-height: 1.65;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .ck-rail-list {
-  margin-top: 9px;
+  margin: 10px 0 0;
+  padding: 0;
   list-style: none;
 }
 
 .ck-rail-row {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  padding: 7px 0;
+  gap: 8px;
+  padding: 8px 0;
   border-top: 1px solid var(--ck-line);
 }
 
@@ -1818,17 +1576,18 @@ a.ck-chip:hover {
 .ck-rail-row-title {
   display: block;
   overflow: hidden;
-  color: var(--ck-muted);
-  font-size: 10px;
+  color: var(--ck-ink);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ck-rail-row-meta {
   display: block;
-  margin-top: 1px;
+  margin-top: 2px;
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .ck-rail-link {
@@ -1840,8 +1599,8 @@ a.ck-chip:hover {
   padding-top: 10px;
   border-top: 1px solid var(--ck-line);
   color: var(--ck-accent);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .ck-rail-link:hover {
@@ -1851,83 +1610,6 @@ a.ck-chip:hover {
 .ck-rail-link svg {
   width: 12px;
   height: 12px;
-}
-
-.ck-rail-quote {
-  color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 16px;
-  line-height: 1.55;
-}
-
-.ck-rail-quote-sub {
-  margin-top: 6px !important;
-  color: var(--ck-faint);
-  font-size: 10px;
-  line-height: 1.6;
-}
-
-/* ---------- 移动底栏 ---------- */
-
-.ck-bottom-nav {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 30;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 2px;
-  padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--ck-line);
-  background: color-mix(in srgb, var(--ck-surface) 92%, transparent);
-  box-shadow: 0 -8px 28px -24px rgba(22, 32, 29, 0.5);
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
-  backdrop-filter: blur(18px) saturate(1.15);
-}
-
-@supports not (backdrop-filter: blur(1px)) {
-  .ck-bottom-nav {
-    background: var(--ck-surface);
-  }
-}
-
-.ck-bottom-link {
-  display: flex;
-  min-width: 0;
-  min-height: 50px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border-radius: 10px;
-  color: var(--ck-faint);
-  font-size: 10.5px;
-  line-height: 1.2;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.ck-bottom-link svg {
-  width: 19px;
-  height: 19px;
-  stroke-width: 1.7;
-}
-
-.ck-bottom-link.is-active {
-  background: var(--ck-accent-soft);
-  color: var(--ck-accent);
-  font-weight: 600;
-}
-
-.ck-bottom-link.is-active svg {
-  stroke-width: 2;
-}
-
-.ck-bottom-label {
-  overflow: hidden;
-  max-width: 100%;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ---------- 持仓 ---------- */
@@ -2539,9 +2221,9 @@ a.ck-chip:hover {
 .ck-thesis-title {
   margin-top: 7px;
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 17px;
-  font-weight: 700;
+  font-family: var(--ck-sans);
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.45;
 }
 
@@ -2608,15 +2290,15 @@ a.ck-chip:hover {
 
 .ck-form-title {
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 18px;
-  font-weight: 700;
+  font-family: var(--ck-sans);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .ck-form-hint {
   margin-top: 3px !important;
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.6;
 }
 
@@ -2634,8 +2316,8 @@ a.ck-chip:hover {
   display: block;
   margin-bottom: 4px;
   color: var(--ck-muted);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .ck-input,
@@ -2643,14 +2325,14 @@ a.ck-chip:hover {
 .ck-textarea {
   display: block;
   width: 100%;
-  min-height: 40px;
-  padding: 8px 10px;
-  border: 1px solid var(--ck-line-strong);
-  border-radius: 7px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--ck-line);
+  border-radius: var(--ck-radius-sm);
   outline: none;
   background: var(--ck-surface);
   color: var(--ck-ink);
-  font-size: 13px;
+  font-size: 14px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -2664,7 +2346,7 @@ a.ck-chip:hover {
 .ck-select:focus,
 .ck-textarea:focus {
   border-color: var(--ck-accent);
-  box-shadow: 0 0 0 2px var(--ck-accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ck-accent) 18%, transparent);
 }
 
 .ck-input::placeholder,
@@ -2764,9 +2446,9 @@ a.ck-chip:hover {
 
 .ck-task-composer-title {
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 17px;
-  font-weight: 700;
+  font-family: var(--ck-sans);
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.35;
 }
 
@@ -2968,11 +2650,6 @@ a.ck-chip:hover {
 /* ---------- 响应式 ---------- */
 
 @media (min-width: 560px) {
-  .ck-content-wrap {
-    padding-right: 22px;
-    padding-left: 22px;
-  }
-
   .ck-confidence-breakdown {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -3007,16 +2684,6 @@ a.ck-chip:hover {
   .ck-thesis-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .ck-asof {
-    display: inline;
-  }
-
-  .ck-page-sub {
-    display: block;
-    overflow: visible;
-    -webkit-line-clamp: unset;
-  }
-
   .ck-snapshot,
   .ck-hero-extra {
     margin-right: 22px;
@@ -3081,190 +2748,14 @@ a.ck-chip:hover {
 }
 
 @media (min-width: 1024px) {
-  .ck-app {
-    display: grid;
-    grid-template-columns: 232px minmax(0, 1fr);
-  }
-
-  .ck-sidebar {
-    position: sticky;
-    top: 0;
-    display: flex;
-    height: 100dvh;
-    flex-direction: column;
-    padding: 26px 16px 18px;
-    border-right: 1px solid var(--ck-line);
-    background: var(--ck-surface);
-  }
-
-  .ck-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0 8px;
-  }
-
-  .ck-brand-mark {
-    display: flex;
-    width: 32px;
-    height: 32px;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--ck-accent);
-    border-radius: 4px;
-    color: var(--ck-accent);
-    font-family: var(--ck-serif);
-    font-size: 18px;
-    font-weight: 700;
-  }
-
-  .ck-brand-text {
-    min-width: 0;
-  }
-
-  .ck-brand-name {
-    display: block;
-    color: var(--ck-ink);
-    font-family: var(--ck-serif);
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    line-height: 1.25;
-  }
-
-  .ck-brand-en {
-    display: block;
-    margin-top: 1px;
-    color: var(--ck-faint);
-    font-family: var(--ck-mono);
-    font-size: 8px;
-    letter-spacing: 0.16em;
-  }
-
-  .ck-side-label {
-    margin: 14px 10px 4px;
-    color: var(--ck-faint);
-    font-family: var(--ck-mono);
-    font-size: 9px;
-    letter-spacing: 0.08em;
-  }
-
-  .ck-side-label:first-child {
-    margin-top: 0;
-  }
-
-  .ck-side-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .ck-side-link {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 10px;
-    border-radius: 7px;
-    color: var(--ck-muted);
-    font-size: 13px;
-    transition: background 0.15s ease, color 0.15s ease;
-  }
-
-  .ck-side-link:hover {
-    background: var(--ck-surface-2);
-    color: var(--ck-ink);
-  }
-
-  .ck-side-link.is-active {
-    background: var(--ck-accent-soft);
-    color: var(--ck-accent);
-    font-weight: 600;
-  }
-
-  .ck-side-link svg {
-    width: 15px;
-    height: 15px;
-    flex: none;
-    stroke-width: 1.7;
-  }
-
-  .ck-sidebar-foot {
-    margin-top: auto;
-    padding: 14px 8px 0;
-    border-top: 1px solid var(--ck-line);
-  }
-
-  .ck-theme-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    color: var(--ck-faint);
-    font-size: 10px;
-  }
-
-  .ck-sidebar-legal {
-    margin-top: 10px !important;
-    color: var(--ck-faint);
-    font-size: 9px;
-    line-height: 1.6;
-  }
-
-  .ck-main {
-    padding-bottom: 0;
-  }
-
-  .ck-topbar {
-    padding: 11px 40px;
-  }
-
-  /* 桌面端页内 H1 已表明位置，顶栏不再重复标题。 */
-  .ck-topbar-left {
-    display: none;
-  }
-
-  .ck-topbar-kicker {
-    display: none;
-  }
-
-  .ck-topbar-actions > .ck-theme-toggle {
-    display: none;
-  }
-
-  .ck-content-wrap {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
-    gap: 34px;
-    align-items: start;
-    padding: 28px 40px 64px;
-  }
-
   .ck-rail {
     position: sticky;
-    top: 76px;
+    top: 16px;
     display: block;
-  }
-
-  .ck-bottom-nav {
-    display: none;
   }
 
   .ck-mobile-only {
     display: none;
-  }
-
-  .ck-desktop-only {
-    display: block;
-  }
-
-  .ck-page-head {
-    margin-top: 0;
-    margin-bottom: 22px;
-  }
-
-  .ck-page-title {
-    font-size: 36px;
   }
 
   .ck-index-value {
@@ -3273,13 +2764,6 @@ a.ck-chip:hover {
 }
 
 @media (min-width: 1240px) {
-  .ck-content-wrap {
-    grid-template-columns: minmax(0, 1fr) 300px;
-    gap: 44px;
-    padding-right: 48px;
-    padding-left: 48px;
-  }
-
   .ck-index-value {
     font-size: 23px;
   }
@@ -3369,6 +2853,30 @@ a.ck-chip:hover {
 
 /* ---------- 通知中心 ---------- */
 
+.ck-icon-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm);
+  background: transparent;
+  color: var(--ck-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ck-icon-button:hover {
+  background: var(--ck-surface-2);
+  color: var(--ck-ink);
+}
+
+.ck-icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
 .ck-notify-wrap {
   position: relative;
   display: flex;
@@ -3399,7 +2907,7 @@ a.ck-chip:hover {
 }
 
 .dark .ck-notify-badge {
-  color: #1a2421;
+  color: var(--background);
 }
 
 .ck-notify-panel {
@@ -3428,9 +2936,9 @@ a.ck-chip:hover {
 
 .ck-notify-title {
   margin: 0;
-  font-family: var(--ck-serif);
-  font-size: 16px;
-  font-weight: 700;
+  font-family: var(--ck-sans);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .ck-notify-sub {
