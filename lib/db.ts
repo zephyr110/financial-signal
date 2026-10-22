@@ -77,6 +77,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 5, name: 'backtest_result.direction(方向命中率:多/空/中性/混合)', up: migrationBacktestDirection },
   { version: 6, name: 'event_thread_signal 关联表 + 历史回填', up: migrationEventThreadSignal },
   { version: 7, name: 'event_log.created_at 索引', up: migrationEventLogCreatedIndex },
+  { version: 8, name: '个人投研驾驶舱表结构(来源/行情/简报/持仓/任务)', up: migrationCockpitSchema },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -129,6 +130,263 @@ async function migrationEventLogCreatedIndex(db) {
   try {
     await db.execute({ sql: 'CREATE INDEX IF NOT EXISTS idx_event_created ON event_log(created_at)', args: [] });
   } catch { /* 并发实例已先建索引 */ }
+}
+
+/** v8：驾驶舱。来源与文档、K 线、事实快照、版本化简报、论点、持仓、
+ * 决定日志与单 worker 任务队列。全部 IF NOT EXISTS，旧库只补缺。 */
+async function migrationCockpitSchema(db) {
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS symbols (
+      code TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      exchange TEXT NOT NULL,
+      industry_l1 TEXT,
+      source_id TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS trading_calendar (
+      trade_date TEXT PRIMARY KEY,
+      is_open INTEGER NOT NULL CHECK (is_open IN (0, 1)),
+      source_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS source_registry (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      tier INTEGER NOT NULL CHECK (tier BETWEEN 0 AND 3),
+      kind TEXT NOT NULL,
+      base_url TEXT,
+      terms_url TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_success_at TEXT,
+      last_error TEXT,
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS source_documents (
+      id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      doc_type TEXT NOT NULL,
+      external_id TEXT,
+      title TEXT NOT NULL,
+      issuer TEXT,
+      document_no TEXT,
+      published_at TEXT NOT NULL,
+      effective_at TEXT,
+      status TEXT,
+      url TEXT,
+      content_path TEXT,
+      full_text TEXT,
+      raw_hash TEXT,
+      fetched_at TEXT NOT NULL,
+      supersedes_id TEXT,
+      metadata_json TEXT,
+      is_demo INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_doc_source_external
+      ON source_documents(source_id, external_id) WHERE external_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_doc_type_published ON source_documents(doc_type, published_at);
+    CREATE INDEX IF NOT EXISTS idx_doc_source_published ON source_documents(source_id, published_at);
+
+    CREATE TABLE IF NOT EXISTS market_bars (
+      code TEXT NOT NULL,
+      trade_date TEXT NOT NULL,
+      open REAL,
+      high REAL,
+      low REAL,
+      close REAL NOT NULL,
+      volume REAL,
+      amount REAL,
+      adj_factor REAL,
+      adjust_type TEXT NOT NULL DEFAULT 'raw',
+      source_id TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (code, trade_date, adjust_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_bars_trade_date ON market_bars(trade_date);
+    CREATE INDEX IF NOT EXISTS idx_bars_code_date ON market_bars(code, trade_date);
+
+    CREATE TABLE IF NOT EXISTS market_overview (
+      trade_date TEXT PRIMARY KEY,
+      breadth_json TEXT NOT NULL,
+      turnover_json TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS fact_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trade_date TEXT NOT NULL,
+      as_of TEXT NOT NULL,
+      universe TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_fact_snapshot_hash ON fact_snapshots(content_hash);
+    CREATE INDEX IF NOT EXISTS idx_fact_snapshot_date ON fact_snapshots(trade_date);
+
+    CREATE TABLE IF NOT EXISTS validation_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      snapshot_id INTEGER,
+      check_type TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pass', 'warn', 'fail')),
+      severity TEXT,
+      detail_json TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_validation_snapshot ON validation_runs(snapshot_id);
+
+    CREATE TABLE IF NOT EXISTS reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      subject_code TEXT NOT NULL DEFAULT '',
+      trade_date TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL CHECK (status IN ('draft', 'published', 'superseded')),
+      payload_json TEXT NOT NULL,
+      fact_snapshot_id INTEGER,
+      model TEXT,
+      prompt_version TEXT,
+      cost_micros INTEGER NOT NULL DEFAULT 0,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      published_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_reports_kind_subject_date_version
+      ON reports(kind, subject_code, trade_date, version);
+    CREATE INDEX IF NOT EXISTS idx_reports_kind_date ON reports(kind, trade_date);
+    CREATE INDEX IF NOT EXISTS idx_reports_published ON reports(published_at);
+
+    CREATE TABLE IF NOT EXISTS theses (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      title TEXT NOT NULL,
+      claim TEXT NOT NULL,
+      horizon TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('active', 'strengthened', 'weakened', 'broken', 'review_due')),
+      confidence TEXT NOT NULL,
+      invalidation_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_reviewed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_theses_code ON theses(code);
+
+    CREATE TABLE IF NOT EXISTS thesis_evidence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thesis_id TEXT NOT NULL,
+      snapshot_id INTEGER,
+      direction TEXT NOT NULL CHECK (direction IN ('support', 'oppose', 'neutral')),
+      fact_key TEXT,
+      summary TEXT NOT NULL,
+      source_document_id TEXT,
+      observed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_thesis_evidence_thesis ON thesis_evidence(thesis_id);
+
+    CREATE TABLE IF NOT EXISTS portfolio_accounts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'CNY',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      shares INTEGER NOT NULL CHECK (shares >= 0),
+      avg_cost_cents INTEGER NOT NULL CHECK (avg_cost_cents >= 0),
+      opened_at TEXT,
+      closed_at TEXT,
+      notes TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE (account_id, code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_positions_code ON positions(code);
+
+    CREATE TABLE IF NOT EXISTS journal_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entry_date TEXT NOT NULL,
+      code TEXT,
+      action TEXT NOT NULL CHECK (action IN ('watch', 'buy', 'sell', 'hold', 'avoid', 'review')),
+      thesis_id TEXT,
+      reason TEXT NOT NULL,
+      outcome_note TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_journal_date ON journal_entries(entry_date);
+
+    CREATE TABLE IF NOT EXISTS watchlist_items (
+      code TEXT PRIMARY KEY,
+      note TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      params_json TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
+      progress INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
+      step TEXT,
+      result_json TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      idempotency_key TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      model TEXT,
+      cost_micros INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      heartbeat_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_tasks_idem ON tasks(idempotency_key);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
+
+    CREATE TABLE IF NOT EXISTS task_events (
+      task_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      payload_json TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (task_id, seq)
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL CHECK (severity IN ('info', 'warn', 'critical')),
+      title TEXT NOT NULL,
+      body TEXT,
+      deep_link TEXT,
+      read_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
+
+    CREATE TABLE IF NOT EXISTS llm_usage (
+      id TEXT PRIMARY KEY,
+      task_id TEXT,
+      model TEXT NOT NULL,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_micros INTEGER NOT NULL DEFAULT 0,
+      latency_ms INTEGER,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_usage_created ON llm_usage(created_at);
+  `);
 }
 
 async function migrate(db) {
