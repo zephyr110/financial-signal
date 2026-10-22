@@ -120,6 +120,8 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
               className="ck-hero-extra"
               title="模型叙述"
               hint={payload.narrative.model}
+              headingLevel={3}
+              summaryLabel={`模型叙述，不改写数字与来源，模型 ${payload.narrative.model}`}
             >
               <p className="ck-hero-narrative">{payload.narrative.text}</p>
             </Disclosure>
@@ -129,6 +131,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             className="ck-hero-extra"
             title="置信度构成"
             hint={`${Math.round(hero.confidence.score * 100)} / 100`}
+            headingLevel={3}
           >
             <div className="ck-confidence-breakdown">
               {confidenceInputs.map(([label, value]) => {
@@ -229,8 +232,13 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
           )}
         </section>
 
-        <section className="ck-section ck-mobile-only" aria-label="数据质量">
-          <Disclosure title="数据质量" hint={qualityHint}>
+        <section className="ck-section ck-mobile-only" aria-labelledby="data-quality-title">
+          <Disclosure
+            title="数据质量"
+            hint={qualityHint}
+            id="data-quality-title"
+            headingLevel={2}
+          >
             <DataQualityPanel items={dataQuality} />
           </Disclosure>
         </section>

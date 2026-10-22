@@ -1,7 +1,7 @@
 import Head from 'next/head'
 import Link from 'next/link'
 import type { GetServerSideProps } from 'next'
-import type { PortfolioView, SourceHealth, SourceRef } from '@/lib/cockpit/types'
+import type { PortfolioView, SourceHealth } from '@/lib/cockpit/types'
 import { formatCny, formatPrice, formatSignedPct } from '@/lib/cockpit/format'
 import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
 import { getPortfolio, getSourceHealth } from '@/lib/cockpit/repo'
@@ -38,20 +38,12 @@ export const getServerSideProps: GetServerSideProps<PortfolioProps> = async () =
   }
 }
 
-function uniqueSources(portfolio: PortfolioView): SourceRef[] {
-  const sources = portfolio.positions
-    .map((position) => position.source)
-    .filter((source): source is SourceRef => Boolean(source))
-  return sources.filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index)
-}
-
 function pnlTone(value: number): string {
   return value > 0 ? 'ck-up' : value < 0 ? 'ck-down' : 'ck-flat'
 }
 
 export default function PortfolioPage({ portfolio, sourceHealth, loadError }: PortfolioProps) {
   const empty = !portfolio || portfolio.positions.length === 0
-  const sources = portfolio ? uniqueSources(portfolio) : []
 
   return (
     <>
@@ -68,7 +60,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
 
-        <Disclosure title="录入或更新持仓" hint="同一代码会覆盖股数与成本">
+        <Disclosure title="录入或更新持仓" hint="同一代码会覆盖股数与成本" headingLevel={2}>
           <PortfolioEditor />
         </Disclosure>
 
@@ -174,13 +166,6 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                 title="持仓明细"
                 detail="按最新收盘价标记；权重按总市值计算。"
               />
-              {sources.length > 0 && (
-                <p className="ck-list-source">
-                  <span>行情来源</span>
-                  {sources.map((source) => <SourceChip source={source} key={source.id} />)}
-                </p>
-              )}
-
               <div className="ck-positions-cards">
                 {portfolio.positions.map((position) => (
                   <article className="ck-card ck-position" key={position.code}>
@@ -223,6 +208,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                       </div>
                     </div>
                     <div className="ck-position-foot">
+                      <SourceChip source={position.source} />
                       <PortfolioRemove code={position.code} name={position.name} />
                     </div>
                   </article>
@@ -246,6 +232,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                       <th scope="col" className="ck-num">市值</th>
                       <th scope="col" className="ck-num">浮动盈亏</th>
                       <th scope="col" className="ck-num">权重</th>
+                      <th scope="col">来源</th>
                       <th scope="col">操作</th>
                     </tr>
                   </thead>
@@ -278,6 +265,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                           )}
                         </td>
                         <td className="ck-num">{position.weight.toFixed(2)}%</td>
+                        <td><SourceChip source={position.source} /></td>
                         <td><PortfolioRemove code={position.code} name={position.name} /></td>
                       </tr>
                     ))}

@@ -160,7 +160,7 @@ export function NotificationBell() {
   return (
     <div className="ck-notify-wrap" ref={wrapRef}>
       <button
-        className="ck-theme-toggle ck-notify-button"
+        className="ck-icon-button ck-notify-button"
         type="button"
         aria-label={unread > 0 ? `通知，${unread} 条未读` : '通知'}
         aria-expanded={open}

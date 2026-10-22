@@ -3,6 +3,7 @@ import Link from 'next/link'
 import type { GetServerSideProps } from 'next'
 import type { JournalEntry, SourceHealth, ThesisView } from '@/lib/cockpit/types'
 import { todayShanghai } from '@/lib/cockpit/format'
+import { normalizeCode } from '@/lib/cockpit/codes'
 import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
 import { getJournal, getSourceHealth, getTheses } from '@/lib/cockpit/repo'
 import { serializable } from '@/lib/cockpit/page-data'
@@ -19,6 +20,17 @@ const ACTION_LABEL: Record<string, string> = {
   hold: '继续持有',
   avoid: '选择回避',
   review: '复盘旧决定',
+}
+
+// 旧日志里可能存的是 600519 这类写法，展示时归一化，避免链到不存在的个股页。
+function JournalCode({ code }: { code: string }) {
+  const normalized = normalizeCode(code)
+  if (!normalized) return <span className="ck-journal-code">{code}</span>
+  return (
+    <Link className="ck-journal-code" href={`/stock/${encodeURIComponent(normalized)}`}>
+      {code}
+    </Link>
+  )
 }
 
 interface ResearchProps {
@@ -92,6 +104,7 @@ export default function ResearchPage({
             <Disclosure
               title={`修订：${editing.title}`}
               hint={editing.code}
+              headingLevel={2}
               defaultOpen
             >
               <ThesisComposer initial={editing} key={editing.id} />
@@ -140,11 +153,7 @@ export default function ResearchPage({
                   <div className="ck-journal-head">
                     <span className="ck-journal-date">{entry.entryDate}</span>
                     <span className="ck-tag">{ACTION_LABEL[entry.action] || entry.action}</span>
-                    {entry.code && (
-                      <Link className="ck-journal-code" href={`/stock/${encodeURIComponent(entry.code)}`}>
-                        {entry.code}
-                      </Link>
-                    )}
+                    {entry.code && <JournalCode code={entry.code} />}
                   </div>
                   <p className="ck-journal-reason">{entry.reason}</p>
                   {entry.outcomeNote && (
@@ -157,13 +166,14 @@ export default function ResearchPage({
         </section>
 
         <section className="ck-section" aria-label="记录与登记">
-          <Disclosure title="记录今天的决定" hint="保留当时的事实与反证">
+          <Disclosure title="记录今天的决定" hint="保留当时的事实与反证" headingLevel={2}>
             <JournalComposer today={today} theses={theses} />
           </Disclosure>
           {!editing && (
             <Disclosure
               title="登记研究论点"
               hint="主张、时限与失效条件缺一不可"
+              headingLevel={2}
             >
               <ThesisComposer />
             </Disclosure>

@@ -2,6 +2,7 @@ import type { Breadth, MarketIndex, Turnover } from '@/lib/cockpit/types'
 import { formatPrice, formatYi } from '@/lib/cockpit/format'
 import {
   DeltaValue,
+  Disclosure,
   SourceChip,
   Sparkline,
 } from './bits'
@@ -33,7 +34,7 @@ export function MarketSnapshot({
     .filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index)
 
   return (
-    <div className="ck-snapshot" aria-label="收盘行情快照">
+    <div className="ck-snapshot" role="group" aria-label="收盘行情快照">
       <div className="ck-snapshot-indices">
         {indices.map((index) => (
           <div className="ck-snapshot-index" key={index.code}>
@@ -69,9 +70,12 @@ export function MarketSnapshot({
               <b className="ck-down">↓ {breadth.down.toLocaleString('zh-CN')}</b>
             </span>
           </div>
-          <span className="ck-snapshot-breakdown">
+          <span
+            className="ck-snapshot-breakdown"
+            title={limitsKnown ? undefined : '本次未取到涨跌停统计'}
+          >
             平盘 {breadth.flat.toLocaleString('zh-CN')} · 全市场 {total.toLocaleString('zh-CN')} 家
-            {limitsKnown && ` · 涨停 ${breadth.limitUp} / 跌停 ${breadth.limitDown}`}
+            {` · 涨停 ${limitsKnown ? breadth.limitUp : '—'} / 跌停 ${limitsKnown ? breadth.limitDown : '—'}`}
           </span>
         </div>
         <div className="ck-snapshot-turnover">
@@ -189,83 +193,87 @@ export function MarketPulse({
     .filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index)
 
   return (
-    <details className="ck-card ck-market-details">
-      <summary>
-        <span className="ck-market-summary-title">行情、广度与成交明细</span>
-        <span className="ck-market-summary-meta">指数走势 · 涨跌停 · 数据表</span>
-      </summary>
-      <div className="ck-market-body">
-        <div className="ck-index-grid">
-          {indices.map((index) => (
-            <article className="ck-card ck-index-card" key={index.code}>
-              <div className="ck-index-head">
-                <span className="ck-index-name">{index.name}</span>
-                <span className="ck-index-code">{index.code}</span>
-              </div>
-              <p className="ck-index-value">{formatPrice(index.close)}</p>
-              <div className="ck-index-foot">
-                <DeltaValue value={index.changePct} />
-                <span className="ck-index-spark">
-                  <Sparkline
-                    values={index.sparkline}
-                    label={`${index.name}近 ${index.sparkline.length} 个交易日收盘走势，最新 ${formatPrice(index.close)}，涨跌幅 ${index.changePct.toFixed(2)}%`}
-                  />
-                </span>
-              </div>
-            </article>
-          ))}
-        </div>
-        <div className="ck-pulse-grid">
-          <BreadthBlock breadth={breadth} />
-          <TurnoverBlock turnover={turnover} />
-        </div>
-        {indices.some((index) => index.sparkline.length > 1) && (
-          <details className="ck-price-table ck-index-table">
-            <summary>查看指数走势数据表（图表的数据视图）</summary>
-            <div className="ck-table-wrap" role="region" aria-label="指数走势数据表，可横向滚动" tabIndex={0}>
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">指数</th>
-                    <th scope="col">最新收盘</th>
-                    <th scope="col">涨跌幅</th>
-                    {Array.from({ length: 5 }, (_, position) => (
-                      <th scope="col" className="ck-num" key={position}>T-{4 - position}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {indices.map((index) => {
-                    const recent = index.sparkline.slice(-5)
-                    return (
-                      <tr key={index.code}>
-                        <th scope="row">{index.name}</th>
-                        <td className="ck-num">{formatPrice(index.close)}</td>
-                        <td className="ck-num"><DeltaValue value={index.changePct} /></td>
-                        {Array.from({ length: 5 }, (_, position) => {
-                          const offset = 5 - recent.length
-                          const value = position < offset ? null : recent[position - offset]
-                          return (
-                            <td className="ck-num" key={position}>
-                              {value === null ? '—' : formatPrice(value)}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        )}
-        {sources.length > 0 && (
-          <div className="ck-inline-meta" style={{ marginTop: 9 }}>
-            <span>来源</span>
-            {sources.map((source) => <SourceChip source={source} key={source.id} />)}
+    <section aria-labelledby="market-pulse-title">
+      <Disclosure
+        className="ck-card ck-market-details"
+        id="market-pulse-title"
+        headingLevel={2}
+        title="行情、广度与成交明细"
+        hint="指数走势 · 涨跌停 · 数据表"
+      >
+        <div className="ck-market-body">
+          <div className="ck-index-grid">
+            {indices.map((index) => (
+              <article className="ck-card ck-index-card" key={index.code}>
+                <div className="ck-index-head">
+                  <span className="ck-index-name">{index.name}</span>
+                  <span className="ck-index-code">{index.code}</span>
+                </div>
+                <p className="ck-index-value">{formatPrice(index.close)}</p>
+                <div className="ck-index-foot">
+                  <DeltaValue value={index.changePct} />
+                  <span className="ck-index-spark">
+                    <Sparkline
+                      values={index.sparkline}
+                      label={`${index.name}近 ${index.sparkline.length} 个交易日收盘走势，最新 ${formatPrice(index.close)}，涨跌幅 ${index.changePct.toFixed(2)}%`}
+                    />
+                  </span>
+                </div>
+              </article>
+            ))}
           </div>
-        )}
-      </div>
-    </details>
+          <div className="ck-pulse-grid">
+            <BreadthBlock breadth={breadth} />
+            <TurnoverBlock turnover={turnover} />
+          </div>
+          {indices.some((index) => index.sparkline.length > 1) && (
+            <details className="ck-price-table ck-index-table">
+              <summary>查看指数走势数据表（图表的数据视图）</summary>
+              <div className="ck-table-wrap" role="region" aria-label="指数走势数据表，可横向滚动" tabIndex={0}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">指数</th>
+                      <th scope="col">最新收盘</th>
+                      <th scope="col">涨跌幅</th>
+                      {Array.from({ length: 5 }, (_, position) => (
+                        <th scope="col" className="ck-num" key={position}>T-{4 - position}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {indices.map((index) => {
+                      const recent = index.sparkline.slice(-5)
+                      return (
+                        <tr key={index.code}>
+                          <th scope="row">{index.name}</th>
+                          <td className="ck-num">{formatPrice(index.close)}</td>
+                          <td className="ck-num"><DeltaValue value={index.changePct} /></td>
+                          {Array.from({ length: 5 }, (_, position) => {
+                            const offset = 5 - recent.length
+                            const value = position < offset ? null : recent[position - offset]
+                            return (
+                              <td className="ck-num" key={position}>
+                                {value === null ? '—' : formatPrice(value)}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+          {sources.length > 0 && (
+            <div className="ck-inline-meta ck-market-source">
+              <span>来源</span>
+              {sources.map((source) => <SourceChip source={source} key={source.id} />)}
+            </div>
+          )}
+        </div>
+      </Disclosure>
+    </section>
   )
 }

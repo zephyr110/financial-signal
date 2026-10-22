@@ -159,18 +159,30 @@ export function Disclosure({
   hint,
   defaultOpen = false,
   className = '',
+  headingLevel,
+  id,
+  summaryLabel,
   children,
 }: {
   title: string
   hint?: ReactNode
   defaultOpen?: boolean
   className?: string
+  headingLevel?: 2 | 3
+  id?: string
+  summaryLabel?: string
   children: ReactNode
 }) {
+  // 标题保留为真实 heading，键盘 H 导航才找得到；h2/h3 放在 summary 内是合法结构。
+  const titleNode = headingLevel === 2
+    ? <h2 className="ck-disclosure-title" id={id}>{title}</h2>
+    : headingLevel === 3
+      ? <h3 className="ck-disclosure-title" id={id}>{title}</h3>
+      : <span className="ck-disclosure-title" id={id}>{title}</span>
   return (
     <details className={`ck-disclosure ${className}`.trim()} open={defaultOpen || undefined}>
-      <summary>
-        <span>{title}</span>
+      <summary aria-label={summaryLabel}>
+        {titleNode}
         {hint && <span className="ck-disclosure-hint">{hint}</span>}
       </summary>
       <div className="ck-disclosure-body">{children}</div>

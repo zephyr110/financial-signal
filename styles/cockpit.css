@@ -207,21 +207,6 @@
   letter-spacing: 0.04em;
 }
 
-.ck-topbar-title {
-  display: none;
-  overflow: hidden;
-  color: var(--ck-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ck-topbar-title::before {
-  content: "/";
-  margin-right: 8px;
-  color: var(--ck-line-strong);
-}
-
 .ck-topbar-actions {
   display: flex;
   flex: none;
@@ -239,7 +224,7 @@
   letter-spacing: 0.02em;
 }
 
-.ck-theme-toggle {
+.ck-icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -253,12 +238,12 @@
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-.ck-theme-toggle:hover {
+.ck-icon-button:hover {
   border-color: var(--ck-line-strong);
   color: var(--ck-ink);
 }
 
-.ck-theme-toggle svg {
+.ck-icon-button svg {
   width: 15px;
   height: 15px;
 }
@@ -409,7 +394,7 @@
 }
 
 .ck-section-detail {
-  display: none;
+  display: block;
   margin-top: 3px !important;
   color: var(--ck-faint);
   font-size: 12px;
@@ -798,10 +783,6 @@ a.ck-chip:hover {
   line-height: 1.75;
 }
 
-.ck-hero-narrative p {
-  margin: 0;
-}
-
 .ck-hero-foot {
   display: flex;
   flex-wrap: wrap;
@@ -812,13 +793,6 @@ a.ck-chip:hover {
   padding: 11px 18px;
   border-top: 1px solid var(--ck-line);
   background: color-mix(in srgb, var(--ck-surface-2) 50%, transparent);
-}
-
-.ck-hero-confidence-note {
-  min-width: 0;
-  color: var(--ck-faint);
-  font-size: 10.5px;
-  line-height: 1.55;
 }
 
 .ck-hero-actions {
@@ -1145,8 +1119,12 @@ a.ck-chip:hover {
   display: none;
 }
 
-.ck-disclosure > summary > span:first-child {
+.ck-disclosure-title {
+  min-width: 0;
+  margin: 0;
   overflow: hidden;
+  color: inherit;
+  font: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1194,8 +1172,7 @@ a.ck-chip:hover {
   box-shadow: none;
 }
 
-.ck-disclosure .ck-form .ck-form-title,
-.ck-disclosure .ck-form .ck-form-hint {
+.ck-disclosure .ck-form .ck-form-title {
   display: none;
 }
 
@@ -1287,62 +1264,24 @@ a.ck-chip:hover {
 
 .ck-market-details {
   margin-top: 10px;
-  overflow: hidden;
-}
-
-.ck-market-details > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 11px 14px;
-  list-style: none;
-  cursor: pointer;
-}
-
-.ck-market-details > summary::-webkit-details-marker {
-  display: none;
-}
-
-.ck-market-details > summary::after {
-  content: "＋";
-  margin-left: auto;
-  color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 15px;
-  font-weight: 400;
+  overflow: visible;
 }
 
 .ck-market-details[open] > summary {
   border-bottom: 1px solid var(--ck-line);
 }
 
-.ck-market-details[open] > summary::after {
-  content: "－";
-}
-
-.ck-market-details > summary:hover {
-  background: color-mix(in srgb, var(--ck-surface-2) 60%, transparent);
-}
-
-.ck-market-summary-title {
-  color: var(--ck-ink);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.ck-market-summary-meta {
-  color: var(--ck-faint);
-  font-size: 10.5px;
-}
-
 .ck-market-body {
-  padding: 12px 14px 14px;
+  padding: 12px 0 0;
 }
 
 .ck-market-body .ck-index-card {
   background: color-mix(in srgb, var(--ck-surface-2) 55%, transparent);
   box-shadow: none;
+}
+
+.ck-market-source {
+  margin-top: 9px;
 }
 
 /* ---------- 市场脉搏 ---------- */
@@ -1937,7 +1876,7 @@ a.ck-chip:hover {
   left: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 2px;
   padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--ck-line);
@@ -2230,11 +2169,14 @@ a.ck-chip:hover {
 }
 
 .ck-position-name {
+  display: inline-block;
+  max-width: 100%;
   overflow: hidden;
   color: var(--ck-ink);
   font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
+  vertical-align: bottom;
   white-space: nowrap;
 }
 
@@ -2308,6 +2250,21 @@ a.ck-chip:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.ck-position-cell b.ck-up,
+.ck-position-cell small.ck-up {
+  color: var(--ck-up-text);
+}
+
+.ck-position-cell b.ck-down,
+.ck-position-cell small.ck-down {
+  color: var(--ck-down-text);
+}
+
+.ck-position-cell b.ck-flat,
+.ck-position-cell small.ck-flat {
+  color: var(--ck-faint);
+}
+
 .ck-position-foot {
   display: flex;
   align-items: center;
@@ -2316,24 +2273,14 @@ a.ck-chip:hover {
   margin-top: 9px;
 }
 
-.ck-position-foot .ck-inline-meta {
-  font-size: 10px;
+.ck-position-foot > .ck-chip {
+  margin-right: auto;
 }
 
 /* ---------- 自选 ---------- */
 
 .ck-list-stack {
   overflow: hidden;
-}
-
-.ck-list-source {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 8px;
-  color: var(--ck-faint);
-  font-size: 10.5px;
 }
 
 .ck-watch-row {
@@ -2353,7 +2300,15 @@ a.ck-chip:hover {
 }
 
 .ck-watch-main {
-  display: block;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 5px 12px;
+  min-width: 0;
+}
+
+.ck-watch-copy {
   min-width: 0;
 }
 
@@ -2387,11 +2342,7 @@ a.ck-chip:hover {
 }
 
 .ck-watch-note {
-  display: -webkit-box;
   margin: 4px 0 0;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
   color: var(--ck-muted);
   font-size: 11.5px;
   line-height: 1.55;
@@ -2400,6 +2351,7 @@ a.ck-chip:hover {
 
 .ck-watch-side {
   display: block;
+  min-width: 0;
   text-align: right;
 }
 
@@ -2438,8 +2390,8 @@ a.ck-chip:hover {
   margin-top: 1px;
 }
 
-.ck-watch-wide .ck-inline-meta {
-  font-size: 10.5px;
+.ck-watch-wide > .ck-chip {
+  margin-right: auto;
 }
 
 /* ---------- 个股 ---------- */
@@ -2959,14 +2911,6 @@ a.ck-chip:hover {
   transition: width 0.35s ease;
 }
 
-.ck-task.is-failed .ck-task-progress-fill {
-  background: var(--ck-critical);
-}
-
-.ck-task.is-succeeded .ck-task-progress-fill {
-  background: var(--ck-ok);
-}
-
 .ck-task-meta {
   display: flex;
   flex-wrap: wrap;
@@ -3065,10 +3009,6 @@ a.ck-chip:hover {
   }
   .ck-asof {
     display: inline;
-  }
-
-  .ck-section-detail {
-    display: block;
   }
 
   .ck-page-sub {
@@ -3202,11 +3142,16 @@ a.ck-chip:hover {
     letter-spacing: 0.16em;
   }
 
-  .ck-sidebar-note {
-    margin: 18px 8px 8px !important;
+  .ck-side-label {
+    margin: 14px 10px 4px;
     color: var(--ck-faint);
+    font-family: var(--ck-mono);
     font-size: 9px;
     letter-spacing: 0.08em;
+  }
+
+  .ck-side-label:first-child {
+    margin-top: 0;
   }
 
   .ck-side-nav {
@@ -3244,14 +3189,6 @@ a.ck-chip:hover {
     stroke-width: 1.7;
   }
 
-  .ck-side-link-hint {
-    margin-left: auto;
-    color: var(--ck-faint);
-    font-family: var(--ck-mono);
-    font-size: 8px;
-    font-weight: 400;
-  }
-
   .ck-sidebar-foot {
     margin-top: auto;
     padding: 14px 8px 0;
@@ -3274,12 +3211,6 @@ a.ck-chip:hover {
     line-height: 1.6;
   }
 
-  .ck-side-link-quiet {
-    margin-top: 4px;
-    padding: 5px 0;
-    font-size: 10px;
-  }
-
   .ck-main {
     padding-bottom: 0;
   }
@@ -3294,10 +3225,6 @@ a.ck-chip:hover {
   }
 
   .ck-topbar-kicker {
-    display: none;
-  }
-
-  .ck-topbar-title {
     display: none;
   }
 
@@ -3376,7 +3303,6 @@ a.ck-chip:hover {
     gap: 10px;
   }
 
-  .ck-market-summary-meta,
   .ck-disclosure-hint {
     display: none;
   }

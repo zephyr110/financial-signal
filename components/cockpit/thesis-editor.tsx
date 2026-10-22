@@ -187,7 +187,6 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
               void router.replace('/research')
               return
             }
-            resetForm()
             if (formRef.current?.closest('details')) {
               (formRef.current.closest('details') as HTMLDetailsElement).open = false
             }

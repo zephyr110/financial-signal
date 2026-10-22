@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { TaskRecord } from '@/lib/cockpit/types'
 import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
 import { Disclosure } from './bits'
@@ -77,7 +77,6 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
   const [error, setError] = useState<string | null>(null)
   const [question, setQuestion] = useState('')
   const [code, setCode] = useState('')
-  const formsRef = useRef<HTMLDivElement | null>(null)
   const hasActive = tasks.some((task) => task.status === 'queued' || task.status === 'running')
 
   useEffect(() => {
@@ -137,7 +136,11 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
     }
   }, [hasActive])
 
-  async function run(type: string, params: Record<string, unknown> = {}) {
+  async function run(
+    type: string,
+    params: Record<string, unknown> = {},
+    form?: HTMLFormElement | null,
+  ) {
     setBusy(type)
     setError(null)
     setMessage(null)
@@ -171,12 +174,11 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       }
       if (type === 'ask') setQuestion('')
       if (type === 'symbol_deep_dive') setCode('')
-      if (type === 'ask' || type === 'symbol_deep_dive') {
-        // 收起表单，让回执和任务流水直接出现在视野里。
-        formsRef.current?.querySelectorAll('details[open]').forEach((item) => {
-          (item as HTMLDetailsElement).open = false
-        })
-      }
+      // 只收起刚提交的表单，并让键盘焦点回到它的标题；其它展开的表单保持原样。
+      const details = form?.closest('details')
+      const summary = details?.querySelector<HTMLElement>('summary')
+      if (details) details.open = false
+      summary?.focus()
     } catch {
       setError('网络连接失败，任务未派发。')
     } finally {
@@ -251,8 +253,8 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
           </button>
         </div>
 
-        <div className="ck-task-forms" ref={formsRef}>
-          <Disclosure title="向最新简报提问" hint="只引用已校验证据">
+        <div className="ck-task-forms">
+          <Disclosure title="向最新简报提问" hint="只引用已校验证据" headingLevel={3}>
             <form
               onSubmit={(event) => {
                 event.preventDefault()
@@ -261,7 +263,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                   setError('请先写下问题。')
                   return
                 }
-                void run('ask', { question: value })
+                void run('ask', { question: value }, event.currentTarget)
               }}
             >
               <div className="ck-field">
@@ -283,7 +285,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
             </form>
           </Disclosure>
 
-          <Disclosure title="个股深挖" hint="读取已入库的行情、公告与论点">
+          <Disclosure title="个股深挖" hint="读取已入库的行情、公告与论点" headingLevel={3}>
             <form
               onSubmit={(event) => {
                 event.preventDefault()
@@ -292,7 +294,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                   setError('请填写股票代码。')
                   return
                 }
-                void run('symbol_deep_dive', { code: value })
+                void run('symbol_deep_dive', { code: value }, event.currentTarget)
               }}
             >
               <div className="ck-field">
