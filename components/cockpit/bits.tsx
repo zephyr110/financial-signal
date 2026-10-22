@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type {
   Confidence,
   DataQualityItem,
@@ -13,6 +14,13 @@ import {
   thesisStatusLabel,
   tierLabel,
 } from '@/lib/cockpit/format'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 
 type HealthLike = SourceHealth | DataQualityItem
 
@@ -45,7 +53,7 @@ const THESIS_CLASS: Record<ThesisStatus, string> = {
   review_due: 'ck-tag-review_due',
 }
 
-export function SourceChip({ source }: { source?: SourceRef }) {
+export function SourceChip({ source, link = true }: { source?: SourceRef; link?: boolean }) {
   if (!source) return null
   const demo = source.id.startsWith('demo-') || source.name.includes('示例')
   const content = (
@@ -57,7 +65,8 @@ export function SourceChip({ source }: { source?: SourceRef }) {
   )
   const title = `${tierLabel(source.tier)} · ${source.name} · 截至 ${source.asOf || '未知'}`
   const className = `ck-chip ck-tier-${source.tier}${demo ? ' ck-chip-demo' : ''}`
-  if (source.url && !demo) {
+  // 列表行本身已是链接，芯片改用 span，避免嵌套 a。
+  if (link && source.url && !demo) {
     return (
       <a className={className} href={source.url} target="_blank" rel="noreferrer" title={title}>
         {content}
@@ -145,13 +154,23 @@ export function Sparkline({
 
 export function DemoBanner({ children }: { children?: ReactNode }) {
   return (
-    <div className="ck-demo-banner" role="note">
+    <Alert variant="default" className="ck-demo-banner" role="note">
       <span className="ck-demo-tag">示例</span>
-      <span className="ck-demo-copy">
+      <AlertDescription className="ck-demo-copy">
         {children || '界面演示数据，不是真实行情、政策或公告；接入真实来源后所有结论会重新计算。'}
-      </span>
-    </div>
+      </AlertDescription>
+    </Alert>
   )
+}
+
+const CLOSE_EVENT = 'ck:disclosure-close'
+
+/** 表单提交成功后收起所在的 Collapsible，并把焦点还给触发按钮。 */
+export function closeDisclosure(node: HTMLElement | null) {
+  const root = node?.closest<HTMLElement>('[data-ck-disclosure]')
+  if (!root) return
+  root.dispatchEvent(new CustomEvent(CLOSE_EVENT))
+  root.querySelector<HTMLElement>('[data-slot="collapsible-trigger"]')?.focus()
 }
 
 export function Disclosure({
@@ -173,27 +192,56 @@ export function Disclosure({
   summaryLabel?: string
   children: ReactNode
 }) {
-  // 标题保留为真实 heading，键盘 H 导航才找得到；h2/h3 放在 summary 内是合法结构。
+  const [open, setOpen] = useState(defaultOpen)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    const close = () => setOpen(false)
+    root.addEventListener(CLOSE_EVENT, close)
+    return () => root.removeEventListener(CLOSE_EVENT, close)
+  }, [])
+
+  // 标题保持为独立 heading，触发按钮绝对铺满头部；否则 h2 会失去精确的可访问名称。
   const titleNode = headingLevel === 2
     ? <h2 className="ck-disclosure-title" id={id}>{title}</h2>
     : headingLevel === 3
       ? <h3 className="ck-disclosure-title" id={id}>{title}</h3>
       : <span className="ck-disclosure-title" id={id}>{title}</span>
+
   return (
-    <details className={`ck-disclosure ${className}`.trim()} open={defaultOpen || undefined}>
-      <summary aria-label={summaryLabel}>
-        {titleNode}
-        {hint && <span className="ck-disclosure-hint">{hint}</span>}
-      </summary>
-      <div className="ck-disclosure-body">{children}</div>
-    </details>
+    <div
+      className={`ck-disclosure${open ? ' is-open' : ''} ${className}`.trim()}
+      data-ck-disclosure
+      ref={rootRef}
+    >
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <div className="ck-disclosure-head">
+          {titleNode}
+          {hint && <span className="ck-disclosure-hint">{hint}</span>}
+          <ChevronDown className="ck-disclosure-icon" aria-hidden="true" />
+          <CollapsibleTrigger
+            className="ck-disclosure-trigger"
+            aria-label={summaryLabel || title}
+          />
+        </div>
+        <CollapsibleContent keepMounted>
+          <div className="ck-disclosure-body">{children}</div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
   )
 }
 
 export function ThesisTag({ status }: { status?: ThesisStatus | string }) {
   if (!status) return null
   const key = (status in THESIS_CLASS ? status : 'active') as ThesisStatus
-  return <span className={`ck-tag ${THESIS_CLASS[key]}`}>{thesisStatusLabel(status)}</span>
+  return (
+    <Badge variant="outline" className={THESIS_CLASS[key]}>
+      {thesisStatusLabel(status)}
+    </Badge>
+  )
 }
 
 export function SectionHeader({
@@ -248,21 +296,26 @@ export function SourceHealthRail({ sources }: { sources: SourceHealth[] }) {
   const sorted = sortByStatus(sources)
   return (
     <ul className="ck-rail-list">
-      {sorted.slice(0, 7).map((source) => (
-        <li className="ck-rail-row" key={source.id}>
-          <span className={`ck-status-dot ck-status-${source.status}`} aria-hidden="true" />
-          <div className="ck-rail-row-main">
-            <span className="ck-rail-row-title">
-              {source.name} <span className="ck-chip-tier">T{source.tier}</span>
-            </span>
-            <span className="ck-rail-row-meta">
-              {STATUS_TEXT[source.status]}
-              {healthMeta(source).last ? ` · ${formatTime(healthMeta(source).last!)}` : ''}
-              {healthMeta(source).message ? ` · ${healthMeta(source).message}` : ''}
-            </span>
-          </div>
-        </li>
-      ))}
+      {sorted.slice(0, 7).map((source) => {
+        const meta = healthMeta(source)
+        // 未接入源的说明都一样，列在侧栏只会占高度；完整说明留在移动端数据质量面板。
+        const detail = source.status === 'inactive' ? '' : meta.message
+        return (
+          <li className="ck-rail-row" key={source.id}>
+            <span className={`ck-status-dot ck-status-${source.status}`} aria-hidden="true" />
+            <div className="ck-rail-row-main">
+              <span className="ck-rail-row-title">
+                {source.name} <span className="ck-chip-tier">T{source.tier}</span>
+              </span>
+              <span className="ck-rail-row-meta" title={source.status === 'inactive' ? meta.message : undefined}>
+                {STATUS_TEXT[source.status]}
+                {meta.last ? ` · ${formatTime(meta.last)}` : ''}
+                {detail ? ` · ${detail}` : ''}
+              </span>
+            </div>
+          </li>
+        )
+      })}
     </ul>
   )
 }

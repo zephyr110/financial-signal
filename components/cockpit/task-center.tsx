@@ -1,7 +1,18 @@
 import { useEffect, useState } from 'react'
+import {
+  CalendarRange,
+  FileText,
+  ListChecks,
+  RefreshCw,
+  type LucideIcon,
+} from 'lucide-react'
 import type { TaskRecord } from '@/lib/cockpit/types'
 import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
-import { Disclosure } from './bits'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Disclosure, closeDisclosure } from './bits'
 
 const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
@@ -12,6 +23,43 @@ const TYPE_LABEL: Record<string, string> = {
   weekly_review: '周度复盘',
   symbol_deep_dive: '个股深挖',
 }
+
+const QUICK_ACTIONS: Array<{
+  type: string
+  params: Record<string, unknown>
+  title: string
+  hint: string
+  icon: LucideIcon
+}> = [
+  {
+    type: 'daily_brief',
+    params: {},
+    title: '生成今日简报',
+    hint: '事实包 → 校验 → 版本化',
+    icon: FileText,
+  },
+  {
+    type: 'thesis_review',
+    params: {},
+    title: '复核全部论点',
+    hint: '更新复核时间与反证',
+    icon: ListChecks,
+  },
+  {
+    type: 'weekly_review',
+    params: {},
+    title: '生成周度复盘',
+    hint: '持仓、论点与日志汇总',
+    icon: CalendarRange,
+  },
+  {
+    type: 'daily_brief',
+    params: { force: true },
+    title: '重算并发布新版本',
+    hint: '保留旧版本，版本号递增',
+    icon: RefreshCw,
+  },
+]
 
 function warningsText(value: unknown): string {
   return Array.isArray(value) ? value.map(String).filter(Boolean).join('\n') : ''
@@ -222,10 +270,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       if (type === 'ask') setQuestion('')
       if (type === 'symbol_deep_dive') setCode('')
       // 只收起刚提交的表单，并让键盘焦点回到它的标题；其它展开的表单保持原样。
-      const details = form?.closest('details')
-      const summary = details?.querySelector<HTMLElement>('summary')
-      if (details) details.open = false
-      summary?.focus()
+      if (form) closeDisclosure(form)
     } catch {
       setError('网络连接失败，任务未派发。')
     } finally {
@@ -262,42 +307,27 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
           <p className="ck-task-composer-hint">串行执行，结果写入研究记录；同参数不会重复计费。</p>
         </div>
         <div className="ck-task-grid">
-          <button
-            className="ck-task-quick"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => run('daily_brief')}
-          >
-            <strong>生成今日简报</strong>
-            <span>事实包 → 校验 → 版本化</span>
-          </button>
-          <button
-            className="ck-task-quick"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => run('thesis_review')}
-          >
-            <strong>复核全部论点</strong>
-            <span>更新复核时间与反证</span>
-          </button>
-          <button
-            className="ck-task-quick"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => run('weekly_review')}
-          >
-            <strong>生成周度复盘</strong>
-            <span>持仓、论点与日志汇总</span>
-          </button>
-          <button
-            className="ck-task-quick"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => run('daily_brief', { force: true })}
-          >
-            <strong>重算并发布新版本</strong>
-            <span>保留旧版本，版本号递增</span>
-          </button>
+          {QUICK_ACTIONS.map((action) => {
+            const Icon = action.icon
+            return (
+              <Button
+                key={`${action.type}:${action.title}`}
+                variant="outline"
+                className="ck-task-quick"
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => run(action.type, action.params)}
+              >
+                <span className="ck-task-quick-icon">
+                  <Icon aria-hidden="true" />
+                </span>
+                <span className="ck-task-quick-copy">
+                  <strong>{action.title}</strong>
+                  <span>{action.hint}</span>
+                </span>
+              </Button>
+            )
+          })}
         </div>
 
         <div className="ck-task-forms">
@@ -315,8 +345,8 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
             >
               <div className="ck-field">
                 <label className="ck-label" htmlFor="task-question">问题</label>
-                <textarea
-                  className="ck-textarea"
+                <Textarea
+                  className="min-h-20 text-base md:text-sm"
                   id="task-question"
                   value={question}
                   maxLength={2000}
@@ -325,9 +355,9 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                 />
               </div>
               <div className="ck-form-actions">
-                <button className="ck-button ck-button-primary" type="submit" disabled={Boolean(busy)}>
+                <Button type="submit" disabled={Boolean(busy)}>
                   {busy === 'ask' ? '派发中…' : '提交问题'}
-                </button>
+                </Button>
               </div>
             </form>
           </Disclosure>
@@ -346,8 +376,8 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
             >
               <div className="ck-field">
                 <label className="ck-label" htmlFor="task-code">股票代码</label>
-                <input
-                  className="ck-input"
+                <Input
+                  className="text-base md:text-sm"
                   id="task-code"
                   value={code}
                   maxLength={20}
@@ -356,9 +386,9 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                 />
               </div>
               <div className="ck-form-actions">
-                <button className="ck-button" type="submit" disabled={Boolean(busy)}>
+                <Button variant="outline" type="submit" disabled={Boolean(busy)}>
                   {busy === 'symbol_deep_dive' ? '派发中…' : '开始深挖'}
-                </button>
+                </Button>
               </div>
             </form>
           </Disclosure>
@@ -395,9 +425,12 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                 >
                   <div className="ck-task-head">
                     <span className="ck-task-type">{TYPE_LABEL[task.type] || task.type}</span>
-                    <span className={`ck-task-status is-${task.status}`}>
+                    <Badge
+                      variant="outline"
+                      className={`ck-task-status is-${task.status}`}
+                    >
                       {taskStatusLabel(task.status)}
-                    </span>
+                    </Badge>
                   </div>
                   {active && (
                     <div className="ck-task-body">
@@ -443,14 +476,15 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                   </div>
                   {canCancel && (
                     <div className="ck-task-actions">
-                      <button
-                        className="ck-button ck-button-danger ck-button-small"
+                      <Button
+                        variant="destructive"
+                        size="sm"
                         type="button"
                         disabled={busy === task.id}
                         onClick={() => void cancel(task.id)}
                       >
                         取消任务
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </article>

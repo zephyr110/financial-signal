@@ -10,6 +10,7 @@ import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { EvidenceSpine } from '@/components/cockpit/evidence-spine'
 import { MarketPulse, MarketSnapshot } from '@/components/cockpit/market-pulse'
 import { DocumentList } from '@/components/cockpit/document-list'
+import { buttonVariants } from '@/components/ui/button'
 import {
   ConfidencePill,
   DataQualityPanel,
@@ -62,8 +63,8 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             title="今天还没有收盘简报"
             actions={(
               <>
-                <Link className="ck-button ck-button-primary" href="/tasks">派发收盘简报</Link>
-                <Link className="ck-button" href="/watchlist">先看自选</Link>
+                <Link className={buttonVariants({ size: 'sm' })} href="/tasks">派发收盘简报</Link>
+                <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/watchlist">先看自选</Link>
               </>
             )}
           >
@@ -152,15 +153,15 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             <p className="ck-confidence-note">四项由服务端按固定规则计算；缺数据、过期或来源冲突会压低分数，不由模型自评。</p>
           </Disclosure>
 
+          <MarketPulse indices={indices} breadth={breadth} turnover={turnover} embedded />
+
           <div className="ck-hero-foot">
             <div className="ck-hero-actions">
-              <Link className="ck-button ck-button-small" href="/research">核对论点</Link>
-              <Link className="ck-button ck-button-primary ck-button-small" href="/tasks">派发任务</Link>
+              <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/research">核对论点</Link>
+              <Link className={buttonVariants({ size: 'sm' })} href="/tasks">派发任务</Link>
             </div>
           </div>
         </article>
-
-        <MarketPulse indices={indices} breadth={breadth} turnover={turnover} />
 
         <section className="ck-section" aria-labelledby="impact-title">
           <SectionHeader

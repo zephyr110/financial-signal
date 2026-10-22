@@ -10,6 +10,7 @@ import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { EvidenceSpine } from '@/components/cockpit/evidence-spine'
 import { DocumentList } from '@/components/cockpit/document-list'
 import { ThesisCard } from '@/components/cockpit/thesis-card'
+import { buttonVariants } from '@/components/ui/button'
 import {
   DeltaValue,
   EmptyState,
@@ -62,8 +63,8 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
             title="这个标的还没有入库"
             actions={(
               <>
-                <Link className="ck-button" href="/watchlist">返回自选</Link>
-                <Link className="ck-button ck-button-primary" href="/tasks">运行个股深挖</Link>
+                <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/watchlist">返回自选</Link>
+                <Link className={buttonVariants({ size: 'sm' })} href="/tasks">运行个股深挖</Link>
               </>
             )}
           >
@@ -183,7 +184,7 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
           ) : (
             <EmptyState
               title="尚未建立可推翻的论点"
-              actions={<Link className="ck-button" href="/research">去研究页</Link>}
+              actions={<Link className={buttonVariants({ size: 'sm' })} href="/research">去研究页</Link>}
             >
               先写下判断、支持证据与至少一条失效条件，再让价格变化参与复核。
             </EmptyState>

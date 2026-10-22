@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/router'
+import { Trash2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 export function PortfolioEditor() {
   const router = useRouter()
@@ -64,8 +67,8 @@ export function PortfolioEditor() {
       <div className="ck-form-row">
         <div className="ck-field">
           <label className="ck-label" htmlFor="position-code">股票代码</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="position-code"
             value={code}
             required
@@ -76,8 +79,8 @@ export function PortfolioEditor() {
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="position-shares">股数</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="position-shares"
             value={shares}
             required
@@ -88,8 +91,8 @@ export function PortfolioEditor() {
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="position-cost">成本价（元）</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="position-cost"
             value={cost}
             required
@@ -100,9 +103,9 @@ export function PortfolioEditor() {
         </div>
       </div>
       <div className="ck-form-actions">
-        <button className="ck-button ck-button-primary" type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy}>
           {busy ? '写入中…' : '保存持仓'}
-        </button>
+        </Button>
         <span className="ck-inline-meta">成本最多保留两位小数</span>
       </div>
       {error && <p className="ck-form-error" role="alert">{error}</p>}
@@ -141,34 +144,39 @@ export function PortfolioRemove({ code, name }: { code: string; name: string }) 
 
   if (!confirming) {
     return (
-      <button
-        className="ck-button ck-button-ghost ck-button-small"
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="ck-row-action"
         type="button"
         onClick={() => setConfirming(true)}
         aria-label={`移除持仓 ${name}`}
+        title="移除持仓"
       >
-        移除
-      </button>
+        <Trash2 aria-hidden="true" />
+      </Button>
     )
   }
   return (
     <span className="ck-inline-actions">
-      <button
-        className="ck-button ck-button-danger ck-button-small"
+      <Button
+        variant="destructive"
+        size="sm"
         type="button"
         disabled={busy}
         onClick={() => void remove()}
       >
         {busy ? '移除中…' : '确认移除'}
-      </button>
-      <button
-        className="ck-button ck-button-ghost ck-button-small"
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         disabled={busy}
         onClick={() => setConfirming(false)}
       >
         取消
-      </button>
+      </Button>
       {error && <span className="ck-form-error" role="alert">{error}</span>}
     </span>
   )

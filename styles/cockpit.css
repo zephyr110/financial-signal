@@ -129,6 +129,8 @@
 
 .ck-demo-copy {
   min-width: 0;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 /* ---------- 区块与卡片 ---------- */
@@ -228,81 +230,6 @@
   color: var(--ck-line-strong);
 }
 
-/* ---------- 按钮 ---------- */
-
-.ck-button {
-  display: inline-flex;
-  min-height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 11px;
-  border: 1px solid var(--ck-line);
-  border-radius: var(--ck-radius-sm);
-  background: var(--ck-surface);
-  color: var(--ck-ink);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.2;
-  text-align: center;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.ck-button:hover:not(:disabled) {
-  border-color: var(--ck-accent);
-  color: var(--ck-accent);
-}
-
-.ck-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.ck-button-primary {
-  border-color: var(--ck-accent);
-  background: var(--ck-accent);
-  color: var(--ck-surface);
-}
-
-.ck-button-primary:hover:not(:disabled) {
-  border-color: var(--ck-accent-strong);
-  background: var(--ck-accent-strong);
-  color: var(--ck-surface);
-}
-
-.ck-button-ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--ck-muted);
-}
-
-.ck-button-ghost:hover:not(:disabled) {
-  border-color: var(--ck-line);
-  background: var(--ck-surface-2);
-  color: var(--ck-ink);
-}
-
-.ck-button-danger {
-  border-color: color-mix(in srgb, var(--ck-critical) 50%, var(--ck-line));
-  color: var(--ck-critical);
-}
-
-.ck-button-danger:hover:not(:disabled) {
-  border-color: var(--ck-critical);
-  color: var(--ck-critical);
-}
-
-.ck-button-small {
-  min-height: 28px;
-  padding: 4px 9px;
-  font-size: 12px;
-}
-
-.ck-button svg {
-  width: 13px;
-  height: 13px;
-}
-
 /* ---------- 标签与来源 ---------- */
 
 .ck-chip {
@@ -369,21 +296,6 @@ a.ck-chip:hover {
   border-color: color-mix(in srgb, var(--ck-copper) 48%, var(--ck-line));
   background: var(--ck-copper-soft);
   color: var(--ck-copper);
-}
-
-.ck-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border: 1px solid var(--ck-line);
-  border-radius: 3px;
-  background: var(--ck-surface-2);
-  color: var(--ck-muted);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.6;
-  white-space: nowrap;
 }
 
 .ck-tag-active,
@@ -568,6 +480,11 @@ a.ck-chip:hover {
   display: flex;
   flex: none;
   gap: 8px;
+}
+
+.ck-hero-actions a,
+.ck-empty-actions a {
+  min-height: 34px;
 }
 
 
@@ -809,10 +726,16 @@ a.ck-chip:hover {
 }
 
 .ck-snapshot-breakdown {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 10px;
   margin-top: 2px;
   color: var(--ck-faint);
   font-size: 9.5px;
+}
+
+.ck-nowrap {
+  white-space: nowrap;
 }
 
 .ck-snapshot-turnover strong {
@@ -860,7 +783,8 @@ a.ck-chip:hover {
   margin-top: 8px;
 }
 
-.ck-disclosure > summary {
+.ck-disclosure-head {
+  position: relative;
   display: flex;
   min-height: 48px;
   align-items: center;
@@ -870,12 +794,12 @@ a.ck-chip:hover {
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
-  list-style: none;
   cursor: pointer;
+  transition: background 0.15s ease;
 }
 
-.ck-disclosure > summary::-webkit-details-marker {
-  display: none;
+.ck-disclosure-head:hover {
+  background: color-mix(in srgb, var(--ck-surface-2) 60%, transparent);
 }
 
 .ck-disclosure-title {
@@ -888,21 +812,17 @@ a.ck-chip:hover {
   white-space: nowrap;
 }
 
-.ck-disclosure > summary::after {
-  content: "＋";
+.ck-disclosure-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
   margin-left: auto;
   color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 15px;
-  font-weight: 400;
+  transition: transform 0.18s ease;
 }
 
-.ck-disclosure[open] > summary::after {
-  content: "－";
-}
-
-.ck-disclosure > summary:hover {
-  background: color-mix(in srgb, var(--ck-surface-2) 60%, transparent);
+.ck-disclosure.is-open .ck-disclosure-icon {
+  transform: rotate(180deg);
 }
 
 .ck-disclosure-hint {
@@ -915,7 +835,16 @@ a.ck-chip:hover {
   white-space: nowrap;
 }
 
-.ck-disclosure > summary:focus-visible {
+.ck-disclosure-trigger {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ck-disclosure-trigger:focus-visible {
   outline: 2px solid var(--ck-accent);
   outline-offset: -2px;
 }
@@ -955,7 +884,7 @@ a.ck-chip:hover {
   box-shadow: none;
 }
 
-.ck-hero-extra > summary {
+.ck-hero-extra .ck-disclosure-head {
   min-height: 36px;
   padding: 8px 11px;
   color: var(--ck-muted);
@@ -963,8 +892,9 @@ a.ck-chip:hover {
   font-weight: 500;
 }
 
-.ck-hero-extra > summary::after {
-  font-size: 13px;
+.ck-hero-extra .ck-disclosure-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .ck-hero-extra .ck-disclosure-body {
@@ -1026,7 +956,7 @@ a.ck-chip:hover {
   overflow: visible;
 }
 
-.ck-market-details[open] > summary {
+.ck-market-details.is-open .ck-disclosure-head {
   border-bottom: 1px solid var(--ck-line);
 }
 
@@ -1527,7 +1457,7 @@ a.ck-chip:hover {
 }
 
 .ck-rail-card {
-  padding: 16px;
+  padding: 14px;
   border: 1px solid var(--ck-line);
   border-radius: var(--ck-radius);
   background: var(--ck-surface);
@@ -1550,7 +1480,7 @@ a.ck-chip:hover {
 }
 
 .ck-rail-list {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -1559,7 +1489,7 @@ a.ck-chip:hover {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 8px 0;
+  padding: 7px 0;
   border-top: 1px solid var(--ck-line);
 }
 
@@ -1584,10 +1514,13 @@ a.ck-chip:hover {
 
 .ck-rail-row-meta {
   display: block;
-  margin-top: 2px;
+  overflow: hidden;
+  margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 10.5px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ck-rail-link {
@@ -1623,6 +1556,8 @@ a.ck-chip:hover {
 .ck-metric {
   min-width: 0;
   padding: 12px 13px;
+  border-radius: var(--ck-radius);
+  background: var(--ck-surface);
 }
 
 .ck-metric:first-child {
@@ -1822,8 +1757,55 @@ a.ck-chip:hover {
   display: none;
 }
 
+.ck-positions-table .ck-table {
+  min-width: 720px;
+}
+
+.ck-positions-table .ck-table th,
+.ck-positions-table .ck-table td {
+  white-space: nowrap;
+}
+
+.ck-positions-table .ck-table td {
+  padding: 10px 12px;
+}
+
+.ck-table-ident {
+  min-width: 170px;
+}
+
+.ck-table-ident-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ck-table-name {
+  color: var(--ck-ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ck-table-ident .ck-chip {
+  margin-top: 4px;
+}
+
+.ck-table-industry {
+  color: var(--ck-muted);
+  font-size: 11.5px;
+}
+
+.ck-table th.ck-table-action,
+.ck-table td.ck-table-action {
+  width: 1%;
+  padding-right: 8px;
+  padding-left: 4px;
+  text-align: right;
+}
+
 .ck-position {
-  padding: 13px 14px;
+  padding: 12px 14px;
 }
 
 .ck-position-head {
@@ -1895,8 +1877,8 @@ a.ck-chip:hover {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  margin-top: 10px;
-  padding-top: 9px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid var(--ck-line);
 }
 
@@ -1952,7 +1934,7 @@ a.ck-chip:hover {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 9px;
+  margin-top: 7px;
 }
 
 .ck-position-foot > .ck-chip {
@@ -1968,8 +1950,9 @@ a.ck-chip:hover {
 .ck-watch-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px 12px;
-  padding: 12px 14px;
+  align-items: center;
+  gap: 2px 12px;
+  padding: 10px 14px;
   border-top: 1px solid var(--ck-line);
 }
 
@@ -1985,8 +1968,8 @@ a.ck-chip:hover {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 5px 12px;
+  align-items: center;
+  gap: 2px 12px;
   min-width: 0;
 }
 
@@ -2018,16 +2001,16 @@ a.ck-chip:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--ck-faint);
   font-size: 10px;
 }
 
 .ck-watch-note {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   color: var(--ck-muted);
-  font-size: 11.5px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -2040,7 +2023,7 @@ a.ck-chip:hover {
 .ck-watch-price {
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: 17px;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1.25;
@@ -2054,32 +2037,24 @@ a.ck-chip:hover {
 }
 
 .ck-watch-spark {
-  width: 74px;
-  margin-top: 2px;
+  width: 64px;
+  margin-top: 0;
 }
 
 .ck-watch-spark .ck-spark {
-  height: 22px;
+  height: 18px;
 }
 
-.ck-watch-wide {
+.ck-watch-action {
   grid-column: 1 / -1;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  margin-top: 1px;
-}
-
-.ck-watch-wide > .ck-chip {
-  margin-right: auto;
 }
 
 /* ---------- 个股 ---------- */
 
 .ck-stock-hero {
-  border-top: 3px solid var(--ck-accent);
+  border-top: 2px solid color-mix(in srgb, var(--ck-accent) 45%, var(--ck-line));
 }
 
 .ck-stock-head {
@@ -2369,6 +2344,22 @@ a.ck-chip:hover {
   gap: 6px;
 }
 
+/* 列表行里的移除按钮：平时安静，悬停才显出危险色。 */
+.ck-row-action {
+  flex: none;
+  color: var(--ck-faint);
+}
+
+.ck-row-action:hover:not(:disabled) {
+  background: var(--ck-critical-soft);
+  color: var(--ck-critical);
+}
+
+.ck-row-action svg {
+  width: 14px;
+  height: 14px;
+}
+
 .ck-thesis-actions {
   display: flex;
   justify-content: flex-end;
@@ -2422,6 +2413,17 @@ a.ck-chip:hover {
   font-size: 10px;
 }
 
+.ck-journal-tag {
+  height: 18px;
+  padding: 0 6px;
+  border-color: var(--ck-line);
+  border-radius: 3px;
+  background: var(--ck-surface-2);
+  color: var(--ck-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
 .ck-journal-outcome {
   margin-top: 5px !important;
   padding-left: 8px;
@@ -2467,17 +2469,19 @@ a.ck-chip:hover {
 }
 
 .ck-task-quick {
-  display: flex;
-  min-height: 58px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 3px;
-  padding: 9px 10px;
+  display: grid;
+  height: auto;
+  min-height: 64px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--ck-line);
   border-radius: 8px;
   background: var(--ck-surface);
   text-align: left;
+  white-space: normal;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
@@ -2491,15 +2495,39 @@ a.ck-chip:hover {
   opacity: 0.5;
 }
 
-.ck-task-quick strong {
+.ck-task-quick-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--ck-accent-soft);
+  color: var(--ck-accent-strong);
+}
+
+.ck-task-quick-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ck-task-quick-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.ck-task-quick-copy strong {
   color: var(--ck-ink);
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.4;
 }
 
-.ck-task-quick span {
+.ck-task-quick-copy > span {
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 9.5px;
   line-height: 1.45;
 }
 
@@ -2684,6 +2712,16 @@ a.ck-chip:hover {
   .ck-thesis-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  /* 奇数条论点时让第一条独占一行，避免最后一张卡悬在半空。 */
+  .ck-thesis-grid > :first-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .ck-thesis-grid > :first-child:nth-child(odd) .ck-thesis-claim {
+    max-width: 72ch;
+  }
+
   .ck-snapshot,
   .ck-hero-extra {
     margin-right: 22px;
@@ -2696,6 +2734,15 @@ a.ck-chip:hover {
 
   .ck-positions-table {
     display: block;
+  }
+
+  /* 桌面把移除按钮收成最右一列，行高由价格与文案决定。 */
+  .ck-watch-main {
+    grid-column: 1;
+  }
+
+  .ck-watch-action {
+    grid-column: 2;
   }
 
   .ck-impact {
@@ -2775,10 +2822,6 @@ a.ck-chip:hover {
   .ck-textarea {
     font-size: 16px;
   }
-
-  .ck-button-small {
-    min-height: 38px;
-  }
 }
 
 @media (max-width: 359px) {
@@ -2852,30 +2895,6 @@ a.ck-chip:hover {
 }
 
 /* ---------- 通知中心 ---------- */
-
-.ck-icon-button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--ck-radius-sm);
-  background: transparent;
-  color: var(--ck-muted);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.ck-icon-button:hover {
-  background: var(--ck-surface-2);
-  color: var(--ck-ink);
-}
-
-.ck-icon-button svg {
-  width: 16px;
-  height: 16px;
-}
 
 .ck-notify-wrap {
   position: relative;

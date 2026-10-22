@@ -11,6 +11,7 @@ import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { ThesisCard } from '@/components/cockpit/thesis-card'
 import { ThesisActions, ThesisComposer } from '@/components/cockpit/thesis-editor'
 import { JournalComposer } from '@/components/cockpit/journal-composer'
+import { Badge } from '@/components/ui/badge'
 import { Disclosure, EmptyState, SectionHeader } from '@/components/cockpit/bits'
 
 const ACTION_LABEL: Record<string, string> = {
@@ -152,7 +153,9 @@ export default function ResearchPage({
                 <article className="ck-journal-item" key={entry.id}>
                   <div className="ck-journal-head">
                     <span className="ck-journal-date">{entry.entryDate}</span>
-                    <span className="ck-tag">{ACTION_LABEL[entry.action] || entry.action}</span>
+                    <Badge variant="outline" className="ck-journal-tag">
+                      {ACTION_LABEL[entry.action] || entry.action}
+                    </Badge>
                     {entry.code && <JournalCode code={entry.code} />}
                   </div>
                   <p className="ck-journal-reason">{entry.reason}</p>

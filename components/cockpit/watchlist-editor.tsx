@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/router'
+import { Trash2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 export function WatchlistEditor() {
   const router = useRouter()
@@ -43,8 +46,8 @@ export function WatchlistEditor() {
       <div className="ck-form-row">
         <div className="ck-field">
           <label className="ck-label" htmlFor="watch-code">股票代码</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="watch-code"
             value={code}
             required
@@ -55,8 +58,8 @@ export function WatchlistEditor() {
         </div>
         <div className="ck-field ck-field-full">
           <label className="ck-label" htmlFor="watch-note">观察理由（可选）</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="watch-note"
             value={note}
             maxLength={200}
@@ -66,9 +69,9 @@ export function WatchlistEditor() {
         </div>
       </div>
       <div className="ck-form-actions">
-        <button className="ck-button ck-button-primary" type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy}>
           {busy ? '写入中…' : '加入自选'}
-        </button>
+        </Button>
         <span className="ck-inline-meta">代码支持 6 位数字或带交易所后缀</span>
       </div>
       {error && <p className="ck-form-error" role="alert">{error}</p>}
@@ -107,34 +110,39 @@ export function WatchlistRemove({ code, name }: { code: string; name: string }) 
 
   if (!confirming) {
     return (
-      <button
-        className="ck-button ck-button-ghost ck-button-small"
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="ck-row-action"
         type="button"
         onClick={() => setConfirming(true)}
         aria-label={`从自选移除 ${name}`}
+        title="从自选移除"
       >
-        移除
-      </button>
+        <Trash2 aria-hidden="true" />
+      </Button>
     )
   }
   return (
     <span className="ck-inline-actions">
-      <button
-        className="ck-button ck-button-danger ck-button-small"
+      <Button
+        variant="destructive"
+        size="sm"
         type="button"
         disabled={busy}
         onClick={() => void remove()}
       >
         {busy ? '移除中…' : `确认移除 ${name}`}
-      </button>
-      <button
-        className="ck-button ck-button-ghost ck-button-small"
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         disabled={busy}
         onClick={() => setConfirming(false)}
       >
         取消
-      </button>
+      </Button>
       {error && <span className="ck-form-error" role="alert">{error}</span>}
     </span>
   )

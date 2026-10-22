@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { Bell, CheckCheck } from 'lucide-react'
 import type { NotificationRecord } from '@/lib/cockpit/types'
 import { formatTime } from '@/lib/cockpit/format'
+import { Button } from '@/components/ui/button'
 
 interface NotificationPayload {
   items: NotificationRecord[]
@@ -159,8 +160,10 @@ export function NotificationBell() {
 
   return (
     <div className="ck-notify-wrap" ref={wrapRef}>
-      <button
-        className="ck-icon-button ck-notify-button"
+      <Button
+        variant="ghost"
+        size="icon"
+        className="ck-notify-button"
         type="button"
         aria-label={unread > 0 ? `通知，${unread} 条未读` : '通知'}
         aria-expanded={open}
@@ -169,7 +172,7 @@ export function NotificationBell() {
       >
         <Bell aria-hidden="true" />
         {unread > 0 && <span className="ck-notify-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
-      </button>
+      </Button>
       {open && (
         <section className="ck-notify-panel" id="ck-notification-panel" aria-label="通知中心">
           <div className="ck-notify-head">
@@ -177,24 +180,27 @@ export function NotificationBell() {
               <h2 className="ck-notify-title">通知</h2>
               <p className="ck-notify-sub">{unread > 0 ? `${unread} 条未读` : '全部已读'}</p>
             </div>
-            <button
-              className="ck-button ck-button-ghost ck-button-small"
+            <Button
+              variant="outline"
+              size="sm"
               type="button"
               disabled={busy || unread === 0}
               onClick={() => void markAll()}
             >
               <CheckCheck aria-hidden="true" />
               全部已读
-            </button>
+            </Button>
           </div>
           {permission === 'default' && (
-            <button
-              className="ck-button ck-button-small ck-notify-enable"
+            <Button
+              variant="outline"
+              size="sm"
+              className="ck-notify-enable"
               type="button"
               onClick={() => void enableBrowserNotifications()}
             >
               同时开启浏览器通知
-            </button>
+            </Button>
           )}
           {items.length === 0 ? (
             <p className="ck-notify-empty">还没有通知。简报生成或任务结束后会出现在这里。</p>

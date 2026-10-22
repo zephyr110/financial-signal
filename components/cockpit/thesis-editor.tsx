@@ -3,6 +3,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import type { ThesisStatus, ThesisView } from '@/lib/cockpit/types'
 import { thesisStatusLabel } from '@/lib/cockpit/format'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { closeDisclosure } from './bits'
 
 const STATUS_OPTIONS: ThesisStatus[] = ['active', 'strengthened', 'weakened', 'broken', 'review_due']
 
@@ -48,6 +52,7 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const form = event.currentTarget
     setError(null)
     const lines = invalidation.split('\n').map((line) => line.trim()).filter(Boolean)
     if (lines.length === 0) {
@@ -77,9 +82,7 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
       }
       // 表单收在 Disclosure 里；保存后收起并清空草稿，避免误重复提交。
       if (!editing) resetForm()
-      if (formRef.current?.closest('details')) {
-        (formRef.current.closest('details') as HTMLDetailsElement).open = false
-      }
+      closeDisclosure(form)
       await router.replace('/research')
     } catch {
       setError('网络连接失败，未保存论点。')
@@ -100,8 +103,8 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
       <div className="ck-form-row">
         <div className="ck-field">
           <label className="ck-label" htmlFor="thesis-code">股票代码</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="thesis-code"
             value={code}
             required
@@ -112,8 +115,8 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="thesis-title">论点名称</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="thesis-title"
             value={title}
             required
@@ -124,8 +127,8 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="thesis-horizon">时间范围</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="thesis-horizon"
             value={horizon}
             required
@@ -162,8 +165,8 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
         </div>
         <div className="ck-field ck-field-full">
           <label className="ck-label" htmlFor="thesis-claim">主张</label>
-          <textarea
-            className="ck-textarea"
+          <Textarea
+            className="min-h-20 text-base md:text-sm"
             id="thesis-claim"
             value={claim}
             required
@@ -174,8 +177,8 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
         </div>
         <div className="ck-field ck-field-full">
           <label className="ck-label" htmlFor="thesis-invalidation">失效条件（每行一条）</label>
-          <textarea
-            className="ck-textarea"
+          <Textarea
+            className="min-h-20 text-base md:text-sm"
             id="thesis-invalidation"
             value={invalidation}
             required
@@ -185,11 +188,11 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
         </div>
       </div>
       <div className="ck-form-actions">
-        <button className="ck-button ck-button-primary" type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy}>
           {busy ? '保存中…' : editing ? '保存修改' : '建立论点'}
-        </button>
-        <button
-          className="ck-button ck-button-ghost"
+        </Button>
+        <Button
+          variant="ghost"
           type="button"
           disabled={busy}
           onClick={() => {
@@ -197,13 +200,11 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
               void router.replace('/research')
               return
             }
-            if (formRef.current?.closest('details')) {
-              (formRef.current.closest('details') as HTMLDetailsElement).open = false
-            }
+            closeDisclosure(formRef.current)
           }}
         >
           取消
-        </button>
+        </Button>
       </div>
       {error && <p className="ck-form-error" role="alert">{error}</p>}
     </form>
@@ -247,37 +248,38 @@ export function ThesisActions({ thesis }: { thesis: ThesisView }) {
   if (!confirming) {
     return (
       <span className="ck-inline-actions">
-        <Link className="ck-button ck-button-ghost ck-button-small" href={`/research?edit=${encodeURIComponent(thesis.id)}`}>
+        <Link
+          className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+          href={`/research?edit=${encodeURIComponent(thesis.id)}`}
+        >
           编辑
         </Link>
-        <button
-          className="ck-button ck-button-ghost ck-button-small"
-          type="button"
-          onClick={() => setConfirming(true)}
-        >
+        <Button variant="ghost" size="sm" type="button" onClick={() => setConfirming(true)}>
           删除
-        </button>
+        </Button>
       </span>
     )
   }
   return (
     <span className="ck-inline-actions">
-      <button
-        className="ck-button ck-button-danger ck-button-small"
+      <Button
+        variant="destructive"
+        size="sm"
         type="button"
         disabled={busy}
         onClick={() => void remove()}
       >
         {busy ? '删除中…' : '确认删除'}
-      </button>
-      <button
-        className="ck-button ck-button-ghost ck-button-small"
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         disabled={busy}
         onClick={() => setConfirming(false)}
       >
         取消
-      </button>
+      </Button>
       {error && <span className="ck-form-error" role="alert">{error}</span>}
     </span>
   )

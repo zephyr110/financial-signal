@@ -89,6 +89,7 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
                         </div>
                         <div className="ck-watch-meta">
                           {item.thesisStatus && <ThesisTag status={item.thesisStatus} />}
+                          <SourceChip source={item.source} link={false} />
                           {item.nextEvent && <span>下一事件：{item.nextEvent}</span>}
                           {item.price === null && <span>行情待入库</span>}
                         </div>
@@ -110,8 +111,7 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
                         <span className="ck-sr-only">查看 {item.name} 证据</span>
                       </div>
                     </Link>
-                    <div className="ck-watch-wide">
-                      <SourceChip source={item.source} />
+                    <div className="ck-watch-action">
                       <WatchlistRemove code={item.code} name={item.name} />
                     </div>
                   </article>
