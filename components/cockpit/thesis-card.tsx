@@ -1,8 +1,9 @@
+import type { ReactNode } from 'react'
 import type { ThesisView } from '@/lib/cockpit/types'
 import { formatTime } from '@/lib/cockpit/format'
 import { ThesisTag } from './bits'
 
-export function ThesisCard({ thesis }: { thesis: ThesisView }) {
+export function ThesisCard({ thesis, actions }: { thesis: ThesisView; actions?: ReactNode }) {
   return (
     <article className="ck-card ck-thesis-card">
       <div className="ck-thesis-top">
@@ -35,6 +36,7 @@ export function ThesisCard({ thesis }: { thesis: ThesisView }) {
           <span className="ck-thesis-horizon">{thesis.horizon}</span>
         </span>
       </div>
+      {actions && <div className="ck-thesis-actions">{actions}</div>}
     </article>
   )
 }

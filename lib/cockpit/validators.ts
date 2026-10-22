@@ -56,12 +56,18 @@ function issue(issues: ValidationIssue[], code: string, message: string, severit
   issues.push({ code, message, severity })
 }
 
-function checkText(issues: ValidationIssue[], code: string, text: string, maxLen = 240) {
+function checkText(
+  issues: ValidationIssue[],
+  code: string,
+  text: string,
+  maxLen = 240,
+  lengthSeverity: 'warn' | 'fail' = 'warn',
+) {
   if (!text || !text.trim()) {
     issue(issues, code, '内容为空')
     return
   }
-  if (text.length > maxLen) issue(issues, code, `内容超过 ${maxLen} 字`, 'warn')
+  if (text.length > maxLen) issue(issues, code, `内容超过 ${maxLen} 字`, lengthSeverity)
   for (const hit of findAdviceLanguage(text)) issue(issues, `${code}.advice`, hit)
 }
 
@@ -152,6 +158,16 @@ export function validateBriefPayload(
       }
     }
   }
+  if (payload.narrative) {
+    if (typeof payload.narrative.text !== 'string' || !payload.narrative.model) {
+      issue(issues, 'narrative.shape', '模型叙述层缺少正文或模型标识')
+    } else {
+      checkText(issues, 'narrative', payload.narrative.text, 320)
+      if (/\d/.test(payload.narrative.text)) {
+        issue(issues, 'narrative.numbers', '模型叙述层不得引入数字；数字只由事实区展示')
+      }
+    }
+  }
   for (const line of payload.tomorrow || []) checkText(issues, 'tomorrow', line, 120)
   if (!payload.tomorrow || payload.tomorrow.length === 0) {
     issue(issues, 'tomorrow.empty', '“明日看什么”不能为空', 'warn')
@@ -162,12 +178,13 @@ export function validateBriefPayload(
 
 export function validateThesis(thesis: { title: string; claim: string; invalidation: string[] }): ValidationResult {
   const issues: ValidationIssue[] = []
-  checkText(issues, 'thesis.title', thesis.title || '', 80)
-  checkText(issues, 'thesis.claim', thesis.claim || '', 300)
+  // 用户手写的论点字段按硬上限拒绝；模型生成的简报文本仍只告警。
+  checkText(issues, 'thesis.title', thesis.title || '', 80, 'fail')
+  checkText(issues, 'thesis.claim', thesis.claim || '', 300, 'fail')
   if (!Array.isArray(thesis.invalidation) || thesis.invalidation.length === 0) {
     issue(issues, 'thesis.invalidation', '论点必须有至少一条失效条件')
   } else {
-    for (const line of thesis.invalidation) checkText(issues, 'thesis.invalidation.line', line, 160)
+    for (const line of thesis.invalidation) checkText(issues, 'thesis.invalidation.line', line, 160, 'fail')
   }
   return { ok: issues.every((i) => i.severity !== 'fail'), issues }
 }

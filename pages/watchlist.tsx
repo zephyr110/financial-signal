@@ -7,6 +7,7 @@ import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
 import { getSourceHealth, getWatchlist } from '@/lib/cockpit/repo'
 import { serializable } from '@/lib/cockpit/page-data'
 import { CockpitShell } from '@/components/cockpit/cockpit-shell'
+import { WatchlistEditor, WatchlistRemove } from '@/components/cockpit/watchlist-editor'
 import {
   DeltaValue,
   EmptyState,
@@ -55,6 +56,14 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
         sourceHealth={sourceHealth}
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
+        <section className="ck-section" aria-labelledby="watchlist-add-title">
+          <SectionHeader
+            id="watchlist-add-title"
+            title="登记观察对象"
+            detail="代码与备注先入库；价格、名称与证据等行情接入后自动补齐。"
+          />
+          <WatchlistEditor />
+        </section>
         <section className="ck-section" aria-labelledby="watchlist-title">
           <SectionHeader
             id="watchlist-title"
@@ -62,11 +71,8 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
             detail="按最新收盘价与论点状态展示；点击进入个股证据页。"
           />
           {items.length === 0 ? (
-            <EmptyState
-              title="观察名单还是空的"
-              actions={<Link className="ck-button ck-button-primary" href="/tasks">去任务中心</Link>}
-            >
-              自选来自本地数据库。先完成行情入库，再从个股证据页加入观察名单。
+            <EmptyState title="观察名单还是空的">
+              在上方输入一个股票代码即可开始记录。加入后不会自动生成价格或结论，必须等行情与公告入库。
             </EmptyState>
           ) : (
             <div className="ck-card ck-list-stack">
@@ -81,6 +87,7 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
                       {item.thesisStatus && <ThesisTag status={item.thesisStatus} />}
                       {item.nextEvent && <span>下一事件：{item.nextEvent}</span>}
                     </div>
+                    {item.note && <p className="ck-watch-note">{item.note}</p>}
                   </div>
                   <div className="ck-watch-side">
                     <p className="ck-watch-price">{formatPrice(item.price)}</p>
@@ -97,6 +104,7 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
                     <Link className="ck-link" href={`/stock/${encodeURIComponent(item.code)}`}>
                       查看证据 →
                     </Link>
+                    <WatchlistRemove code={item.code} name={item.name} />
                   </div>
                 </article>
               ))}

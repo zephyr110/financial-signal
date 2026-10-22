@@ -21,7 +21,7 @@ import { clearClientCaches, cn } from "@/lib/utils";
 const PANELS = [
   { id: "account", label: "账号", icon: UserRound, title: "账号设置", desc: "修改登录名与密码（需验证当前密码）" },
   { id: "model", label: "模型", icon: Cpu, title: "模型配置", desc: "LLM 模型 / 接口地址 / API Key（保存后约 30 秒热生效，无需重启）" },
-  { id: "turso", label: "数据源", icon: Database, title: "数据源配置", desc: "远端 Turso 数据库（改动需重启应用后生效）" },
+  { id: "turso", label: "数据源", icon: Database, title: "数据源配置", desc: "远端 Turso 数据库与 Tushare Pro 行情凭证" },
   { id: "cron", label: "定时任务", icon: Clock, title: "定时任务", desc: "Vercel Cron / QStash 鉴权密钥（保存后约 30 秒热生效）" },
 ];
 
@@ -44,6 +44,9 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   const [tursoToken, setTursoToken] = useState("");
   const [tursoUrlSet, setTursoUrlSet] = useState(false);
   const [tursoTokenSet, setTursoTokenSet] = useState(false);
+
+  const [tushareToken, setTushareToken] = useState("");
+  const [tushareTokenSet, setTushareTokenSet] = useState(false);
 
   const [cronSecret, setCronSecret] = useState("");
   const [cronSecretSet, setCronSecretSet] = useState(false);
@@ -68,6 +71,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     setClearedKeys(new Set());
     setApiKey("");
     setTursoToken("");
+    setTushareToken("");
     setCronSecret("");
     setAccUsername(username || "");
     setCurrentPassword("");
@@ -81,6 +85,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
         setApiKeySet(Boolean(d.llm?.apiKeySet));
         setTursoUrlSet(Boolean(d.turso?.urlSet));
         setTursoTokenSet(Boolean(d.turso?.tokenSet));
+        setTushareTokenSet(Boolean(d.tushare?.tokenSet));
         setCronSecretSet(Boolean(d.cronSecretSet));
         setLoaded(true);
       })
@@ -122,6 +127,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       ...(apiKey ? { llmApiKey: apiKey } : clearedKeys.has("llmApiKey") ? { llmApiKey: "" } : {}),
       ...(tursoUrl ? { tursoUrl } : clearedKeys.has("tursoUrl") ? { tursoUrl: "" } : {}),
       ...(tursoToken ? { tursoToken } : clearedKeys.has("tursoToken") ? { tursoToken: "" } : {}),
+      ...(tushareToken ? { tushareToken } : clearedKeys.has("tushareToken") ? { tushareToken: "" } : {}),
       ...(cronSecret ? { cronSecret } : clearedKeys.has("cronSecret") ? { cronSecret: "" } : {}),
     };
     try {
@@ -140,10 +146,12 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       setApiKeySet(Boolean(d.llm?.apiKeySet));
       setTursoUrlSet(Boolean(d.turso?.urlSet));
       setTursoTokenSet(Boolean(d.turso?.tokenSet));
+      setTushareTokenSet(Boolean(d.tushare?.tokenSet));
       setCronSecretSet(Boolean(d.cronSecretSet));
       setClearedKeys(new Set());
       setApiKey("");
       setTursoToken("");
+      setTushareToken("");
       setCronSecret("");
       setOkMsg("已保存" + (tursoUrl || clearedKeys.has("tursoUrl") || tursoToken || clearedKeys.has("tursoToken") ? "（Turso 数据源改动需重启应用生效）" : ""));
     } catch {
@@ -354,7 +362,23 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                   )}
                 </div>
               </div>
-              {hint("留空时使用本地文件数据库（news.db）。配置了 Turso 后数据存远端；改动需重启应用后生效。")}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Tushare Pro Token (TUSHARE_TOKEN)</label>
+                <div className="flex gap-2">
+                  <Input
+                    {...secretInputProps("tushareToken", tushareToken, setTushareToken, tushareTokenSet)}
+                    className="flex-1"
+                    disabled={!loaded}
+                  />
+                  {tushareTokenSet && (
+                    <Button type="button" variant="outline" size="icon" onClick={() => clearKey("tushareToken")} title="清除">
+                      <RotateCcw className="size-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {hint("Tushare 只提供 T1 行情/交易日历；官方公告与政策直接取交易所、巨潮、证监会页面。Token 保存后约 30 秒热生效。")}
+              {hint("Turso 留空时使用本地文件数据库（news.db）；配置 Turso 后数据存远端，改动需重启应用后生效。")}
               <div className="flex justify-end pt-1">
                 <Button size="sm" onClick={saveSettings} disabled={saving || !loaded}>
                   {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}

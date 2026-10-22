@@ -7,6 +7,7 @@ import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
 import { getPortfolio, getSourceHealth } from '@/lib/cockpit/repo'
 import { serializable } from '@/lib/cockpit/page-data'
 import { CockpitShell } from '@/components/cockpit/cockpit-shell'
+import { PortfolioEditor, PortfolioRemove } from '@/components/cockpit/portfolio-editor'
 import {
   DeltaValue,
   EmptyState,
@@ -54,6 +55,14 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
         sourceHealth={sourceHealth}
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
+        <section className="ck-section" aria-labelledby="position-entry-title">
+          <SectionHeader
+            id="position-entry-title"
+            title="账本录入"
+            detail="股数与成本先入库；市值、盈亏与暴露等收盘价入库后计算。"
+          />
+          <PortfolioEditor />
+        </section>
         {empty ? (
           <EmptyState
             title="还没有可计算的持仓"
@@ -174,6 +183,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                       <th scope="col" className="ck-num">浮动盈亏</th>
                       <th scope="col" className="ck-num">权重</th>
                       <th scope="col">来源</th>
+                      <th scope="col">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -206,6 +216,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                         </td>
                         <td className="ck-num">{position.weight.toFixed(2)}%</td>
                         <td><SourceChip source={position.source} /></td>
+                        <td><PortfolioRemove code={position.code} name={position.name} /></td>
                       </tr>
                     ))}
                   </tbody>

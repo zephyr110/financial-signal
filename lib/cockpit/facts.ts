@@ -111,7 +111,7 @@ export async function buildFactPack(tradeDate: string): Promise<FactPack> {
                   b.code IN (SELECT code FROM watchlist_items)
                   OR b.code IN (
                     SELECT code FROM positions
-                    WHERE account_id = (SELECT id FROM portfolio_accounts ORDER BY created_at LIMIT 1)
+                    WHERE account_id = (SELECT id FROM portfolio_accounts ORDER BY CASE WHEN id = 'demo-account' THEN 1 ELSE 0 END, created_at LIMIT 1)
                       AND shares > 0
                   )
                   OR b.code IN (SELECT code FROM symbols WHERE industry_l1 = '指数')
@@ -130,7 +130,7 @@ export async function buildFactPack(tradeDate: string): Promise<FactPack> {
     }),
     db.execute({
       sql: `SELECT code, shares, avg_cost_cents FROM positions
-            WHERE account_id = (SELECT id FROM portfolio_accounts ORDER BY created_at LIMIT 1)
+            WHERE account_id = (SELECT id FROM portfolio_accounts ORDER BY CASE WHEN id = 'demo-account' THEN 1 ELSE 0 END, created_at LIMIT 1)
               AND shares > 0
             ORDER BY code`,
       args: [],
@@ -163,6 +163,7 @@ export async function buildFactPack(tradeDate: string): Promise<FactPack> {
     down: num(breadthRaw.down),
     limitUp: num(breadthRaw.limitUp),
     limitDown: num(breadthRaw.limitDown),
+    limitUpDownAvailable: breadthRaw.limitUpDownAvailable !== false,
     source: overviewSource,
   }
   const turnoverRaw = parseJson<Partial<Turnover>>(overview.turnover_json, {})

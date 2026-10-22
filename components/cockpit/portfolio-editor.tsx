@@ -1,0 +1,169 @@
+import { useState, type FormEvent } from 'react'
+import { useRouter } from 'next/router'
+
+export function PortfolioEditor() {
+  const router = useRouter()
+  const [code, setCode] = useState('')
+  const [shares, setShares] = useState('')
+  const [cost, setCost] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError(null)
+    setSuccess(null)
+    const shareCount = Number(shares)
+    if (!Number.isSafeInteger(shareCount) || shareCount <= 0) {
+      setError('股数需为正整数。')
+      return
+    }
+    const costYuan = Number(cost)
+    if (!Number.isFinite(costYuan) || costYuan < 0) {
+      setError('成本价需为不小于 0 的数字。')
+      return
+    }
+    const avgCostCents = Math.round(costYuan * 100)
+    setBusy(true)
+    try {
+      const res = await fetch('/api/cockpit/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ code: code.trim(), shares: shareCount, avgCostCents }),
+      })
+      const json = await res.json() as { error?: { message?: string } }
+      if (!res.ok) {
+        setError(json.error?.message || '保存持仓失败。')
+        return
+      }
+      setCode('')
+      setShares('')
+      setCost('')
+      setSuccess('已写入持仓；最新价与盈亏等行情入库后补齐。')
+      await router.replace(router.asPath)
+    } catch {
+      setError('网络连接失败，未写入持仓。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="ck-card ck-form" onSubmit={(event) => void submit(event)}>
+      <h2 className="ck-form-title">录入或更新持仓</h2>
+      <p className="ck-form-hint">
+        同一代码再次提交会覆盖股数与成本。真实持仓写入独立账户，不会与示例数据混用。
+      </p>
+      <div className="ck-form-row">
+        <div className="ck-field">
+          <label className="ck-label" htmlFor="position-code">股票代码</label>
+          <input
+            className="ck-input"
+            id="position-code"
+            value={code}
+            required
+            maxLength={12}
+            placeholder="例如 600519.SH"
+            onChange={(event) => setCode(event.target.value)}
+          />
+        </div>
+        <div className="ck-field">
+          <label className="ck-label" htmlFor="position-shares">股数</label>
+          <input
+            className="ck-input"
+            id="position-shares"
+            value={shares}
+            required
+            inputMode="numeric"
+            placeholder="100"
+            onChange={(event) => setShares(event.target.value)}
+          />
+        </div>
+        <div className="ck-field">
+          <label className="ck-label" htmlFor="position-cost">成本价（元）</label>
+          <input
+            className="ck-input"
+            id="position-cost"
+            value={cost}
+            required
+            inputMode="decimal"
+            placeholder="例如 1420.50"
+            onChange={(event) => setCost(event.target.value)}
+          />
+        </div>
+      </div>
+      <div className="ck-form-actions">
+        <button className="ck-button ck-button-primary" type="submit" disabled={busy}>
+          {busy ? '写入中…' : '保存持仓'}
+        </button>
+        <span className="ck-inline-meta">成本以整数分入库，最多保留两位小数</span>
+      </div>
+      {error && <p className="ck-form-error" role="alert">{error}</p>}
+      {success && <p className="ck-form-success" role="status">{success}</p>}
+    </form>
+  )
+}
+
+export function PortfolioRemove({ code, name }: { code: string; name: string }) {
+  const router = useRouter()
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function remove() {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/cockpit/portfolio?code=${encodeURIComponent(code)}`, {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' },
+      })
+      const json = await res.json() as { error?: { message?: string } }
+      if (!res.ok) {
+        setError(json.error?.message || '移除持仓失败。')
+        return
+      }
+      await router.replace(router.asPath)
+    } catch {
+      setError('网络连接失败，未移除。')
+    } finally {
+      setBusy(false)
+      setConfirming(false)
+    }
+  }
+
+  if (!confirming) {
+    return (
+      <button
+        className="ck-button ck-button-ghost ck-button-small"
+        type="button"
+        onClick={() => setConfirming(true)}
+        aria-label={`移除持仓 ${name}`}
+      >
+        移除
+      </button>
+    )
+  }
+  return (
+    <span className="ck-inline-actions">
+      <button
+        className="ck-button ck-button-danger ck-button-small"
+        type="button"
+        disabled={busy}
+        onClick={() => void remove()}
+      >
+        {busy ? '移除中…' : '确认移除'}
+      </button>
+      <button
+        className="ck-button ck-button-ghost ck-button-small"
+        type="button"
+        disabled={busy}
+        onClick={() => setConfirming(false)}
+      >
+        取消
+      </button>
+      {error && <span className="ck-form-error" role="alert">{error}</span>}
+    </span>
+  )
+}

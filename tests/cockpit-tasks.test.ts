@@ -107,6 +107,47 @@ describe('cockpit task queue', () => {
     expect(events.some((event) => event.type === 'canceled')).toBe(true)
   })
 
+  it('心跳只续运行中的任务，stop 后不再写', async () => {
+    const db = await dbModule.getDb()
+    const now = new Date().toISOString()
+    const stale = '2000-01-01T00:00:00.000Z'
+    const insert = (id: string, status: string, key: string) => db.execute({
+      sql: `INSERT INTO tasks
+            (id, type, params_json, status, progress, step, idempotency_key, attempts,
+             model, cost_micros, created_at, heartbeat_at)
+            VALUES (?, 'daily_brief', '{}', ?, 5, '执行中', ?, 1, 'deterministic', 0, ?, ?)`,
+      args: [id, status, key, now, stale],
+    })
+    await insert('heartbeat-running', 'running', 'heartbeat-running-key')
+    await insert('heartbeat-done', 'succeeded', 'heartbeat-done-key')
+
+    const stop = tasks.startTaskHeartbeat('heartbeat-running', 20)
+    await new Promise((resolve) => setTimeout(resolve, 70))
+    stop()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const running = await db.execute({
+      sql: "SELECT heartbeat_at FROM tasks WHERE id = 'heartbeat-running'",
+      args: [],
+    })
+    expect(running.rows[0]?.heartbeat_at).not.toBe(stale)
+    const done = await db.execute({
+      sql: "SELECT heartbeat_at FROM tasks WHERE id = 'heartbeat-done'",
+      args: [],
+    })
+    expect(done.rows[0]?.heartbeat_at).toBe(stale)
+
+    const stoppedAt = running.rows[0]?.heartbeat_at
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    const after = await db.execute({
+      sql: "SELECT heartbeat_at FROM tasks WHERE id = 'heartbeat-running'",
+      args: [],
+    })
+    expect(after.rows[0]?.heartbeat_at).toBe(stoppedAt)
+
+    await db.execute({ sql: "DELETE FROM tasks WHERE id IN ('heartbeat-running','heartbeat-done')", args: [] })
+  })
+
   it('任务列表按时间倒序且 limit 有上限', async () => {
     const list = await tasks.listTasks(2)
     expect(list).toHaveLength(2)

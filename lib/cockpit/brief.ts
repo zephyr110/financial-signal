@@ -3,6 +3,7 @@ import { getDb } from '../db'
 import { dateShanghai, formatSignedPct, thesisStatusLabel } from './format'
 import { computeConfidence, findAdviceLanguage, validateBriefPayload } from './validators'
 import { buildFactPack } from './facts'
+import { generateBriefNarrative, type NarrativeResult } from './narrative'
 import type {
   EvidenceItem,
   FactPack,
@@ -241,8 +242,13 @@ function contentHash(facts: FactPack): string {
  */
 export async function buildAndStoreDailyReport(
   tradeDate: string,
-  options: { force?: boolean } = {},
-): Promise<{ reportId: number; payload: TodayPayload; version: number }> {
+  options: {
+    force?: boolean
+    taskId?: string
+    /** 显式传入则不再调用模型；null 表示本次不生成叙述层。 */
+    narrative?: NarrativeResult | null
+  } = {},
+): Promise<{ reportId: number; payload: TodayPayload; version: number; narrative: NarrativeResult | null }> {
   const db = await getDb()
 
   if (!options.force) {
@@ -259,6 +265,7 @@ export async function buildAndStoreDailyReport(
           reportId: Number(existing.rows[0].id),
           version: Number(existing.rows[0].version),
           payload,
+          narrative: null,
         }
       }
     }
@@ -266,6 +273,16 @@ export async function buildAndStoreDailyReport(
 
   const facts = await buildFactPack(tradeDate)
   const payload = buildDailyBrief(facts)
+  const narrative = options.narrative === undefined
+    ? await generateBriefNarrative(payload, options.taskId)
+    : options.narrative
+  if (narrative) {
+    payload.narrative = {
+      text: narrative.text,
+      model: narrative.model,
+      promptVersion: narrative.promptVersion,
+    }
+  }
   const knownFactIds = new Set(Object.keys(facts.facts))
   const knownSourceIds = new Set(facts.dataQuality.map((source) => source.id))
   const validation = validateBriefPayload(payload, knownFactIds, knownSourceIds)
@@ -309,7 +326,18 @@ export async function buildAndStoreDailyReport(
             (kind, subject_code, trade_date, version, status, payload_json, fact_snapshot_id,
              model, prompt_version, cost_micros, is_demo, created_at, published_at)
             VALUES ('daily_brief', '', ?, ?, 'published', ?, ?, ?, ?, 0, ?, ?, ?)`,
-      args: [tradeDate, version, JSON.stringify(payload), snapshotId, 'deterministic', PROMPT_VERSION, facts.isDemo ? 1 : 0, now, now],
+      args: [
+        tradeDate,
+        version,
+        JSON.stringify(payload),
+        snapshotId,
+        narrative?.model || 'deterministic',
+        narrative ? `${PROMPT_VERSION}+${narrative.promptVersion}` : PROMPT_VERSION,
+        narrative?.costMicros || 0,
+        facts.isDemo ? 1 : 0,
+        now,
+        now,
+      ],
     })
     reportId = Number(inserted.lastInsertRowid)
     await tx.commit()
@@ -326,5 +354,5 @@ export async function buildAndStoreDailyReport(
     })
   }
 
-  return { reportId, payload, version }
+  return { reportId, payload, version, narrative }
 }

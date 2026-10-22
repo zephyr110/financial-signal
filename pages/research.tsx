@@ -8,6 +8,7 @@ import { getJournal, getSourceHealth, getTheses } from '@/lib/cockpit/repo'
 import { serializable } from '@/lib/cockpit/page-data'
 import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { ThesisCard } from '@/components/cockpit/thesis-card'
+import { ThesisActions, ThesisComposer } from '@/components/cockpit/thesis-editor'
 import { JournalComposer } from '@/components/cockpit/journal-composer'
 import { EmptyState, SectionHeader } from '@/components/cockpit/bits'
 
@@ -25,10 +26,11 @@ interface ResearchProps {
   journal: JournalEntry[]
   sourceHealth: SourceHealth[]
   today: string
+  editing?: ThesisView
   loadError?: string
 }
 
-export const getServerSideProps: GetServerSideProps<ResearchProps> = async () => {
+export const getServerSideProps: GetServerSideProps<ResearchProps> = async (context) => {
   try {
     if (process.env.COCKPIT_DEMO === '1') await ensureCockpitDemoSeed()
     const [theses, journal, sourceHealth] = await Promise.all([
@@ -36,7 +38,17 @@ export const getServerSideProps: GetServerSideProps<ResearchProps> = async () =>
       getJournal(30),
       getSourceHealth(),
     ])
-    return { props: serializable({ theses, journal, sourceHealth, today: todayShanghai() }) }
+    const editId = typeof context.query.edit === 'string' ? context.query.edit : ''
+    const editing = editId ? theses.find((thesis) => thesis.id === editId) : undefined
+    return {
+      props: serializable({
+        theses,
+        journal,
+        sourceHealth,
+        today: todayShanghai(),
+        editing,
+      }),
+    }
   } catch (err) {
     console.error('[research]', err instanceof Error ? err.message : err)
     return {
@@ -56,6 +68,7 @@ export default function ResearchPage({
   journal,
   sourceHealth,
   today,
+  editing,
   loadError,
 }: ResearchProps) {
   const isDemo = sourceHealth.some((source) => source.status === 'demo')
@@ -88,10 +101,23 @@ export default function ResearchPage({
           ) : (
             <div className="ck-thesis-grid">
               {theses.map((thesis) => (
-                <ThesisCard thesis={thesis} key={thesis.id} />
+                <ThesisCard
+                  thesis={thesis}
+                  key={thesis.id}
+                  actions={<ThesisActions thesis={thesis} />}
+                />
               ))}
             </div>
           )}
+        </section>
+
+        <section className="ck-section" aria-labelledby="thesis-compose-title">
+          <SectionHeader
+            id="thesis-compose-title"
+            title={editing ? '修订论点' : '登记论点'}
+            detail="主张、时限与失效条件缺一不可；保存后可在论点卡片上继续修订。"
+          />
+          <ThesisComposer initial={editing} key={editing?.id || 'new'} />
         </section>
 
         <section className="ck-section" aria-labelledby="journal-compose-title">

@@ -16,6 +16,7 @@ import {
 import type { SourceHealth } from '@/lib/cockpit/types'
 import { formatTime } from '@/lib/cockpit/format'
 import { DemoBanner, SourceHealthRail } from './bits'
+import { NotificationBell } from './notification-bell'
 
 interface NavItem {
   href: string
@@ -147,6 +148,7 @@ export function CockpitShell({
             <div className="ck-topbar-actions">
               {asOf && <span className="ck-asof">更新 {formatTime(asOf)}</span>}
               {actions}
+              <NotificationBell />
               <ThemeToggle compact />
             </div>
           </header>

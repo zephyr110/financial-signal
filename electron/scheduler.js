@@ -1,7 +1,7 @@
 'use strict';
 const http = require('http');
 const fs = require('fs');
-const { buildJobSequence, isLlmConfigured } = require('./scheduler-core');
+const { buildJobSequence, isLlmConfigured, COCKPIT_DAILY_JOB } = require('./scheduler-core');
 const { loadConfig } = require('./store');
 const { getSettings: getAppSettings } = require('./app-settings');
 
@@ -57,7 +57,9 @@ function createScheduler({
     running = true;
     try {
       const settings = await getSettings(dbPath);
-      const sequence = buildJobSequence({ llmConfigured: isLlmConfigured(settings) });
+      // 收盘链路不依赖 LLM（无 key 时只发确定性简报），且路由自己按交易日/报告节流，
+      // 因此每轮都带一个轻量请求，不会因调度频率重复拉行情。
+      const sequence = [...buildJobSequence({ llmConfigured: isLlmConfigured(settings) }), COCKPIT_DAILY_JOB];
       if (onRunStart) onRunStart(sequence);
       for (const job of sequence) {
         if (stopped) break; // stop()(重启/退出)后不再发新请求

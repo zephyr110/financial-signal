@@ -4,7 +4,14 @@ export type SourceTier = 0 | 1 | 2 | 3
 export type EvidenceKind = 'fact' | 'inference' | 'counter' | 'conclusion'
 export type ConfidenceLabel = '低' | '中' | '高'
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
-export type TaskType = 'daily_brief' | 'thesis_review' | 'ask' | 'weekly_review' | 'symbol_deep_dive'
+export type TaskType =
+  | 'daily_brief'
+  | 'thesis_review'
+  | 'ask'
+  | 'weekly_review'
+  | 'symbol_deep_dive'
+  | 'market_ingest'
+  | 'daily_close'
 export type ThesisStatus = 'active' | 'strengthened' | 'weakened' | 'broken' | 'review_due'
 export type HealthStatus = 'ok' | 'stale' | 'error' | 'demo' | 'inactive'
 
@@ -53,6 +60,8 @@ export interface Breadth {
   down: number
   limitUp: number
   limitDown: number
+  /** false 表示本次未取到涨跌停统计；UI 必须显示“—”，不能把缺失画成 0。 */
+  limitUpDownAvailable?: boolean
   source: SourceRef
 }
 
@@ -111,6 +120,12 @@ export interface TodayPayload {
   dataQuality: DataQualityItem[]
   isDemo: boolean
   generatedAt: string
+  /** 可选的模型叙述层；数字、来源与置信度仍以服务端事实包为准。 */
+  narrative?: {
+    text: string
+    model: string
+    promptVersion: string
+  }
 }
 
 export interface WatchlistItem {
@@ -119,6 +134,7 @@ export interface WatchlistItem {
   price: number | null
   changePct: number | null
   sparkline: number[]
+  note?: string
   thesisStatus?: ThesisStatus
   nextEvent?: string
   source?: SourceRef
@@ -220,6 +236,19 @@ export interface TaskEvent {
   seq: number
   type: string
   payload: Record<string, unknown> | null
+  createdAt: string
+}
+
+export type NotificationSeverity = 'info' | 'warn' | 'critical'
+
+export interface NotificationRecord {
+  id: string
+  kind: string
+  severity: NotificationSeverity
+  title: string
+  body?: string
+  deepLink?: string
+  readAt?: string
   createdAt: string
 }
 

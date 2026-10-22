@@ -139,6 +139,12 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
           </div>
           <h2 className="ck-hero-claim" id="brief-claim">{hero.claim}</h2>
           <EvidenceSpine items={hero.evidence} />
+          {payload.narrative && (
+            <aside className="ck-hero-narrative" aria-label="模型叙述（不改写数字与来源）">
+              <span className="ck-hero-narrative-label">叙述 · {payload.narrative.model}</span>
+              <p>{payload.narrative.text}</p>
+            </aside>
+          )}
           <div className="ck-hero-foot">
             <span className="ck-hero-confidence-note">
               先列事实，再给推断；反证与结论同等重要。

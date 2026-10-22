@@ -9,6 +9,7 @@ import {
 
 function BreadthBlock({ breadth }: { breadth: Breadth }) {
   const total = breadth.up + breadth.flat + breadth.down
+  const limitsKnown = breadth.limitUpDownAvailable !== false
   const segments = [
     { key: 'up', value: breadth.up, label: '上涨', tone: 'ck-up' },
     { key: 'flat', value: breadth.flat, label: '平盘', tone: 'ck-flat' },
@@ -51,11 +52,15 @@ function BreadthBlock({ breadth }: { breadth: Breadth }) {
       <div className="ck-stat-line">
         <div className="ck-stat">
           <span className="ck-stat-label">涨停</span>
-          <span className="ck-stat-value ck-up">{breadth.limitUp}</span>
+          <span className="ck-stat-value ck-up" title={limitsKnown ? undefined : '本次未取到涨跌停统计'}>
+            {limitsKnown ? breadth.limitUp : '—'}
+          </span>
         </div>
         <div className="ck-stat">
           <span className="ck-stat-label">跌停</span>
-          <span className="ck-stat-value ck-down">{breadth.limitDown}</span>
+          <span className="ck-stat-value ck-down" title={limitsKnown ? undefined : '本次未取到涨跌停统计'}>
+            {limitsKnown ? breadth.limitDown : '—'}
+          </span>
         </div>
         <div className="ck-stat">
           <span className="ck-stat-label">平盘</span>
@@ -126,6 +131,46 @@ export function MarketPulse({
           </article>
         ))}
       </div>
+      {indices.some((index) => index.sparkline.length > 1) && (
+        <details className="ck-price-table ck-index-table">
+          <summary>查看指数走势数据表（图表的数据视图）</summary>
+          <div className="ck-table-wrap" role="region" aria-label="指数走势数据表，可横向滚动" tabIndex={0}>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">指数</th>
+                  <th scope="col">最新收盘</th>
+                  <th scope="col">涨跌幅</th>
+                  {Array.from({ length: 5 }, (_, position) => (
+                    <th scope="col" className="ck-num" key={position}>T-{4 - position}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {indices.map((index) => {
+                  const recent = index.sparkline.slice(-5)
+                  return (
+                    <tr key={index.code}>
+                      <th scope="row">{index.name}</th>
+                      <td className="ck-num">{formatPrice(index.close)}</td>
+                      <td className="ck-num"><DeltaValue value={index.changePct} /></td>
+                      {Array.from({ length: 5 }, (_, position) => {
+                        const offset = 5 - recent.length
+                        const value = position < offset ? null : recent[position - offset]
+                        return (
+                          <td className="ck-num" key={position}>
+                            {value === null ? '—' : formatPrice(value)}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
       <div className="ck-inline-meta" style={{ marginTop: 7 }}>
         <span>指数行情</span>
         <SourceChip source={indices[0]?.source} />
