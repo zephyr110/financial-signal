@@ -148,9 +148,33 @@ export function DemoBanner({ children }: { children?: ReactNode }) {
     <div className="ck-demo-banner" role="note">
       <span className="ck-demo-tag">示例</span>
       <span className="ck-demo-copy">
-        {children || '当前展示的是示例数据，用于验证界面与流程，不是真实行情、政策或公告。接入正式数据源后，每条结论都会重新计算。'}
+        {children || '界面演示数据，不是真实行情、政策或公告；接入真实来源后所有结论会重新计算。'}
       </span>
     </div>
+  )
+}
+
+export function Disclosure({
+  title,
+  hint,
+  defaultOpen = false,
+  className = '',
+  children,
+}: {
+  title: string
+  hint?: ReactNode
+  defaultOpen?: boolean
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <details className={`ck-disclosure ${className}`.trim()} open={defaultOpen || undefined}>
+      <summary>
+        <span>{title}</span>
+        {hint && <span className="ck-disclosure-hint">{hint}</span>}
+      </summary>
+      <div className="ck-disclosure-body">{children}</div>
+    </details>
   )
 }
 

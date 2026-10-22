@@ -8,11 +8,12 @@ import { getSourceHealth, getTodayPayload } from '@/lib/cockpit/repo'
 import { serializable } from '@/lib/cockpit/page-data'
 import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { EvidenceSpine } from '@/components/cockpit/evidence-spine'
-import { MarketPulse } from '@/components/cockpit/market-pulse'
+import { MarketPulse, MarketSnapshot } from '@/components/cockpit/market-pulse'
 import { DocumentList } from '@/components/cockpit/document-list'
 import {
   ConfidencePill,
   DataQualityPanel,
+  Disclosure,
   EmptyState,
   SectionHeader,
   SourceChip,
@@ -53,7 +54,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
         <CockpitShell
           title="今日收盘"
           eyebrow="AFTERCLOSE · POST-CLOSE"
-          subtitle="收盘后的第一个问题不是涨还是跌，而是今天的事实是否足以改变原来的判断。"
+          subtitle="收盘后先看今天的事实，再决定原来的判断是否需要改变。"
           sourceHealth={sourceHealth}
         >
           {loadError && <div className="ck-error-banner">{loadError}</div>}
@@ -80,40 +81,12 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
     ['指标一致性', hero.confidence.inputs.agreement],
     ['来源质量', hero.confidence.inputs.sourceQuality],
   ] as const
-
-  const railExtra = (
-    <>
-      <section className="ck-rail-card">
-        <h2 className="ck-rail-title">本期</h2>
-        <p className="ck-rail-quote">第 {payload.issueNo} 期</p>
-        <p className="ck-rail-quote-sub">
-          {formatDateCn(payload.tradeDate)}
-          <br />
-          生成于 {formatTime(payload.generatedAt)}
-        </p>
-      </section>
-      <section className="ck-rail-card">
-        <h2 className="ck-rail-title">置信度构成</h2>
-        <div className="ck-exposure-list" style={{ marginTop: 8 }}>
-          {confidenceInputs.map(([label, value]) => {
-            const pct = Math.round(Math.max(0, Math.min(1, value)) * 100)
-            return (
-              <div className="ck-exposure-row" key={label}>
-                <div className="ck-exposure-head">
-                  <span className="ck-exposure-name">{label}</span>
-                  <span className="ck-exposure-value">{pct}%</span>
-                </div>
-                <div className="ck-exposure-track">
-                  <div className="ck-exposure-fill" style={{ width: `${pct}%` }} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        <p className="ck-rail-note">四项由服务端按固定规则计算；缺数据、过期或来源冲突会压低分数，不由模型自评。</p>
-      </section>
-    </>
-  )
+  const qualityIssues = dataQuality.filter(
+    (item) => item.status === 'error' || item.status === 'stale',
+  ).length
+  const qualityHint = qualityIssues > 0
+    ? `${qualityIssues} 项需注意`
+    : `${dataQuality.length} 个来源`
 
   return (
     <>
@@ -124,11 +97,10 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
       <CockpitShell
         title="今日收盘"
         eyebrow={formatDateCn(payload.tradeDate)}
-        subtitle={`第 ${payload.issueNo} 期 · 收盘后简报 · 生成于 ${formatTime(payload.generatedAt)}`}
+        subtitle={`第 ${payload.issueNo} 期 · 生成于 ${formatTime(payload.generatedAt)}`}
         asOf={payload.generatedAt}
         isDemo={payload.isDemo}
         sourceHealth={sourceHealth}
-        railExtra={railExtra}
       >
         <article className="ck-card ck-hero-card" aria-labelledby="brief-claim">
           <div className="ck-hero-top">
@@ -138,17 +110,46 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             </div>
           </div>
           <h2 className="ck-hero-claim" id="brief-claim">{hero.claim}</h2>
+
+          <MarketSnapshot indices={indices} breadth={breadth} turnover={turnover} />
+
           <EvidenceSpine items={hero.evidence} />
+
           {payload.narrative && (
-            <aside className="ck-hero-narrative" aria-label="模型叙述（不改写数字与来源）">
-              <span className="ck-hero-narrative-label">叙述 · {payload.narrative.model}</span>
-              <p>{payload.narrative.text}</p>
-            </aside>
+            <Disclosure
+              className="ck-hero-extra"
+              title="模型叙述"
+              hint={payload.narrative.model}
+            >
+              <p className="ck-hero-narrative">{payload.narrative.text}</p>
+            </Disclosure>
           )}
+
+          <Disclosure
+            className="ck-hero-extra"
+            title="置信度构成"
+            hint={`${Math.round(hero.confidence.score * 100)} / 100`}
+          >
+            <div className="ck-confidence-breakdown">
+              {confidenceInputs.map(([label, value]) => {
+                const pct = Math.round(Math.max(0, Math.min(1, value)) * 100)
+                return (
+                  <div className="ck-confidence-item" key={label}>
+                    <div className="ck-confidence-item-head">
+                      <span>{label}</span>
+                      <b>{pct}%</b>
+                    </div>
+                    <div className="ck-confidence-item-track">
+                      <div className="ck-confidence-item-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="ck-confidence-note">四项由服务端按固定规则计算；缺数据、过期或来源冲突会压低分数，不由模型自评。</p>
+          </Disclosure>
+
           <div className="ck-hero-foot">
-            <span className="ck-hero-confidence-note">
-              先列事实，再给推断；反证与结论同等重要。
-            </span>
             <div className="ck-hero-actions">
               <Link className="ck-button ck-button-small" href="/research">核对论点</Link>
               <Link className="ck-button ck-button-primary ck-button-small" href="/tasks">派发任务</Link>
@@ -228,13 +229,10 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
           )}
         </section>
 
-        <section className="ck-section ck-mobile-only" aria-labelledby="quality-title">
-          <SectionHeader
-            id="quality-title"
-            title="数据质量"
-            detail="来源状态直接决定简报能否升级为结论。"
-          />
-          <DataQualityPanel items={dataQuality} />
+        <section className="ck-section ck-mobile-only" aria-label="数据质量">
+          <Disclosure title="数据质量" hint={qualityHint}>
+            <DataQualityPanel items={dataQuality} />
+          </Disclosure>
         </section>
       </CockpitShell>
     </>

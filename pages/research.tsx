@@ -10,7 +10,7 @@ import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { ThesisCard } from '@/components/cockpit/thesis-card'
 import { ThesisActions, ThesisComposer } from '@/components/cockpit/thesis-editor'
 import { JournalComposer } from '@/components/cockpit/journal-composer'
-import { EmptyState, SectionHeader } from '@/components/cockpit/bits'
+import { Disclosure, EmptyState, SectionHeader } from '@/components/cockpit/bits'
 
 const ACTION_LABEL: Record<string, string> = {
   watch: '继续观察',
@@ -81,22 +81,34 @@ export default function ResearchPage({
       <CockpitShell
         title="研究"
         eyebrow="THESIS & JOURNAL · 论点与日志"
-        subtitle="把观点写成可被推翻的句子，记录当时的事实与反证。价格只负责检验，不负责说服。"
+        subtitle="把观点写成可被推翻的句子。价格只负责检验，不负责说服。"
         isDemo={isDemo}
         sourceHealth={sourceHealth}
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
 
+        {editing && (
+          <section className="ck-section" aria-label="修订论点">
+            <Disclosure
+              title={`修订：${editing.title}`}
+              hint={editing.code}
+              defaultOpen
+            >
+              <ThesisComposer initial={editing} key={editing.id} />
+            </Disclosure>
+          </section>
+        )}
+
         <section aria-labelledby="theses-title">
           <SectionHeader
             id="theses-title"
             title={`${theses.length} 条研究论点`}
-            detail="每条论点必须同时展示支持证据、反证与失效条件。"
-            action={<Link href="/tasks">派发论点复核 →</Link>}
+            detail="每条论点同时展示支持证据、反证与失效条件。"
+            action={<Link href="/tasks">派发复核 →</Link>}
           />
           {theses.length === 0 ? (
             <EmptyState title="还没有研究论点">
-              论点不是观点摘录，而是一个可被数据推翻的句子。先建立论点，再让它接受每日简报的检验。
+              论点不是观点摘录，而是一个可被数据推翻的句子。展开下方“登记研究论点”，先写下主张和失效条件。
             </EmptyState>
           ) : (
             <div className="ck-thesis-grid">
@@ -111,29 +123,11 @@ export default function ResearchPage({
           )}
         </section>
 
-        <section className="ck-section" aria-labelledby="thesis-compose-title">
-          <SectionHeader
-            id="thesis-compose-title"
-            title={editing ? '修订论点' : '登记论点'}
-            detail="主张、时限与失效条件缺一不可；保存后可在论点卡片上继续修订。"
-          />
-          <ThesisComposer initial={editing} key={editing?.id || 'new'} />
-        </section>
-
-        <section className="ck-section" aria-labelledby="journal-compose-title">
-          <SectionHeader
-            id="journal-compose-title"
-            title="研究日志"
-            detail="记录决定、理由和当时的证据；之后回看，而不是事后改写。"
-          />
-          <JournalComposer today={today} theses={theses} />
-        </section>
-
         <section className="ck-section" aria-labelledby="journal-list-title">
           <SectionHeader
             id="journal-list-title"
             title="最近记录"
-            detail="按录入时间倒序；日志只代表当时的判断。"
+            detail={`${journal.length} 条 · 按录入时间倒序，只代表当时的判断。`}
           />
           {journal.length === 0 ? (
             <EmptyState title="还没有研究日志">
@@ -146,15 +140,33 @@ export default function ResearchPage({
                   <div className="ck-journal-head">
                     <span className="ck-journal-date">{entry.entryDate}</span>
                     <span className="ck-tag">{ACTION_LABEL[entry.action] || entry.action}</span>
-                    {entry.code && <span>{entry.code}</span>}
+                    {entry.code && (
+                      <Link className="ck-journal-code" href={`/stock/${encodeURIComponent(entry.code)}`}>
+                        {entry.code}
+                      </Link>
+                    )}
                   </div>
                   <p className="ck-journal-reason">{entry.reason}</p>
                   {entry.outcomeNote && (
-                    <p className="ck-form-hint">复盘：{entry.outcomeNote}</p>
+                    <p className="ck-journal-outcome">复盘：{entry.outcomeNote}</p>
                   )}
                 </article>
               ))}
             </div>
+          )}
+        </section>
+
+        <section className="ck-section" aria-label="记录与登记">
+          <Disclosure title="记录今天的决定" hint="保留当时的事实与反证">
+            <JournalComposer today={today} theses={theses} />
+          </Disclosure>
+          {!editing && (
+            <Disclosure
+              title="登记研究论点"
+              hint="主张、时限与失效条件缺一不可"
+            >
+              <ThesisComposer />
+            </Disclosure>
           )}
         </section>
       </CockpitShell>

@@ -1,7 +1,7 @@
 import Head from 'next/head'
 import Link from 'next/link'
 import type { GetServerSideProps } from 'next'
-import type { SourceHealth, WatchlistItem } from '@/lib/cockpit/types'
+import type { SourceHealth, SourceRef, WatchlistItem } from '@/lib/cockpit/types'
 import { formatPrice } from '@/lib/cockpit/format'
 import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
 import { getSourceHealth, getWatchlist } from '@/lib/cockpit/repo'
@@ -10,6 +10,7 @@ import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { WatchlistEditor, WatchlistRemove } from '@/components/cockpit/watchlist-editor'
 import {
   DeltaValue,
+  Disclosure,
   EmptyState,
   SectionHeader,
   SourceChip,
@@ -40,8 +41,15 @@ export const getServerSideProps: GetServerSideProps<WatchlistProps> = async () =
   }
 }
 
+function uniqueSources(items: WatchlistItem[]): SourceRef[] {
+  const sources = items.map((item) => item.source).filter((source): source is SourceRef => Boolean(source))
+  return sources.filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index)
+}
+
 export default function WatchlistPage({ items, sourceHealth, loadError }: WatchlistProps) {
   const isDemo = items.some((item) => item.source?.id.startsWith('demo-'))
+  const sources = uniqueSources(items)
+
   return (
     <>
       <Head>
@@ -56,14 +64,11 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
         sourceHealth={sourceHealth}
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
-        <section className="ck-section" aria-labelledby="watchlist-add-title">
-          <SectionHeader
-            id="watchlist-add-title"
-            title="登记观察对象"
-            detail="代码与备注先入库；价格、名称与证据等行情接入后自动补齐。"
-          />
+
+        <Disclosure title="添加观察对象" hint="代码先入库，行情接入后补齐">
           <WatchlistEditor />
-        </section>
+        </Disclosure>
+
         <section className="ck-section" aria-labelledby="watchlist-title">
           <SectionHeader
             id="watchlist-title"
@@ -72,43 +77,59 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
           />
           {items.length === 0 ? (
             <EmptyState title="观察名单还是空的">
-              在上方输入一个股票代码即可开始记录。加入后不会自动生成价格或结论，必须等行情与公告入库。
+              展开上方“添加观察对象”，先登记一个股票代码。加入后不会自动生成价格或结论，必须等行情与公告入库。
             </EmptyState>
           ) : (
-            <div className="ck-card ck-list-stack">
-              {items.map((item) => (
-                <article className="ck-watch-row" key={item.code}>
-                  <div className="ck-watch-main">
-                    <div className="ck-watch-code">
-                      <span>{item.code}</span>
-                      <span className="ck-watch-name">{item.name}</span>
-                    </div>
-                    <div className="ck-watch-meta">
-                      {item.thesisStatus && <ThesisTag status={item.thesisStatus} />}
-                      {item.nextEvent && <span>下一事件：{item.nextEvent}</span>}
-                    </div>
-                    {item.note && <p className="ck-watch-note">{item.note}</p>}
-                  </div>
-                  <div className="ck-watch-side">
-                    <p className="ck-watch-price">{formatPrice(item.price)}</p>
-                    <DeltaValue value={item.changePct} />
-                    <div className="ck-watch-spark">
-                      <Sparkline
-                        values={item.sparkline}
-                        label={`${item.name}近 ${item.sparkline.length} 个交易日走势`}
-                      />
-                    </div>
-                  </div>
-                  <div className="ck-watch-wide">
-                    <SourceChip source={item.source} />
-                    <Link className="ck-link" href={`/stock/${encodeURIComponent(item.code)}`}>
-                      查看证据 →
+            <>
+              {sources.length > 0 && (
+                <p className="ck-list-source">
+                  <span>行情来源</span>
+                  {sources.map((source) => <SourceChip source={source} key={source.id} />)}
+                </p>
+              )}
+              <div className="ck-card ck-list-stack">
+                {items.map((item) => (
+                  <article className="ck-watch-row" key={item.code}>
+                    <Link
+                      className="ck-watch-main"
+                      href={`/stock/${encodeURIComponent(item.code)}`}
+                    >
+                      <div className="ck-watch-code">
+                        <span>{item.code}</span>
+                        <span className="ck-watch-name">{item.name}</span>
+                      </div>
+                      <div className="ck-watch-meta">
+                        {item.thesisStatus && <ThesisTag status={item.thesisStatus} />}
+                        {item.nextEvent && <span>下一事件：{item.nextEvent}</span>}
+                        {item.price === null && <span>行情待入库</span>}
+                      </div>
+                      {item.note && <p className="ck-watch-note">{item.note}</p>}
                     </Link>
-                    <WatchlistRemove code={item.code} name={item.name} />
-                  </div>
-                </article>
-              ))}
-            </div>
+                    <Link
+                      className="ck-watch-side"
+                      href={`/stock/${encodeURIComponent(item.code)}`}
+                      aria-label={`查看 ${item.name} 证据`}
+                    >
+                      <p className={`ck-watch-price${item.price === null ? ' is-pending' : ''}`}>
+                        {item.price === null ? '待入库' : formatPrice(item.price)}
+                      </p>
+                      {item.price !== null && <DeltaValue value={item.changePct} />}
+                      {item.sparkline.length > 1 && (
+                        <div className="ck-watch-spark">
+                          <Sparkline
+                            values={item.sparkline}
+                            label={`${item.name}近 ${item.sparkline.length} 个交易日走势`}
+                          />
+                        </div>
+                      )}
+                    </Link>
+                    <div className="ck-watch-wide">
+                      <WatchlistRemove code={item.code} name={item.name} />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
           )}
         </section>
       </CockpitShell>

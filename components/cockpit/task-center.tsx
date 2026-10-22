@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { TaskRecord } from '@/lib/cockpit/types'
 import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
+import { Disclosure } from './bits'
 
 const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
@@ -76,6 +77,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
   const [error, setError] = useState<string | null>(null)
   const [question, setQuestion] = useState('')
   const [code, setCode] = useState('')
+  const formsRef = useRef<HTMLDivElement | null>(null)
   const hasActive = tasks.some((task) => task.status === 'queued' || task.status === 'running')
 
   useEffect(() => {
@@ -169,6 +171,12 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       }
       if (type === 'ask') setQuestion('')
       if (type === 'symbol_deep_dive') setCode('')
+      if (type === 'ask' || type === 'symbol_deep_dive') {
+        // 收起表单，让回执和任务流水直接出现在视野里。
+        formsRef.current?.querySelectorAll('details[open]').forEach((item) => {
+          (item as HTMLDetailsElement).open = false
+        })
+      }
     } catch {
       setError('网络连接失败，任务未派发。')
     } finally {
@@ -200,8 +208,10 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
   return (
     <>
       <section className="ck-card ck-task-composer" aria-labelledby="task-composer-title">
-        <h2 className="ck-form-title" id="task-composer-title">派发任务</h2>
-        <p className="ck-form-hint">任务在服务端串行执行，结果写入研究记录；同一参数不会重复计费。</p>
+        <div className="ck-task-composer-head">
+          <h2 className="ck-task-composer-title" id="task-composer-title">快速派发</h2>
+          <p className="ck-task-composer-hint">串行执行，结果写入研究记录；同参数不会重复计费。</p>
+        </div>
         <div className="ck-task-grid">
           <button
             className="ck-task-quick"
@@ -241,66 +251,68 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
           </button>
         </div>
 
-        <div className="ck-task-forms">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              const value = question.trim()
-              if (!value) {
-                setError('请先写下问题。')
-                return
-              }
-              void run('ask', { question: value })
-            }}
-          >
-            <div className="ck-field">
-              <label className="ck-label" htmlFor="task-question">向最新简报提问</label>
-              <textarea
-                className="ck-textarea"
-                id="task-question"
-                value={question}
-                maxLength={2000}
-                placeholder="例如：今天指数上涨，但上涨家数偏少，这个背离意味着什么？"
-                onChange={(event) => setQuestion(event.target.value)}
-              />
-            </div>
-            <div className="ck-form-actions">
-              <button className="ck-button ck-button-primary" type="submit" disabled={Boolean(busy)}>
-                {busy === 'ask' ? '派发中…' : '提交问题'}
-              </button>
-              <span className="ck-inline-meta">回答只引用已校验的简报证据</span>
-            </div>
-          </form>
+        <div className="ck-task-forms" ref={formsRef}>
+          <Disclosure title="向最新简报提问" hint="只引用已校验证据">
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                const value = question.trim()
+                if (!value) {
+                  setError('请先写下问题。')
+                  return
+                }
+                void run('ask', { question: value })
+              }}
+            >
+              <div className="ck-field">
+                <label className="ck-label" htmlFor="task-question">问题</label>
+                <textarea
+                  className="ck-textarea"
+                  id="task-question"
+                  value={question}
+                  maxLength={2000}
+                  placeholder="例如：今天指数上涨，但上涨家数偏少，这个背离意味着什么？"
+                  onChange={(event) => setQuestion(event.target.value)}
+                />
+              </div>
+              <div className="ck-form-actions">
+                <button className="ck-button ck-button-primary" type="submit" disabled={Boolean(busy)}>
+                  {busy === 'ask' ? '派发中…' : '提交问题'}
+                </button>
+              </div>
+            </form>
+          </Disclosure>
 
-          <form
-            style={{ marginTop: 10 }}
-            onSubmit={(event) => {
-              event.preventDefault()
-              const value = code.trim().toUpperCase()
-              if (!value) {
-                setError('请填写股票代码。')
-                return
-              }
-              void run('symbol_deep_dive', { code: value })
-            }}
-          >
-            <div className="ck-field">
-              <label className="ck-label" htmlFor="task-code">个股深挖</label>
-              <input
-                className="ck-input"
-                id="task-code"
-                value={code}
-                maxLength={20}
-                placeholder="例如 600519.SH"
-                onChange={(event) => setCode(event.target.value)}
-              />
-            </div>
-            <div className="ck-form-actions">
-              <button className="ck-button" type="submit" disabled={Boolean(busy)}>
-                {busy === 'symbol_deep_dive' ? '派发中…' : '读取个股证据'}
-              </button>
-            </div>
-          </form>
+          <Disclosure title="个股深挖" hint="读取已入库的行情、公告与论点">
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                const value = code.trim().toUpperCase()
+                if (!value) {
+                  setError('请填写股票代码。')
+                  return
+                }
+                void run('symbol_deep_dive', { code: value })
+              }}
+            >
+              <div className="ck-field">
+                <label className="ck-label" htmlFor="task-code">股票代码</label>
+                <input
+                  className="ck-input"
+                  id="task-code"
+                  value={code}
+                  maxLength={20}
+                  placeholder="例如 600519.SH"
+                  onChange={(event) => setCode(event.target.value)}
+                />
+              </div>
+              <div className="ck-form-actions">
+                <button className="ck-button" type="submit" disabled={Boolean(busy)}>
+                  {busy === 'symbol_deep_dive' ? '派发中…' : '开始深挖'}
+                </button>
+              </div>
+            </form>
+          </Disclosure>
         </div>
 
         {error && <p className="ck-form-error" role="alert">{error}</p>}
@@ -310,9 +322,11 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       <section className="ck-section" aria-labelledby="task-list-title">
         <div className="ck-section-head">
           <div className="ck-section-head-main">
-            <h2 className="ck-section-title" id="task-list-title">任务流水</h2>
+            <h2 className="ck-section-title" id="task-list-title">
+              任务流水 <span className="ck-section-count">{tasks.length}</span>
+            </h2>
             <p className="ck-section-detail">
-              {hasActive ? '有任务正在执行，列表会自动刷新。' : '最近 50 条任务，含失败与取消记录。'}
+              {hasActive ? '有任务正在执行，列表会自动刷新。' : '最近 50 条，含失败与取消记录。'}
             </p>
           </div>
         </div>
@@ -323,6 +337,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
             tasks.map((task) => {
               const view = resultView(task)
               const progress = Math.max(0, Math.min(100, Math.round(task.progress || 0)))
+              const active = task.status === 'queued' || task.status === 'running'
               const canCancel = task.status === 'queued' && busy !== task.id
               return (
                 <article
@@ -335,22 +350,24 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                       {taskStatusLabel(task.status)}
                     </span>
                   </div>
-                  <div className="ck-task-body">
-                    <div className="ck-task-step">
-                      <span>{task.step || (task.status === 'queued' ? '等待执行' : '已结束')}</span>
-                      <span>{progress}%</span>
+                  {active && (
+                    <div className="ck-task-body">
+                      <div className="ck-task-step">
+                        <span>{task.step || (task.status === 'queued' ? '等待执行' : '执行中')}</span>
+                        <span>{progress}%</span>
+                      </div>
+                      <div
+                        className="ck-task-progress"
+                        role="progressbar"
+                        aria-label={`${TYPE_LABEL[task.type] || task.type}进度`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={progress}
+                      >
+                        <div className="ck-task-progress-fill" style={{ width: `${progress}%` }} />
+                      </div>
                     </div>
-                    <div
-                      className="ck-task-progress"
-                      role="progressbar"
-                      aria-label={`${TYPE_LABEL[task.type] || task.type}进度`}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={progress}
-                    >
-                      <div className="ck-task-progress-fill" style={{ width: `${progress}%` }} />
-                    </div>
-                  </div>
+                  )}
                   {view && (
                     <div className="ck-task-result">
                       <strong>{view.title}</strong>

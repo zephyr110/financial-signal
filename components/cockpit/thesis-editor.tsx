@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import type { ThesisStatus, ThesisView } from '@/lib/cockpit/types'
@@ -14,7 +14,7 @@ const STATUS_OPTIONS: Array<{ value: ThesisStatus; label: string }> = [
 export function ThesisComposer({ initial }: { initial?: ThesisView }) {
   const router = useRouter()
   const editing = Boolean(initial)
-  const [open, setOpen] = useState(editing)
+  const formRef = useRef<HTMLFormElement>(null)
   const [code, setCode] = useState(initial?.code || '')
   const [title, setTitle] = useState(initial?.title || '')
   const [claim, setClaim] = useState(initial?.claim || '')
@@ -24,6 +24,17 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
   const [invalidation, setInvalidation] = useState((initial?.invalidation || []).join('\n'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  function resetForm() {
+    setCode('')
+    setTitle('')
+    setClaim('')
+    setHorizon('')
+    setStatus('active')
+    setConfidence('中')
+    setInvalidation('')
+    setError(null)
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -54,7 +65,11 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
         setError(json.error?.message || '保存论点失败。')
         return
       }
-      setOpen(false)
+      // 表单收在 Disclosure 里；保存后收起并清空草稿，避免误重复提交。
+      if (!editing) resetForm()
+      if (formRef.current?.closest('details')) {
+        (formRef.current.closest('details') as HTMLDetailsElement).open = false
+      }
       await router.replace('/research')
     } catch {
       setError('网络连接失败，未保存论点。')
@@ -63,24 +78,13 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
     }
   }
 
-  if (!open) {
-    return (
-      <div className="ck-card ck-form">
-        <h2 className="ck-form-title">建立研究论点</h2>
-        <p className="ck-form-hint">
-          论点必须能被数据推翻：写清主张、时限与失效条件；之后由简报与复核任务持续检验。
-        </p>
-        <div className="ck-form-actions">
-          <button className="ck-button ck-button-primary" type="button" onClick={() => setOpen(true)}>
-            新建论点
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <form className="ck-card ck-form" id="thesis-composer" onSubmit={(event) => void submit(event)}>
+    <form
+      className="ck-card ck-form"
+      id="thesis-composer"
+      ref={formRef}
+      onSubmit={(event) => void submit(event)}
+    >
       <h2 className="ck-form-title">{editing ? '编辑研究论点' : '新建研究论点'}</h2>
       <p className="ck-form-hint">模型只能引用已入库的证据；数字、来源与置信度不由表单以外的内容改写。</p>
       <div className="ck-form-row">
@@ -181,8 +185,11 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
           onClick={() => {
             if (editing) {
               void router.replace('/research')
-            } else {
-              setOpen(false)
+              return
+            }
+            resetForm()
+            if (formRef.current?.closest('details')) {
+              (formRef.current.closest('details') as HTMLDetailsElement).open = false
             }
           }}
         >

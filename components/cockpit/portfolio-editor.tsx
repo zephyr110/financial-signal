@@ -97,7 +97,7 @@ export function PortfolioEditor() {
         <button className="ck-button ck-button-primary" type="submit" disabled={busy}>
           {busy ? '写入中…' : '保存持仓'}
         </button>
-        <span className="ck-inline-meta">成本以整数分入库，最多保留两位小数</span>
+        <span className="ck-inline-meta">成本最多保留两位小数</span>
       </div>
       {error && <p className="ck-form-error" role="alert">{error}</p>}
       {success && <p className="ck-form-success" role="status">{success}</p>}

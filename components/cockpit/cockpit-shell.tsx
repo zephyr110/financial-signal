@@ -21,16 +21,15 @@ import { NotificationBell } from './notification-bell'
 interface NavItem {
   href: string
   label: string
-  hint: string
   icon: LucideIcon
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/today', label: '今日收盘', hint: 'TODAY', icon: SunMedium },
-  { href: '/watchlist', label: '自选', hint: 'WATCH', icon: Star },
-  { href: '/portfolio', label: '持仓', hint: 'BOOK', icon: Briefcase },
-  { href: '/research', label: '研究', hint: 'THESIS', icon: BookOpen },
-  { href: '/tasks', label: '任务', hint: 'TASKS', icon: ListChecks },
+  { href: '/today', label: '今日收盘', icon: SunMedium },
+  { href: '/watchlist', label: '自选', icon: Star },
+  { href: '/portfolio', label: '持仓', icon: Briefcase },
+  { href: '/research', label: '研究', icon: BookOpen },
+  { href: '/tasks', label: '任务', icon: ListChecks },
 ]
 
 function isActive(pathname: string, href: string): boolean {
@@ -107,7 +106,6 @@ export function CockpitShell({
               <span className="ck-brand-en">AFTERCLOSE</span>
             </span>
           </Link>
-          <p className="ck-sidebar-note">个人投研驾驶舱</p>
           <nav className="ck-side-nav" aria-label="主导航">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon
@@ -121,7 +119,6 @@ export function CockpitShell({
                 >
                   <Icon aria-hidden="true" />
                   <span>{item.label}</span>
-                  <span className="ck-side-link-hint">{item.hint}</span>
                 </Link>
               )
             })}
@@ -135,7 +132,7 @@ export function CockpitShell({
               旧版工作台
               <ArrowUpRight aria-hidden="true" style={{ width: 12, height: 12 }} />
             </Link>
-            <p className="ck-sidebar-legal">仅限本人使用。数据与文本用于研究记录，不构成投资建议。</p>
+            <p className="ck-sidebar-legal">个人研究记录，不构成投资建议。</p>
           </div>
         </aside>
 
@@ -163,8 +160,8 @@ export function CockpitShell({
               {isDemo && <DemoBanner />}
               {children}
               <footer className="ck-footer">
-                <span>收盘手记 · 个人研究记录，不构成任何投资建议。</span>
-                <span>数据先于判断，反证先于结论。</span>
+                <span>收盘手记 · 个人研究记录，不构成投资建议。</span>
+                <span>数据先于判断。</span>
               </footer>
             </main>
 
@@ -177,11 +174,6 @@ export function CockpitShell({
                   查看任务中心
                   <ArrowUpRight aria-hidden="true" />
                 </Link>
-              </section>
-              <section className="ck-rail-card">
-                <h2 className="ck-rail-title">研究原则</h2>
-                <p className="ck-rail-quote">先记录事实，再形成判断；先写下反证，再决定是否继续相信。</p>
-                <p className="ck-rail-quote-sub">证据不足时，允许结论为“不知道”。</p>
               </section>
             </aside>
           </div>
