@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { computeConfidence, findAdviceLanguage, validateBriefPayload, validateThesis } from '../lib/cockpit/validators'
+import {
+  computeConfidence,
+  containsNumericClaim,
+  findAdviceLanguage,
+  findStrongAdvice,
+  validateBriefPayload,
+  validateThesis,
+} from '../lib/cockpit/validators'
 import type { TodayPayload } from '../lib/cockpit/types'
 
 const source = { id: 'demo-source', name: '示例数据源', tier: 2 as const, asOf: '2026-10-22T08:00:00.000Z' }
@@ -57,6 +64,17 @@ describe('no-advice', () => {
   })
 })
 
+describe('narrative guards', () => {
+  it('全角数字、中文数字与仓位姿态都命中', () => {
+    expect(containsNumericClaim('涨幅１２％')).toBe(true)
+    expect(containsNumericClaim('成交额放大三成')).toBe(true)
+    expect(containsNumericClaim('百分之五的换手')).toBe(true)
+    expect(containsNumericClaim('观点一致，仍需一定时间验证')).toBe(false)
+    expect(findStrongAdvice('建议继续持有并观望')).toBe(true)
+    expect(findStrongAdvice('关注批价变化，复核失效条件')).toBe(false)
+  })
+})
+
 describe('validateBriefPayload', () => {
   it('完整的四节点证据脊柱通过', () => {
     const payload = validPayload()
@@ -81,6 +99,14 @@ describe('validateBriefPayload', () => {
     const advice = validPayload()
     advice.hero.claim = '建议买入并等待目标价。'
     expect(validateBriefPayload(advice, new Set(['fact:index:000001.SH']), new Set(['demo-source'])).ok).toBe(false)
+  })
+
+  it('叙述层的全角数字与持仓指令同样失败', () => {
+    for (const text of ['涨幅１２％，量能配合。', '建议继续持有并观望。']) {
+      const payload = validPayload()
+      payload.narrative = { text, model: 'mock-model', promptVersion: 'v1' }
+      expect(validateBriefPayload(payload, new Set(['fact:index:000001.SH']), new Set(['demo-source'])).ok).toBe(false)
+    }
   })
 })
 

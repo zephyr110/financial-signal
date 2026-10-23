@@ -3,6 +3,7 @@ import { getDb } from '../db'
 import { dateShanghai, formatSignedPct, thesisStatusLabel } from './format'
 import { computeConfidence, findAdviceLanguage, validateBriefPayload } from './validators'
 import { buildFactPack } from './facts'
+import { generateBriefNarrative, type NarrativeResult } from './narrative'
 import type {
   EvidenceItem,
   FactPack,
@@ -128,11 +129,13 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
   evidence.push({
     id: 'counter:turnover',
     kind: 'counter',
-    label: facts.turnover.changePct >= 3
-      ? `成交额较前一日放大 ${facts.turnover.changePct.toFixed(1)}%，放量分化使趋势确认度下降。`
-      : facts.turnover.changePct <= -3
-        ? `成交额较前一日收缩 ${Math.abs(facts.turnover.changePct).toFixed(1)}%，缩量使方向信号变弱。`
-        : `成交额变化 ${formatSignedPct(facts.turnover.changePct, 1)}，量能未给出额外确认。`,
+    label: facts.turnover.changePct === null
+      ? '前一开市日成交额缺失，无法判断量能变化。'
+      : facts.turnover.changePct >= 3
+        ? `成交额较前一日放大 ${facts.turnover.changePct.toFixed(1)}%，放量分化使趋势确认度下降。`
+        : facts.turnover.changePct <= -3
+          ? `成交额较前一日收缩 ${Math.abs(facts.turnover.changePct).toFixed(1)}%，缩量使方向信号变弱。`
+          : `成交额变化 ${formatSignedPct(facts.turnover.changePct, 1)}，量能未给出额外确认。`,
     source: facts.turnover.source,
   })
   evidence.push({
@@ -206,7 +209,7 @@ export function buildDailyBrief(facts: FactPack): TodayPayload {
       : upRatio < 0.5
         ? '验证上涨家数占比能否回到 50% 以上，确认指数上涨是否有广度支撑。'
         : '验证上涨宽度能否延续，以及领涨方向是否从少数标的扩散。',
-    facts.turnover.changePct >= 3
+    facts.turnover.changePct !== null && facts.turnover.changePct >= 3
       ? '观察成交额放大后能否维持，放量分化需要后续方向确认。'
       : '观察成交额是否配合方向变化；缩量或量能背离时降低置信度。',
     weakened
@@ -241,8 +244,13 @@ function contentHash(facts: FactPack): string {
  */
 export async function buildAndStoreDailyReport(
   tradeDate: string,
-  options: { force?: boolean } = {},
-): Promise<{ reportId: number; payload: TodayPayload; version: number }> {
+  options: {
+    force?: boolean
+    taskId?: string
+    /** 显式传入则不再调用模型；null 表示本次不生成叙述层。 */
+    narrative?: NarrativeResult | null
+  } = {},
+): Promise<{ reportId: number; payload: TodayPayload; version: number; narrative: NarrativeResult | null }> {
   const db = await getDb()
 
   if (!options.force) {
@@ -259,6 +267,7 @@ export async function buildAndStoreDailyReport(
           reportId: Number(existing.rows[0].id),
           version: Number(existing.rows[0].version),
           payload,
+          narrative: null,
         }
       }
     }
@@ -266,6 +275,16 @@ export async function buildAndStoreDailyReport(
 
   const facts = await buildFactPack(tradeDate)
   const payload = buildDailyBrief(facts)
+  const narrative = options.narrative === undefined
+    ? await generateBriefNarrative(payload, options.taskId)
+    : options.narrative
+  if (narrative) {
+    payload.narrative = {
+      text: narrative.text,
+      model: narrative.model,
+      promptVersion: narrative.promptVersion,
+    }
+  }
   const knownFactIds = new Set(Object.keys(facts.facts))
   const knownSourceIds = new Set(facts.dataQuality.map((source) => source.id))
   const validation = validateBriefPayload(payload, knownFactIds, knownSourceIds)
@@ -309,7 +328,18 @@ export async function buildAndStoreDailyReport(
             (kind, subject_code, trade_date, version, status, payload_json, fact_snapshot_id,
              model, prompt_version, cost_micros, is_demo, created_at, published_at)
             VALUES ('daily_brief', '', ?, ?, 'published', ?, ?, ?, ?, 0, ?, ?, ?)`,
-      args: [tradeDate, version, JSON.stringify(payload), snapshotId, 'deterministic', PROMPT_VERSION, facts.isDemo ? 1 : 0, now, now],
+      args: [
+        tradeDate,
+        version,
+        JSON.stringify(payload),
+        snapshotId,
+        narrative?.model || 'deterministic',
+        narrative ? `${PROMPT_VERSION}+${narrative.promptVersion}` : PROMPT_VERSION,
+        narrative?.costMicros || 0,
+        facts.isDemo ? 1 : 0,
+        now,
+        now,
+      ],
     })
     reportId = Number(inserted.lastInsertRowid)
     await tx.commit()
@@ -326,5 +356,5 @@ export async function buildAndStoreDailyReport(
     })
   }
 
-  return { reportId, payload, version }
+  return { reportId, payload, version, narrative }
 }

@@ -191,6 +191,7 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
       price,
       changePct: price !== null && prev && prev > 0 ? round2(((price - prev) / prev) * 100) : null,
       sparkline: closes,
+      note: str(item.note) || undefined,
       thesisStatus: thesisMap.get(code) as WatchlistItem['thesisStatus'],
       source: last && sourceId ? sourceRef(sourceMap.get(sourceId), sourceId, str(last.fetched_at)) : undefined,
     }
@@ -200,7 +201,10 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
 export async function getPortfolio(): Promise<PortfolioView> {
   const db = await getDb()
   const accountRes = await db.execute({
-    sql: 'SELECT * FROM portfolio_accounts ORDER BY created_at LIMIT 1',
+    // 示例账户只作沙箱；用户一旦录入真实持仓，组合应切到非示例账户，绝不混算。
+    sql: `SELECT * FROM portfolio_accounts
+          ORDER BY CASE WHEN id = 'demo-account' THEN 1 ELSE 0 END, created_at
+          LIMIT 1`,
     args: [],
   })
   const account = accountRes.rows[0] as Row | undefined

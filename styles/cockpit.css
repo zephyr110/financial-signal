@@ -1,81 +1,52 @@
-/* 收盘手记 · 驾驶舱样式。全部作用域在 .ck-root，避免影响旧版页面。 */
+/* 收盘手记 · 驾驶舱内容样式。外壳与旧工作台共用 AppShell，这里只负责内容层。 */
+
+/*
+ * 统一设计令牌：直接复用 globals.css 的中性色与蓝色主色，
+ * 深色模式跟随 .dark，不再维护独立的雾灰绿主题。
+ */
+:root {
+  --ck-bg: var(--background);
+  --ck-surface: var(--card);
+  --ck-surface-2: var(--muted);
+  --ck-surface-3: color-mix(in srgb, var(--muted) 62%, var(--border));
+  --ck-ink: var(--foreground);
+  --ck-muted: var(--muted-foreground);
+  --ck-faint: var(--muted-foreground);
+  --ck-line: var(--border);
+  --ck-line-strong: color-mix(in srgb, var(--border) 55%, var(--foreground));
+  --ck-accent: var(--primary);
+  --ck-accent-strong: color-mix(in srgb, var(--primary) 78%, var(--foreground));
+  --ck-accent-soft: color-mix(in srgb, var(--primary) 10%, var(--background));
+  --ck-copper: var(--chart-5);
+  --ck-copper-soft: color-mix(in srgb, var(--chart-5) 14%, var(--background));
+  --ck-up: var(--chart-3);
+  --ck-up-text: color-mix(in srgb, var(--chart-3) 80%, var(--foreground));
+  --ck-down: var(--chart-2);
+  --ck-down-text: color-mix(in srgb, var(--chart-2) 58%, var(--foreground));
+  --ck-flat: var(--border);
+  --ck-warning: var(--chart-5);
+  --ck-warning-soft: color-mix(in srgb, var(--chart-5) 16%, var(--background));
+  --ck-critical: var(--destructive);
+  --ck-critical-soft: color-mix(in srgb, var(--destructive) 12%, var(--background));
+  --ck-ok: var(--positive);
+  --ck-ok-soft: color-mix(in srgb, var(--positive) 12%, var(--background));
+  --ck-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.25);
+  --ck-serif: var(--ck-sans);
+  --ck-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --ck-mono: var(--ck-sans);
+  --ck-radius: 0.75rem;
+  --ck-radius-sm: 0.5rem;
+  --ck-max: 1120px;
+}
 
 .ck-root {
-  --ck-bg: #edf1ef;
-  --ck-surface: #fafbfa;
-  --ck-surface-2: #e3eae7;
-  --ck-surface-3: #d8e2de;
-  --ck-ink: #17211f;
-  --ck-muted: #46534f;
-  --ck-faint: #5f6b67;
-  --ck-line: #d0d9d5;
-  --ck-line-strong: #b8c6c1;
-  --ck-accent: #1f5c55;
-  --ck-accent-strong: #174841;
-  --ck-accent-soft: #d9e8e4;
-  --ck-copper: #9c5428;
-  --ck-copper-soft: #f3e6da;
-  --ck-up: #c0493f;
-  --ck-up-text: #a63a31;
-  --ck-down: #2e8b74;
-  --ck-down-text: #1c6b58;
-  --ck-flat: #d9e0dd;
-  --ck-warning: #8a5b16;
-  --ck-warning-soft: #f5ead3;
-  --ck-critical: #9a3429;
-  --ck-critical-soft: #f5dfdc;
-  --ck-ok: #1f6b58;
-  --ck-ok-soft: #dcebe6;
-  --ck-shadow: 0 1px 0 rgba(23, 33, 31, 0.04), 0 12px 32px -26px rgba(23, 33, 31, 0.55);
-  --ck-serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
-  --ck-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --ck-mono: "SFMono-Regular", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --ck-radius: 8px;
-  --ck-max: 1180px;
-
-  min-height: 100dvh;
-  background: var(--ck-bg);
   color: var(--ck-ink);
   font-family: var(--ck-sans);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-}
-
-.dark .ck-root {
-  --ck-bg: #0f1514;
-  --ck-surface: #16201e;
-  --ck-surface-2: #1c2825;
-  --ck-surface-3: #24322f;
-  --ck-ink: #e8edeb;
-  --ck-muted: #aab6b2;
-  --ck-faint: #93a19d;
-  --ck-line: #2a3734;
-  --ck-line-strong: #3a4a46;
-  --ck-accent: #79b8ac;
-  --ck-accent-strong: #9dcbc1;
-  --ck-accent-soft: #1e3b36;
-  --ck-copper: #d08a5a;
-  --ck-copper-soft: #34251b;
-  --ck-up: #e58579;
-  --ck-up-text: #f0a097;
-  --ck-down: #4fb79b;
-  --ck-down-text: #74cbb4;
-  --ck-flat: #3a4641;
-  --ck-warning: #d6a25a;
-  --ck-warning-soft: #33291a;
-  --ck-critical: #e05d54;
-  --ck-critical-soft: #3a201e;
-  --ck-ok: #74cbb4;
-  --ck-ok-soft: #1b322d;
-  --ck-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
-}
-
-.ck-root *,
-.ck-root *::before,
-.ck-root *::after {
-  box-sizing: border-box;
 }
 
 .ck-sr-only {
@@ -95,21 +66,27 @@
   color: var(--ck-ink);
 }
 
-.ck-root a {
+/* 用 :where 降低重置优先级，避免压过组件自身的颜色与间距。 */
+.ck-root :where(a) {
   color: inherit;
   text-decoration: none;
 }
 
-.ck-root button,
-.ck-root input,
-.ck-root select,
-.ck-root textarea {
+.ck-root :where(button, input, select, textarea) {
   font: inherit;
   color: inherit;
 }
 
-.ck-root button {
+.ck-root :where(button) {
   cursor: pointer;
+}
+
+.ck-root :where(h1, h2, h3, p, ul, ol, figure) {
+  margin: 0;
+}
+
+.ck-root :where(ul, ol) {
+  padding: 0;
 }
 
 .ck-root :focus-visible {
@@ -122,255 +99,44 @@
   display: block;
 }
 
-.ck-root h1,
-.ck-root h2,
-.ck-root h3,
-.ck-root p,
-.ck-root ul,
-.ck-root ol,
-.ck-root figure {
-  margin: 0;
-}
-
-.ck-root ul,
-.ck-root ol {
-  padding: 0;
-}
-
-.ck-skip {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 100;
-  transform: translateY(-160%);
-  padding: 8px 12px;
-  border-radius: 4px;
-  background: var(--ck-accent);
-  color: var(--ck-surface) !important;
-  font-size: 13px;
-}
-
-.ck-skip:focus {
-  transform: none;
-}
-
-.ck-app {
-  min-height: 100dvh;
-}
-
-.ck-sidebar {
-  display: none;
-}
-
-.ck-main {
-  min-width: 0;
-  padding-bottom: calc(78px + env(safe-area-inset-bottom));
-}
-
-/* ---------- 顶栏 ---------- */
-
-.ck-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: calc(9px + env(safe-area-inset-top)) 16px 9px;
-  border-bottom: 1px solid var(--ck-line);
-  background: color-mix(in srgb, var(--ck-bg) 88%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.1);
-  backdrop-filter: blur(16px) saturate(1.1);
-}
-
-@supports not (backdrop-filter: blur(1px)) {
-  .ck-topbar {
-    background: var(--ck-bg);
-  }
-}
-
-.ck-topbar-left {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ck-topbar-kicker {
-  flex: none;
-  color: var(--ck-accent);
-  font-family: var(--ck-serif);
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.ck-topbar-title {
-  display: none;
-  overflow: hidden;
-  color: var(--ck-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ck-topbar-title::before {
-  content: "/";
-  margin-right: 8px;
-  color: var(--ck-line-strong);
-}
-
-.ck-topbar-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-}
-
-.ck-asof {
-  display: none;
-  color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-}
-
-.ck-theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid var(--ck-line);
-  border-radius: 50%;
-  background: var(--ck-surface);
-  color: var(--ck-muted);
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.ck-theme-toggle:hover {
-  border-color: var(--ck-line-strong);
-  color: var(--ck-ink);
-}
-
-.ck-theme-toggle svg {
-  width: 14px;
-  height: 14px;
-}
-
-.ck-content-wrap {
-  width: 100%;
-  max-width: var(--ck-max);
-  margin: 0 auto;
-  padding: 18px 16px 44px;
-}
-
-.ck-main-col {
-  min-width: 0;
-}
-
-/* ---------- 页面标题 ---------- */
-
-.ck-page-head {
-  margin: 2px 0 18px;
-}
-
-.ck-eyebrow {
-  margin-bottom: 6px !important;
-  color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.ck-page-title {
-  color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: clamp(27px, 7vw, 38px);
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.2;
-}
-
-.ck-page-sub {
-  max-width: 62ch;
-  margin-top: 7px !important;
-  color: var(--ck-muted);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.ck-page-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  color: var(--ck-faint);
-  font-size: 12px;
-}
-
-.ck-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 36px;
-  padding-top: 16px;
-  border-top: 1px solid var(--ck-line);
-  color: var(--ck-faint);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.ck-footer a {
-  color: var(--ck-accent);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
 /* ---------- 演示提示 ---------- */
 
 .ck-demo-banner {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 16px;
-  padding: 11px 13px;
-  border: 1px solid color-mix(in srgb, var(--ck-copper) 38%, var(--ck-line));
-  border-left: 3px solid var(--ck-copper);
-  border-radius: 5px;
-  background: var(--ck-copper-soft);
-  color: var(--ck-ink);
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--ck-copper) 32%, var(--ck-line));
+  border-radius: var(--ck-radius-sm);
+  background: color-mix(in srgb, var(--ck-copper-soft) 72%, var(--ck-surface));
+  color: var(--ck-muted);
   font-size: 12px;
-  line-height: 1.65;
+  line-height: 1.5;
 }
 
 .ck-demo-tag {
   flex: none;
   padding: 1px 6px;
-  border: 1px solid var(--ck-copper);
-  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--ck-copper) 60%, var(--ck-line));
+  border-radius: 999px;
   color: var(--ck-copper);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
 }
 
 .ck-demo-copy {
   min-width: 0;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 /* ---------- 区块与卡片 ---------- */
 
 .ck-section {
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
 .ck-section-head {
@@ -378,7 +144,7 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 12px;
+  margin-bottom: 9px;
 }
 
 .ck-section-head-main {
@@ -387,25 +153,37 @@
 
 .ck-section-title {
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
+  font-family: var(--ck-sans);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+
+.ck-section-count {
+  margin-left: 5px;
+  color: var(--ck-faint);
+  font-family: var(--ck-sans);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  vertical-align: 2px;
 }
 
 .ck-section-detail {
+  display: block;
   margin-top: 3px !important;
   color: var(--ck-faint);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .ck-section-action {
   flex: none;
   color: var(--ck-accent);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .ck-section-action:hover {
@@ -417,7 +195,7 @@
   border: 1px solid var(--ck-line);
   border-radius: var(--ck-radius);
   background: var(--ck-surface);
-  box-shadow: var(--ck-shadow);
+  box-shadow: none;
 }
 
 .ck-card-pad {
@@ -426,10 +204,6 @@
 
 .ck-mobile-only {
   display: block;
-}
-
-.ck-desktop-only {
-  display: none;
 }
 
 .ck-link {
@@ -449,86 +223,11 @@
   align-items: center;
   gap: 6px;
   color: var(--ck-faint);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ck-sep {
   color: var(--ck-line-strong);
-}
-
-/* ---------- 按钮 ---------- */
-
-.ck-button {
-  display: inline-flex;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--ck-line-strong);
-  border-radius: 5px;
-  background: var(--ck-surface);
-  color: var(--ck-ink);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.2;
-  text-align: center;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.ck-button:hover:not(:disabled) {
-  border-color: var(--ck-accent);
-  color: var(--ck-accent);
-}
-
-.ck-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.ck-button-primary {
-  border-color: var(--ck-accent);
-  background: var(--ck-accent);
-  color: var(--ck-surface);
-}
-
-.ck-button-primary:hover:not(:disabled) {
-  border-color: var(--ck-accent-strong);
-  background: var(--ck-accent-strong);
-  color: var(--ck-surface);
-}
-
-.ck-button-ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--ck-muted);
-}
-
-.ck-button-ghost:hover:not(:disabled) {
-  border-color: var(--ck-line);
-  background: var(--ck-surface-2);
-  color: var(--ck-ink);
-}
-
-.ck-button-danger {
-  border-color: color-mix(in srgb, var(--ck-critical) 50%, var(--ck-line));
-  color: var(--ck-critical);
-}
-
-.ck-button-danger:hover:not(:disabled) {
-  border-color: var(--ck-critical);
-  color: var(--ck-critical);
-}
-
-.ck-button-small {
-  min-height: 28px;
-  padding: 4px 9px;
-  font-size: 11px;
-}
-
-.ck-button svg {
-  width: 13px;
-  height: 13px;
 }
 
 /* ---------- 标签与来源 ---------- */
@@ -543,7 +242,7 @@
   border-radius: 999px;
   background: var(--ck-surface-2);
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.5;
   vertical-align: middle;
 }
@@ -564,9 +263,10 @@ a.ck-chip:hover {
 .ck-chip-tier {
   flex: none;
   color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 9px;
-  letter-spacing: 0.04em;
+  font-family: var(--ck-sans);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .ck-chip-name {
@@ -596,21 +296,6 @@ a.ck-chip:hover {
   border-color: color-mix(in srgb, var(--ck-copper) 48%, var(--ck-line));
   background: var(--ck-copper-soft);
   color: var(--ck-copper);
-}
-
-.ck-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border: 1px solid var(--ck-line);
-  border-radius: 3px;
-  background: var(--ck-surface-2);
-  color: var(--ck-muted);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.6;
-  white-space: nowrap;
 }
 
 .ck-tag-active,
@@ -690,7 +375,7 @@ a.ck-chip:hover {
   align-items: center;
   gap: 6px;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .ck-confidence-label {
@@ -705,9 +390,9 @@ a.ck-chip:hover {
 
 .ck-confidence-seg {
   display: block;
-  width: 12px;
-  height: 4px;
-  border-radius: 2px;
+  width: 14px;
+  height: 5px;
+  border-radius: 3px;
   background: var(--ck-surface-3);
 }
 
@@ -726,7 +411,7 @@ a.ck-chip:hover {
 .ck-confidence-score {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -735,8 +420,6 @@ a.ck-chip:hover {
 .ck-hero-card {
   position: relative;
   overflow: hidden;
-  border-top: 3px solid var(--ck-accent);
-  animation: ck-settle 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .ck-hero-top {
@@ -745,16 +428,15 @@ a.ck-chip:hover {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 14px 16px 0;
+  padding: 15px 18px 0;
 }
 
 .ck-hero-kicker {
   color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
+  font-family: var(--ck-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .ck-hero-meta {
@@ -765,13 +447,21 @@ a.ck-chip:hover {
 }
 
 .ck-hero-claim {
-  padding: 12px 16px 4px;
+  padding: 8px 18px 2px;
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: clamp(22px, 6vw, 33px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-family: var(--ck-sans);
+  font-size: clamp(20px, 5vw, 26px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
   line-height: 1.4;
+}
+
+.ck-hero-narrative {
+  margin-top: 0;
+  padding: 0 0 4px;
+  color: var(--ck-muted);
+  font-size: 13.5px;
+  line-height: 1.75;
 }
 
 .ck-hero-foot {
@@ -780,17 +470,10 @@ a.ck-chip:hover {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 12px;
-  padding: 12px 16px;
+  margin-top: 10px;
+  padding: 11px 18px;
   border-top: 1px solid var(--ck-line);
-  background: color-mix(in srgb, var(--ck-surface-2) 55%, transparent);
-}
-
-.ck-hero-confidence-note {
-  min-width: 0;
-  color: var(--ck-faint);
-  font-size: 10px;
-  line-height: 1.55;
+  background: color-mix(in srgb, var(--ck-surface-2) 50%, transparent);
 }
 
 .ck-hero-actions {
@@ -799,21 +482,16 @@ a.ck-chip:hover {
   gap: 8px;
 }
 
-@keyframes ck-settle {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+.ck-hero-actions a,
+.ck-empty-actions a {
+  min-height: 34px;
 }
+
 
 /* ---------- 证据脊柱 ---------- */
 
 .ck-spine {
-  margin: 8px 16px 14px;
+  margin: 12px 18px 14px;
   padding: 0;
   list-style: none;
 }
@@ -822,8 +500,8 @@ a.ck-chip:hover {
   position: relative;
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
-  gap: 10px;
-  padding-bottom: 14px;
+  gap: 9px;
+  padding-bottom: 12px;
 }
 
 .ck-spine-item:last-child {
@@ -891,9 +569,9 @@ a.ck-chip:hover {
   margin-bottom: 1px !important;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -907,23 +585,23 @@ a.ck-chip:hover {
 
 .ck-spine-label {
   color: var(--ck-ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 1.55;
+  line-height: 1.5;
 }
 
 .ck-spine-value {
   margin-left: 6px;
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
 .ck-spine-detail {
   margin-top: 2px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -931,12 +609,376 @@ a.ck-chip:hover {
   margin-top: 5px;
 }
 
+/* ---------- 行情快照 ---------- */
+
+.ck-snapshot {
+  margin: 12px 18px 0;
+  padding-top: 11px;
+  border-top: 1px solid var(--ck-line);
+}
+
+.ck-snapshot-indices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ck-snapshot-index {
+  min-width: 0;
+}
+
+.ck-snapshot-name {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--ck-faint);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-snapshot-name code {
+  color: var(--ck-faint);
+  font-family: var(--ck-mono);
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+.ck-snapshot-index strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--ck-ink);
+  font-family: var(--ck-mono);
+  font-size: clamp(17px, 4.6vw, 21px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.ck-snapshot-index .ck-delta {
+  font-size: 11.5px;
+}
+
+.ck-snapshot-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--ck-line);
+}
+
+.ck-snapshot-label {
+  display: block;
+  color: var(--ck-faint);
+  font-size: 11px;
+}
+
+.ck-snapshot-breadth-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ck-snapshot-bar {
+  display: flex;
+  min-width: 46px;
+  height: 6px;
+  flex: 1;
+  gap: 2px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--ck-surface-2);
+}
+
+.ck-snapshot-seg {
+  display: block;
+  height: 100%;
+}
+
+.ck-snapshot-seg.ck-up {
+  background: var(--ck-up);
+}
+
+.ck-snapshot-seg.ck-down {
+  background: var(--ck-down);
+}
+
+.ck-snapshot-seg.ck-flat {
+  background: var(--ck-flat);
+}
+
+.ck-snapshot-breadth-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--ck-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ck-snapshot-breadth-nums b {
+  font-weight: 600;
+}
+
+.ck-snapshot-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 10px;
+  margin-top: 2px;
+  color: var(--ck-faint);
+  font-size: 11px;
+}
+
+.ck-nowrap {
+  white-space: nowrap;
+}
+
+.ck-snapshot-turnover strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--ck-ink);
+  font-family: var(--ck-mono);
+  font-size: clamp(17px, 4.6vw, 21px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.ck-snapshot-turnover .ck-delta {
+  font-size: 11.5px;
+}
+
+.ck-snapshot-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--ck-faint);
+  font-size: 11px;
+}
+
+.ck-snapshot-source .ck-chip {
+  border-color: var(--ck-line);
+  background: transparent;
+}
+
+/* ---------- 折叠区块 ---------- */
+
+.ck-disclosure {
+  overflow: hidden;
+  border: 1px solid var(--ck-line);
+  border-radius: var(--ck-radius);
+  background: var(--ck-surface);
+  box-shadow: none;
+}
+
+.ck-disclosure + .ck-disclosure {
+  margin-top: 8px;
+}
+
+.ck-disclosure-head {
+  position: relative;
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  color: var(--ck-ink);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.ck-disclosure-head:hover {
+  background: color-mix(in srgb, var(--ck-surface-2) 60%, transparent);
+}
+
+.ck-disclosure-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-disclosure-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  color: var(--ck-faint);
+  transition: transform 0.18s ease;
+}
+
+.ck-disclosure.is-open .ck-disclosure-icon {
+  transform: rotate(180deg);
+}
+
+.ck-disclosure-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ck-faint);
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-disclosure-trigger {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ck-disclosure-trigger:focus-visible {
+  outline: 2px solid var(--ck-accent);
+  outline-offset: -2px;
+}
+
+.ck-disclosure-body {
+  padding: 0 14px 14px;
+}
+
+.ck-disclosure-body > .ck-form {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ck-disclosure .ck-form .ck-form-title {
+  display: none;
+}
+
+.ck-disclosure-body > .ck-quality-list {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ck-disclosure .ck-section-detail {
+  display: none;
+}
+
+/* 首屏内的次级说明：叙述、置信度构成 */
+.ck-hero-extra {
+  margin: 10px 18px 0;
+  overflow: hidden;
+  border: 1px solid var(--ck-line);
+  border-radius: var(--ck-radius-sm);
+  background: color-mix(in srgb, var(--ck-surface-2) 48%, transparent);
+  box-shadow: none;
+}
+
+.ck-hero-extra .ck-disclosure-head {
+  min-height: 36px;
+  padding: 8px 11px;
+  color: var(--ck-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ck-hero-extra .ck-disclosure-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.ck-hero-extra .ck-disclosure-body {
+  padding: 0 11px 10px;
+}
+
+.ck-confidence-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  padding-top: 2px;
+}
+
+.ck-confidence-item {
+  min-width: 0;
+}
+
+.ck-confidence-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ck-faint);
+  font-size: 11px;
+}
+
+.ck-confidence-item-head b {
+  color: var(--ck-muted);
+  font-family: var(--ck-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ck-confidence-item-track {
+  height: 4px;
+  margin-top: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--ck-surface-3);
+}
+
+.ck-confidence-item-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ck-accent);
+}
+
+.ck-confidence-note {
+  margin-top: 8px !important;
+  color: var(--ck-faint);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* ---------- 行情明细 ---------- */
+
+.ck-market-details {
+  margin-top: 10px;
+  overflow: visible;
+}
+
+.ck-market-details.is-open .ck-disclosure-head {
+  border-bottom: 1px solid var(--ck-line);
+}
+
+.ck-market-body {
+  padding: 12px 0 0;
+}
+
+.ck-market-body .ck-index-card {
+  background: color-mix(in srgb, var(--ck-surface-2) 55%, transparent);
+  box-shadow: none;
+}
+
+.ck-market-source {
+  margin-top: 9px;
+}
+
 /* ---------- 市场脉搏 ---------- */
 
 .ck-index-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
+  gap: 8px;
 }
 
 .ck-index-card {
@@ -954,7 +996,7 @@ a.ck-chip:hover {
 .ck-index-name {
   overflow: hidden;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -964,7 +1006,7 @@ a.ck-chip:hover {
   flex: none;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .ck-index-value {
@@ -984,7 +1026,7 @@ a.ck-chip:hover {
   justify-content: space-between;
   gap: 4px;
   margin-top: 1px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-index-spark {
@@ -1018,13 +1060,13 @@ a.ck-chip:hover {
 
 .ck-pulse-title {
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .ck-pulse-note {
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-breadth-bar {
@@ -1069,7 +1111,7 @@ a.ck-chip:hover {
   align-items: center;
   gap: 5px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -1094,7 +1136,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-stat-line {
@@ -1115,7 +1157,7 @@ a.ck-chip:hover {
 .ck-stat-label {
   display: block;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-stat-value {
@@ -1132,7 +1174,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 /* ---------- 个人影响 ---------- */
@@ -1160,13 +1202,13 @@ a.ck-chip:hover {
 .ck-impact-code span {
   display: block;
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .ck-impact-name {
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-impact-main {
@@ -1175,7 +1217,7 @@ a.ck-chip:hover {
 
 .ck-impact-headline {
   color: var(--ck-ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.55;
 }
@@ -1183,7 +1225,7 @@ a.ck-chip:hover {
 .ck-impact-detail {
   margin-top: 3px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.65;
 }
 
@@ -1224,7 +1266,7 @@ a.ck-chip:hover {
 .ck-doc-title {
   min-width: 0;
   color: var(--ck-ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.55;
 }
@@ -1236,7 +1278,7 @@ a.ck-chip:hover {
   gap: 6px;
   margin-top: 6px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-doc-source {
@@ -1265,13 +1307,13 @@ a.ck-chip:hover {
 .ck-focus-index {
   color: var(--ck-line-strong);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.9;
 }
 
 .ck-focus-text {
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -1338,20 +1380,20 @@ a.ck-chip:hover {
 
 .ck-quality-name {
   color: var(--ck-ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .ck-quality-status {
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
 .ck-quality-message {
   margin-top: 2px !important;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1360,7 +1402,7 @@ a.ck-chip:hover {
   align-items: center;
   gap: 5px;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -1376,16 +1418,16 @@ a.ck-chip:hover {
 
 .ck-empty-title {
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 18px;
-  font-weight: 700;
+  font-family: var(--ck-sans);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .ck-empty-text {
   max-width: 42ch;
   margin: 6px auto 0 !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -1404,7 +1446,7 @@ a.ck-chip:hover {
   border-radius: 5px;
   background: var(--ck-critical-soft);
   color: var(--ck-critical);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -1415,7 +1457,6 @@ a.ck-chip:hover {
 }
 
 .ck-rail-card {
-  margin-bottom: 12px;
   padding: 14px;
   border: 1px solid var(--ck-line);
   border-radius: var(--ck-radius);
@@ -1423,30 +1464,31 @@ a.ck-chip:hover {
 }
 
 .ck-rail-title {
-  color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 9px;
+  color: var(--ck-ink);
+  font-family: var(--ck-sans);
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  line-height: 1.4;
 }
 
 .ck-rail-note {
-  margin-top: 7px !important;
+  margin-top: 8px !important;
   color: var(--ck-muted);
-  font-size: 11px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .ck-rail-list {
-  margin-top: 9px;
+  margin: 8px 0 0;
+  padding: 0;
   list-style: none;
 }
 
 .ck-rail-row {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
+  gap: 8px;
   padding: 7px 0;
   border-top: 1px solid var(--ck-line);
 }
@@ -1464,17 +1506,21 @@ a.ck-chip:hover {
 .ck-rail-row-title {
   display: block;
   overflow: hidden;
-  color: var(--ck-muted);
-  font-size: 10px;
+  color: var(--ck-ink);
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ck-rail-row-meta {
   display: block;
+  overflow: hidden;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ck-rail-link {
@@ -1486,8 +1532,8 @@ a.ck-chip:hover {
   padding-top: 10px;
   border-top: 1px solid var(--ck-line);
   color: var(--ck-accent);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .ck-rail-link:hover {
@@ -1499,89 +1545,19 @@ a.ck-chip:hover {
   height: 12px;
 }
 
-.ck-rail-quote {
-  color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 16px;
-  line-height: 1.55;
-}
-
-.ck-rail-quote-sub {
-  margin-top: 6px !important;
-  color: var(--ck-faint);
-  font-size: 10px;
-  line-height: 1.6;
-}
-
-/* ---------- 移动底栏 ---------- */
-
-.ck-bottom-nav {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 30;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  padding: 5px 4px calc(5px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--ck-line);
-  background: color-mix(in srgb, var(--ck-surface) 93%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.1);
-  backdrop-filter: blur(16px) saturate(1.1);
-}
-
-@supports not (backdrop-filter: blur(1px)) {
-  .ck-bottom-nav {
-    background: var(--ck-surface);
-  }
-}
-
-.ck-bottom-link {
-  display: flex;
-  min-width: 0;
-  min-height: 50px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  border-radius: 5px;
-  color: var(--ck-faint);
-  font-size: 10px;
-  line-height: 1.2;
-}
-
-.ck-bottom-link svg {
-  width: 18px;
-  height: 18px;
-  stroke-width: 1.7;
-}
-
-.ck-bottom-link.is-active {
-  color: var(--ck-accent);
-  font-weight: 600;
-}
-
-.ck-bottom-link.is-active svg {
-  stroke-width: 2;
-}
-
-.ck-bottom-label {
-  overflow: hidden;
-  max-width: 100%;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ---------- 持仓 ---------- */
 
 .ck-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  gap: 8px;
 }
 
 .ck-metric {
-  padding: 13px;
+  min-width: 0;
+  padding: 12px 13px;
+  border-radius: var(--ck-radius);
+  background: var(--ck-surface);
 }
 
 .ck-metric:first-child {
@@ -1590,24 +1566,26 @@ a.ck-chip:hover {
 
 .ck-metric-label {
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .ck-metric-value {
   margin-top: 2px;
+  overflow-wrap: anywhere;
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: clamp(21px, 6vw, 30px);
+  font-size: clamp(17px, 4.8vw, 27px);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 
 .ck-metric-note {
   margin-top: 3px !important;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .ck-exposure-list {
@@ -1633,13 +1611,13 @@ a.ck-chip:hover {
 
 .ck-exposure-name {
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ck-exposure-value {
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1685,14 +1663,14 @@ a.ck-chip:hover {
 
 .ck-risk-title {
   color: var(--ck-ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .ck-risk-detail {
   margin-top: 2px !important;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.6;
 }
 
@@ -1708,13 +1686,13 @@ a.ck-chip:hover {
   width: 100%;
   min-width: 530px;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .ck-table caption {
   padding: 12px 13px 0;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   text-align: left;
 }
 
@@ -1723,7 +1701,7 @@ a.ck-chip:hover {
   border-bottom: 1px solid var(--ck-line);
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-align: left;
@@ -1755,17 +1733,212 @@ a.ck-chip:hover {
 .ck-table-code {
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ck-table-sub {
   display: block;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-table tr:hover td {
   background: color-mix(in srgb, var(--ck-surface-2) 55%, transparent);
+}
+
+/* ---------- 持仓卡片（移动端） ---------- */
+
+.ck-positions-cards {
+  display: grid;
+  gap: 8px;
+}
+
+.ck-positions-table {
+  display: none;
+}
+
+.ck-positions-table .ck-table {
+  min-width: 720px;
+}
+
+.ck-positions-table .ck-table th,
+.ck-positions-table .ck-table td {
+  white-space: nowrap;
+}
+
+.ck-positions-table .ck-table td {
+  padding: 10px 12px;
+}
+
+.ck-table-ident {
+  min-width: 170px;
+}
+
+.ck-table-ident-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ck-table-name {
+  color: var(--ck-ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ck-table-ident .ck-chip {
+  margin-top: 4px;
+}
+
+.ck-table-industry {
+  color: var(--ck-muted);
+  font-size: 12px;
+}
+
+.ck-table th.ck-table-action,
+.ck-table td.ck-table-action {
+  width: 1%;
+  padding-right: 8px;
+  padding-left: 4px;
+  text-align: right;
+}
+
+.ck-position {
+  padding: 12px 14px;
+}
+
+.ck-position-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ck-position-id {
+  min-width: 0;
+}
+
+.ck-position-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ck-position-code span {
+  color: var(--ck-faint);
+  font-family: var(--ck-mono);
+  font-size: 11px;
+}
+
+.ck-position-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ck-ink);
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.ck-position-industry {
+  display: inline-block;
+  margin-top: 3px;
+  margin-left: 6px;
+  color: var(--ck-faint);
+  font-size: 11px;
+}
+
+.ck-position-value {
+  flex: none;
+  color: var(--ck-ink);
+  font-family: var(--ck-mono);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ck-position-value span {
+  display: block;
+  color: var(--ck-faint);
+  font-family: var(--ck-sans);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: normal;
+}
+
+.ck-position-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ck-line);
+}
+
+.ck-position-cell {
+  min-width: 0;
+}
+
+.ck-position-cell span {
+  display: block;
+  color: var(--ck-faint);
+  font-size: 11px;
+}
+
+.ck-position-cell b {
+  display: block;
+  overflow: hidden;
+  margin-top: 1px;
+  color: var(--ck-ink);
+  font-family: var(--ck-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-position-cell small {
+  display: block;
+  margin-top: 1px;
+  color: var(--ck-faint);
+  font-family: var(--ck-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ck-position-cell b.ck-up,
+.ck-position-cell small.ck-up {
+  color: var(--ck-up-text);
+}
+
+.ck-position-cell b.ck-down,
+.ck-position-cell small.ck-down {
+  color: var(--ck-down-text);
+}
+
+.ck-position-cell b.ck-flat,
+.ck-position-cell small.ck-flat {
+  color: var(--ck-faint);
+}
+
+.ck-position-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.ck-position-foot > .ck-chip {
+  margin-right: auto;
 }
 
 /* ---------- 自选 ---------- */
@@ -1777,8 +1950,9 @@ a.ck-chip:hover {
 .ck-watch-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px 12px;
-  padding: 13px 14px;
+  align-items: center;
+  gap: 2px 12px;
+  padding: 10px 14px;
   border-top: 1px solid var(--ck-line);
 }
 
@@ -1791,6 +1965,15 @@ a.ck-chip:hover {
 }
 
 .ck-watch-main {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 12px;
+  min-width: 0;
+}
+
+.ck-watch-copy {
   min-width: 0;
 }
 
@@ -1802,14 +1985,14 @@ a.ck-chip:hover {
 }
 
 .ck-watch-code span:first-child {
-  color: var(--ck-ink);
+  color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .ck-watch-name {
-  color: var(--ck-muted);
-  font-size: 12px;
+  color: var(--ck-ink);
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -1818,12 +2001,22 @@ a.ck-chip:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
+}
+
+.ck-watch-note {
+  margin: 2px 0 0;
+  color: var(--ck-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .ck-watch-side {
+  display: block;
+  min-width: 0;
   text-align: right;
 }
 
@@ -1836,28 +2029,32 @@ a.ck-chip:hover {
   line-height: 1.25;
 }
 
+.ck-watch-price.is-pending {
+  color: var(--ck-faint);
+  font-family: var(--ck-sans);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .ck-watch-spark {
-  width: 80px;
-  margin-top: 3px;
+  width: 64px;
+  margin-top: 0;
 }
 
 .ck-watch-spark .ck-spark {
-  height: 24px;
+  height: 18px;
 }
 
-.ck-watch-wide {
+.ck-watch-action {
   grid-column: 1 / -1;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  justify-content: flex-end;
 }
 
 /* ---------- 个股 ---------- */
 
 .ck-stock-hero {
-  border-top: 3px solid var(--ck-accent);
+  border-top: 2px solid color-mix(in srgb, var(--ck-accent) 45%, var(--ck-line));
 }
 
 .ck-stock-head {
@@ -1876,7 +2073,7 @@ a.ck-chip:hover {
 .ck-stock-code {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.04em;
 }
 
@@ -1886,7 +2083,7 @@ a.ck-chip:hover {
   gap: 6px;
   margin-top: 6px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-stock-price {
@@ -1910,7 +2107,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 2px;
   font-family: var(--ck-mono);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .ck-stock-chart {
@@ -1929,7 +2126,7 @@ a.ck-chip:hover {
   margin-top: 4px;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-price-table {
@@ -1940,7 +2137,7 @@ a.ck-chip:hover {
 .ck-price-table summary {
   padding: 8px 0 0;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -1949,7 +2146,7 @@ a.ck-chip:hover {
   margin-top: 6px;
   border-collapse: collapse;
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1979,7 +2176,7 @@ a.ck-chip:hover {
 }
 
 .ck-thesis-card {
-  padding: 14px;
+  padding: 13px 14px;
 }
 
 .ck-thesis-top {
@@ -1993,28 +2190,28 @@ a.ck-chip:hover {
 .ck-thesis-code {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-thesis-title {
   margin-top: 7px;
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 17px;
-  font-weight: 700;
+  font-family: var(--ck-sans);
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.45;
 }
 
 .ck-thesis-claim {
   margin-top: 5px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
 .ck-thesis-invalidation {
-  margin-top: 10px;
-  padding: 9px 10px;
+  margin-top: 9px;
+  padding: 8px 10px;
   border-left: 2px solid var(--ck-copper);
   background: var(--ck-copper-soft);
 }
@@ -2022,7 +2219,7 @@ a.ck-chip:hover {
 .ck-thesis-invalidation-label {
   color: var(--ck-copper);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
 }
@@ -2031,7 +2228,7 @@ a.ck-chip:hover {
   margin: 4px 0 0;
   padding-left: 14px;
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.65;
 }
 
@@ -2045,38 +2242,38 @@ a.ck-chip:hover {
   padding-top: 9px;
   border-top: 1px solid var(--ck-line);
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-thesis-counts {
   display: flex;
   gap: 10px;
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-thesis-horizon {
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 /* ---------- 表单 ---------- */
 
 .ck-form {
-  padding: 15px;
+  padding: 14px;
 }
 
 .ck-form-title {
   color: var(--ck-ink);
-  font-family: var(--ck-serif);
-  font-size: 18px;
-  font-weight: 700;
+  font-family: var(--ck-sans);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .ck-form-hint {
   margin-top: 3px !important;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -2094,8 +2291,8 @@ a.ck-chip:hover {
   display: block;
   margin-bottom: 4px;
   color: var(--ck-muted);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .ck-input,
@@ -2103,19 +2300,19 @@ a.ck-chip:hover {
 .ck-textarea {
   display: block;
   width: 100%;
-  min-height: 34px;
-  padding: 6px 9px;
-  border: 1px solid var(--ck-line-strong);
-  border-radius: 4px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--ck-line);
+  border-radius: var(--ck-radius-sm);
   outline: none;
   background: var(--ck-surface);
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 15px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ck-textarea {
-  min-height: 74px;
+  min-height: 82px;
   resize: vertical;
   line-height: 1.65;
 }
@@ -2124,7 +2321,7 @@ a.ck-chip:hover {
 .ck-select:focus,
 .ck-textarea:focus {
   border-color: var(--ck-accent);
-  box-shadow: 0 0 0 2px var(--ck-accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ck-accent) 18%, transparent);
 }
 
 .ck-input::placeholder,
@@ -2140,17 +2337,46 @@ a.ck-chip:hover {
   margin-top: 11px;
 }
 
+.ck-inline-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 列表行里的移除按钮：平时安静，悬停才显出危险色。 */
+.ck-row-action {
+  flex: none;
+  color: var(--ck-faint);
+}
+
+.ck-row-action:hover:not(:disabled) {
+  background: var(--ck-critical-soft);
+  color: var(--ck-critical);
+}
+
+.ck-row-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ck-thesis-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
 .ck-form-error {
   margin-top: 8px;
   color: var(--ck-critical);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
 .ck-form-success {
   margin-top: 8px;
   color: var(--ck-ok);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -2173,7 +2399,7 @@ a.ck-chip:hover {
   align-items: baseline;
   gap: 6px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-journal-date {
@@ -2181,38 +2407,81 @@ a.ck-chip:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.ck-journal-code {
+  color: var(--ck-accent);
+  font-family: var(--ck-mono);
+  font-size: 11px;
+}
+
+.ck-journal-tag {
+  height: 18px;
+  padding: 0 6px;
+  border-color: var(--ck-line);
+  border-radius: 3px;
+  background: var(--ck-surface-2);
+  color: var(--ck-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ck-journal-outcome {
+  margin-top: 5px !important;
+  padding-left: 8px;
+  border-left: 2px solid var(--ck-line-strong);
+  color: var(--ck-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .ck-journal-reason {
   margin-top: 4px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
 /* ---------- 任务中心 ---------- */
 
 .ck-task-composer {
-  padding: 15px;
+  padding: 14px;
+}
+
+.ck-task-composer-title {
+  color: var(--ck-ink);
+  font-family: var(--ck-sans);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ck-task-composer-hint {
+  margin-top: 2px !important;
+  color: var(--ck-faint);
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 
 .ck-task-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .ck-task-quick {
-  display: flex;
-  min-height: 62px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 4px;
+  display: grid;
+  height: auto;
+  min-height: 64px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  justify-content: flex-start;
+  gap: 8px;
   padding: 10px;
   border: 1px solid var(--ck-line);
-  border-radius: 5px;
+  border-radius: 8px;
   background: var(--ck-surface);
   text-align: left;
+  white-space: normal;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
@@ -2226,22 +2495,51 @@ a.ck-chip:hover {
   opacity: 0.5;
 }
 
-.ck-task-quick strong {
-  color: var(--ck-ink);
-  font-size: 12px;
-  font-weight: 600;
+.ck-task-quick-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--ck-accent-soft);
+  color: var(--ck-accent-strong);
 }
 
-.ck-task-quick span {
+.ck-task-quick-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ck-task-quick-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.ck-task-quick-copy strong {
+  color: var(--ck-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ck-task-quick-copy > span {
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.45;
+  text-wrap: balance;
 }
 
 .ck-task-forms {
-  margin-top: 8px;
-  padding-top: 11px;
-  border-top: 1px solid var(--ck-line);
+  margin-top: 10px;
+}
+
+.ck-task-forms .ck-disclosure {
+  border-color: var(--ck-line);
+  background: color-mix(in srgb, var(--ck-surface-2) 38%, var(--ck-surface));
+  box-shadow: none;
 }
 
 .ck-task-list {
@@ -2263,16 +2561,25 @@ a.ck-chip:hover {
 
 .ck-task-type {
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .ck-task-status {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
+}
+
+.ck-task-status::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .ck-task-status.is-running,
@@ -2297,7 +2604,7 @@ a.ck-chip:hover {
   justify-content: space-between;
   gap: 8px;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-task-progress {
@@ -2315,14 +2622,6 @@ a.ck-chip:hover {
   transition: width 0.35s ease;
 }
 
-.ck-task.is-failed .ck-task-progress-fill {
-  background: var(--ck-critical);
-}
-
-.ck-task.is-succeeded .ck-task-progress-fill {
-  background: var(--ck-ok);
-}
-
 .ck-task-meta {
   display: flex;
   flex-wrap: wrap;
@@ -2330,12 +2629,12 @@ a.ck-chip:hover {
   gap: 6px;
   margin-top: 7px;
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-task-meta code {
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-task-result {
@@ -2344,7 +2643,7 @@ a.ck-chip:hover {
   border-left: 2px solid var(--ck-line-strong);
   background: color-mix(in srgb, var(--ck-surface-2) 60%, transparent);
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -2354,13 +2653,13 @@ a.ck-chip:hover {
   display: block;
   margin-bottom: 2px;
   color: var(--ck-ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ck-task-error {
   margin-top: 8px;
   color: var(--ck-critical);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -2372,7 +2671,7 @@ a.ck-chip:hover {
 
 .ck-task-empty {
   color: var(--ck-faint);
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
   padding: 24px 12px;
 }
@@ -2380,9 +2679,8 @@ a.ck-chip:hover {
 /* ---------- 响应式 ---------- */
 
 @media (min-width: 560px) {
-  .ck-content-wrap {
-    padding-right: 22px;
-    padding-left: 22px;
+  .ck-confidence-breakdown {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .ck-pulse-grid {
@@ -2405,14 +2703,47 @@ a.ck-chip:hover {
     grid-column: auto;
   }
 
-  .ck-task-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
 }
 
 @media (min-width: 768px) {
-  .ck-asof {
-    display: inline;
+  .ck-task-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ck-thesis-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 奇数条论点时让第一条独占一行，避免最后一张卡悬在半空。 */
+  .ck-thesis-grid > :first-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .ck-thesis-grid > :first-child:nth-child(odd) .ck-thesis-claim {
+    max-width: 72ch;
+  }
+
+  .ck-snapshot,
+  .ck-hero-extra {
+    margin-right: 22px;
+    margin-left: 22px;
+  }
+
+  .ck-positions-cards {
+    display: none;
+  }
+
+  .ck-positions-table {
+    display: block;
+  }
+
+  /* 桌面把移除按钮收成最右一列，行高由价格与文案决定。 */
+  .ck-watch-main {
+    grid-column: 1;
+  }
+
+  .ck-watch-action {
+    grid-column: 2;
   }
 
   .ck-impact {
@@ -2425,7 +2756,7 @@ a.ck-chip:hover {
   }
 
   .ck-index-name {
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .ck-index-value {
@@ -2460,209 +2791,19 @@ a.ck-chip:hover {
 
   .ck-table {
     min-width: 0;
-    font-size: 13px;
+    font-size: 14px;
   }
 }
 
 @media (min-width: 1024px) {
-  .ck-app {
-    display: grid;
-    grid-template-columns: 232px minmax(0, 1fr);
-  }
-
-  .ck-sidebar {
-    position: sticky;
-    top: 0;
-    display: flex;
-    height: 100dvh;
-    flex-direction: column;
-    padding: 26px 16px 18px;
-    border-right: 1px solid var(--ck-line);
-    background: var(--ck-surface);
-  }
-
-  .ck-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0 8px;
-  }
-
-  .ck-brand-mark {
-    display: flex;
-    width: 32px;
-    height: 32px;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--ck-accent);
-    border-radius: 4px;
-    color: var(--ck-accent);
-    font-family: var(--ck-serif);
-    font-size: 18px;
-    font-weight: 700;
-  }
-
-  .ck-brand-text {
-    min-width: 0;
-  }
-
-  .ck-brand-name {
-    display: block;
-    color: var(--ck-ink);
-    font-family: var(--ck-serif);
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    line-height: 1.25;
-  }
-
-  .ck-brand-en {
-    display: block;
-    margin-top: 1px;
-    color: var(--ck-faint);
-    font-family: var(--ck-mono);
-    font-size: 8px;
-    letter-spacing: 0.16em;
-  }
-
-  .ck-sidebar-note {
-    margin: 18px 8px 8px !important;
-    color: var(--ck-faint);
-    font-size: 9px;
-    letter-spacing: 0.08em;
-  }
-
-  .ck-side-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .ck-side-link {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 9px;
-    border-radius: 5px;
-    color: var(--ck-muted);
-    font-size: 12px;
-    transition: background 0.15s ease, color 0.15s ease;
-  }
-
-  .ck-side-link:hover {
-    background: var(--ck-surface-2);
-    color: var(--ck-ink);
-  }
-
-  .ck-side-link.is-active {
-    background: var(--ck-accent-soft);
-    color: var(--ck-accent);
-    font-weight: 600;
-  }
-
-  .ck-side-link svg {
-    width: 15px;
-    height: 15px;
-    flex: none;
-    stroke-width: 1.7;
-  }
-
-  .ck-side-link-hint {
-    margin-left: auto;
-    color: var(--ck-faint);
-    font-family: var(--ck-mono);
-    font-size: 8px;
-    font-weight: 400;
-  }
-
-  .ck-sidebar-foot {
-    margin-top: auto;
-    padding: 14px 8px 0;
-    border-top: 1px solid var(--ck-line);
-  }
-
-  .ck-theme-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    color: var(--ck-faint);
-    font-size: 10px;
-  }
-
-  .ck-sidebar-legal {
-    margin-top: 10px !important;
-    color: var(--ck-faint);
-    font-size: 9px;
-    line-height: 1.6;
-  }
-
-  .ck-side-link-quiet {
-    margin-top: 4px;
-    padding: 5px 0;
-    font-size: 10px;
-  }
-
-  .ck-main {
-    padding-bottom: 0;
-  }
-
-  .ck-topbar {
-    padding: 11px 40px;
-  }
-
-  .ck-topbar-kicker {
-    display: none;
-  }
-
-  .ck-topbar-title {
-    display: block;
-    color: var(--ck-muted);
-    font-size: 12px;
-  }
-
-  .ck-topbar-title::before {
-    display: none;
-  }
-
-  .ck-topbar-actions .ck-theme-toggle {
-    display: none;
-  }
-
-  .ck-content-wrap {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
-    gap: 34px;
-    align-items: start;
-    padding: 28px 40px 64px;
-  }
-
   .ck-rail {
     position: sticky;
-    top: 76px;
+    top: 16px;
     display: block;
-  }
-
-  .ck-bottom-nav {
-    display: none;
   }
 
   .ck-mobile-only {
     display: none;
-  }
-
-  .ck-desktop-only {
-    display: block;
-  }
-
-  .ck-page-head {
-    margin-top: 0;
-    margin-bottom: 22px;
-  }
-
-  .ck-page-title {
-    font-size: 36px;
   }
 
   .ck-index-value {
@@ -2671,19 +2812,35 @@ a.ck-chip:hover {
 }
 
 @media (min-width: 1240px) {
-  .ck-content-wrap {
-    grid-template-columns: minmax(0, 1fr) 300px;
-    gap: 44px;
-    padding-right: 48px;
-    padding-left: 48px;
-  }
-
   .ck-index-value {
     font-size: 23px;
   }
 }
 
+@media (max-width: 767px) {
+  .ck-input,
+  .ck-select,
+  .ck-textarea {
+    font-size: 16px;
+  }
+
+  /* 窄屏三列指数只留名称，代码留在桌面与详情页。 */
+  .ck-index-code,
+  .ck-snapshot-name code {
+    display: none;
+  }
+}
+
 @media (max-width: 359px) {
+  .ck-snapshot-stats {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .ck-disclosure-hint {
+    display: none;
+  }
+
   .ck-index-grid {
     gap: 5px;
   }
@@ -2693,11 +2850,11 @@ a.ck-chip:hover {
   }
 
   .ck-index-value {
-    font-size: 14px;
+    font-size: 15px;
   }
 
-  .ck-index-code {
-    display: none;
+  .ck-position-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .ck-watch-spark {
@@ -2734,4 +2891,187 @@ a.ck-chip:hover {
 
 .ck-stat-value.ck-down {
   color: var(--ck-down-text);
+}
+
+/* ---------- 通知中心 ---------- */
+
+.ck-notify-wrap {
+  position: relative;
+  display: flex;
+}
+
+.ck-notify-button {
+  position: relative;
+}
+
+.ck-notify-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border: 2px solid var(--ck-surface);
+  border-radius: 999px;
+  background: var(--ck-up);
+  color: #fff;
+  font-family: var(--ck-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.dark .ck-notify-badge {
+  color: var(--background);
+}
+
+.ck-notify-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(70dvh, 520px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--ck-line);
+  border-radius: var(--ck-radius);
+  background: var(--ck-surface);
+  box-shadow: var(--ck-shadow);
+}
+
+.ck-notify-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ck-line);
+}
+
+.ck-notify-title {
+  margin: 0;
+  font-family: var(--ck-sans);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ck-notify-sub {
+  margin: 2px 0 0 !important;
+  color: var(--ck-faint);
+  font-family: var(--ck-mono);
+  font-size: 11px;
+}
+
+.ck-notify-enable {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.ck-notify-empty {
+  margin: 12px 0 2px !important;
+  color: var(--ck-faint);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.ck-notify-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ck-notify-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--ck-line);
+  background: transparent;
+  text-align: left;
+}
+
+.ck-notify-item:last-child {
+  border-bottom: 0;
+}
+
+.ck-notify-item:hover:not(:disabled) {
+  background: var(--ck-surface-2);
+}
+
+.ck-notify-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--ck-line-strong);
+}
+
+.ck-notify-dot.is-warn {
+  background: var(--ck-warning);
+}
+
+.ck-notify-dot.is-critical {
+  background: var(--ck-critical);
+}
+
+.ck-notify-item.is-unread .ck-notify-dot.is-info {
+  background: var(--ck-accent);
+}
+
+.ck-notify-copy {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ck-notify-copy strong {
+  color: var(--ck-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.ck-notify-item:not(.is-unread) .ck-notify-copy strong {
+  color: var(--ck-muted);
+  font-weight: 500;
+}
+
+.ck-notify-copy span {
+  color: var(--ck-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ck-notify-copy time {
+  color: var(--ck-faint);
+  font-family: var(--ck-mono);
+  font-size: 10.5px;
+}
+
+.ck-index-table {
+  margin-top: 10px;
+}
+
+.ck-index-table table th:first-child,
+.ck-index-table table td:first-child {
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .ck-notify-panel {
+    position: fixed;
+    top: 54px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+  }
 }

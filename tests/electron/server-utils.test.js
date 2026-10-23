@@ -85,6 +85,17 @@ describe('buildServerEnv', () => {
     expect(env.NODE_ENV).toBe('custom')
   })
 
+  it('Tushare token 在白名单内透传子进程', () => {
+    const saved = process.env.TUSHARE_TOKEN
+    process.env.TUSHARE_TOKEN = 'tk-env-tushare'
+    try {
+      expect(buildServerEnv({ port: 1 }).TUSHARE_TOKEN).toBe('tk-env-tushare')
+    } finally {
+      if (saved === undefined) delete process.env.TUSHARE_TOKEN
+      else process.env.TUSHARE_TOKEN = saved
+    }
+  })
+
   it('不泄漏宿主 env:TURSO 凭据不进子进程,LLM 配置照常透传', () => {
     const saved = { turso: process.env.TURSO_DATABASE_URL, llm: process.env.LLM_API_KEY }
     process.env.TURSO_DATABASE_URL = 'libsql://leak-me.turso.io'

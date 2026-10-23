@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { Newspaper, TrendingUp, Bot, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -19,23 +19,12 @@ import BrandLogo from "./BrandLogo";
 import AvatarMenu from "./avatar-menu";
 import SettingsDialog from "./settings-dialog";
 import { cn } from "@/lib/utils";
+import { SIDEBAR_GROUPS } from "@/lib/nav";
 import {
   SIDEBAR_FOOTER_ICON_BTN,
   SIDEBAR_FOOTER_ICON_ITEM,
   SIDEBAR_ICON_RAIL_MENU,
 } from "@/lib/sidebar-footer-classes";
-
-const NAV_ITEMS = [
-  { href: "/", label: "新闻快讯", icon: Newspaper, match: (p) => p === "/" },
-  {
-    href: "/analysis",
-    label: "信号分析",
-    icon: TrendingUp,
-    match: (p) =>
-      p === "/analysis" || p.startsWith("/signal/") || p.startsWith("/thread/") || p === "/analytics/value",
-  },
-  { href: "/agent", label: "研究助手", icon: Bot, match: (p) => p === "/agent" },
-];
 
 /**
  * 全局侧栏（sidebar-07 折叠分区模式）：
@@ -66,13 +55,13 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
           <SidebarMenuItem className={SIDEBAR_FOOTER_ICON_ITEM}>
             <SidebarMenuButton
               size="lg"
-              tooltip="财经信号"
+              tooltip="收盘手记"
               className={SIDEBAR_FOOTER_ICON_BTN}
-              render={<Link href="/" className="no-underline" />}
+              render={<Link href="/today" className="no-underline" />}
             >
               <BrandLogo className="size-7 group-data-[collapsible=icon]:size-6" />
               <span className="truncate text-base font-semibold tracking-tight text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-                财经信号
+                收盘手记
               </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -80,34 +69,36 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
       </SidebarHeader>
 
       <SidebarContent className="gap-1">
-        <SidebarGroup className="gap-1">
-          <SidebarGroupLabel className="mb-1">导航</SidebarGroupLabel>
-          <SidebarMenu className="gap-0.5">
-            {NAV_ITEMS.map((item) => {
-              const active = item.match(router.pathname);
-              return (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    render={
-                      <Link
-                        href={item.href}
-                        aria-current={active ? "page" : undefined}
-                        className="no-underline"
-                      />
-                    }
-                    isActive={active}
-                    tooltip={item.label}
-                    onClick={closeOnMobile}
-                    className="py-2.5 data-active:!bg-sidebar-primary/10 data-active:!text-sidebar-primary"
-                  >
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
-        </SidebarGroup>
+        {SIDEBAR_GROUPS.map((group) => (
+          <SidebarGroup className="gap-1" key={group.label}>
+            <SidebarGroupLabel className="mb-1">{group.label}</SidebarGroupLabel>
+            <SidebarMenu className="gap-0.5">
+              {group.items.map((item) => {
+                const active = item.match(router.pathname);
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      render={
+                        <Link
+                          href={item.href}
+                          aria-current={active ? "page" : undefined}
+                          className="no-underline"
+                        />
+                      }
+                      isActive={active}
+                      tooltip={item.label}
+                      onClick={closeOnMobile}
+                      className="py-2.5 data-active:!bg-sidebar-primary/10 data-active:!text-sidebar-primary"
+                    >
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroup>
+        ))}
 
         {sidebarExtra}
       </SidebarContent>

@@ -6,6 +6,17 @@ Repository: [github.com/zephyr110/financial-signal](https://github.com/zephyr110
 
 **Live Demo:** [https://financial-signal.vercel.app/](https://financial-signal.vercel.app/)
 
+## 收盘手记（个人投研驾驶舱）
+
+在原有资讯信号能力之上新增的个人收盘研究台：`/today`、`/watchlist`、`/portfolio`、`/research`、`/tasks`，移动端优先、可安装为 PWA。只做研究记录，不接券商、不执行交易。
+
+- **来源分层**：T0 官方（上交所、巨潮、证监会）直连原文；T1 行情/日历来自 Tushare Pro；每条展示都带来源与时间。
+- **每日收盘链路**：`daily_close` 任务依次拉行情、抓官方公告、生成并校验收盘简报；Electron 调度器每轮自动追加，路由按交易日/报告/幂等键节流。
+- **示例数据隔离**：示例库拒绝接入真实行情，绝不混写。
+- **叙述层可降级**：未配置 LLM 时使用确定性事实简报，不阻塞收盘链路。
+
+运行与配置见 [docs/cockpit-runbook.md](docs/cockpit-runbook.md)。
+
 ## System Architecture
 
 ```
@@ -71,7 +82,7 @@ pnpm install
 pnpm dev        # http://localhost:3000
 pnpm build
 pnpm start
-pnpm test       # 39 tests
+pnpm test       # Vitest（含收盘手记）
 pnpm typecheck  # tsc --noEmit
 ```
 
@@ -104,6 +115,8 @@ pnpm typecheck  # tsc --noEmit
 | `LLM_BASE_URL` | Chat completions endpoint | `https://api.deepseek.com/v1` |
 | `LLM_MODEL` | Model name | `deepseek-v4-flash` |
 | `CRON_SECRET` | Protects cron endpoints | — |
+| `TUSHARE_TOKEN` | Tushare Pro token（T1 行情/日历；也可在应用内设置） | — |
+| `COCKPIT_DEMO` | `1` 时播种示例数据，仅本地演示 | — |
 | `TURSO_DATABASE_URL` | Turso DB URL (production) | — |
 | `TURSO_AUTH_TOKEN` | Turso auth token | — |
 | `NEWS_DB_PATH` | Local SQLite path (dev) | `news_archive.db` |

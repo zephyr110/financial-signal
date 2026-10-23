@@ -1,6 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/router'
 import type { ThesisView } from '@/lib/cockpit/types'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 
 const ACTION_OPTIONS = [
   { value: 'watch', label: '继续观察' },
@@ -74,8 +77,8 @@ export function JournalComposer({
       <div className="ck-form-row">
         <div className="ck-field">
           <label className="ck-label" htmlFor="journal-date">日期</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="journal-date"
             type="date"
             value={entryDate}
@@ -98,8 +101,8 @@ export function JournalComposer({
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="journal-code">标的代码（可选）</label>
-          <input
-            className="ck-input"
+          <Input
+            className="text-base md:text-sm"
             id="journal-code"
             value={code}
             maxLength={20}
@@ -125,8 +128,8 @@ export function JournalComposer({
         </div>
         <div className="ck-field ck-field-full">
           <label className="ck-label" htmlFor="journal-reason">理由与当时看到的事实</label>
-          <textarea
-            className="ck-textarea"
+          <Textarea
+            className="min-h-20 text-base md:text-sm"
             id="journal-reason"
             value={reason}
             required
@@ -137,9 +140,9 @@ export function JournalComposer({
         </div>
       </div>
       <div className="ck-form-actions">
-        <button className="ck-button ck-button-primary" type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy}>
           {busy ? '写入中…' : '写入日志'}
-        </button>
+        </Button>
         <span className="ck-inline-meta">最多 500 字</span>
       </div>
       {error && <p className="ck-form-error" role="alert">{error}</p>}

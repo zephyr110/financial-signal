@@ -11,6 +11,7 @@ import {
 } from '../../../lib/cockpit/api'
 import { ensureCockpitDemoSeed } from '../../../lib/cockpit/demo'
 import { todayShanghai } from '../../../lib/cockpit/format'
+import { normalizeCode } from '../../../lib/cockpit/codes'
 import { getJournal } from '../../../lib/cockpit/repo'
 import type { JournalEntry } from '../../../lib/cockpit/types'
 
@@ -49,9 +50,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!reason || reason.length > 500) {
       return sendError(req, res, 400, 'INVALID_REASON', '理由需为 1–500 字')
     }
-    const code = typeof body.code === 'string' && body.code.trim() ? body.code.trim() : null
-    if (code && code.length > 20) {
-      return sendError(req, res, 400, 'INVALID_CODE', '股票代码过长')
+    const rawCode = typeof body.code === 'string' ? body.code.trim() : ''
+    let code: string | null = null
+    if (rawCode) {
+      code = normalizeCode(rawCode)
+      if (!code) {
+        return sendError(req, res, 400, 'INVALID_CODE', '股票代码应为 600519、600519.SH 或 SH600519')
+      }
     }
     const thesisId = typeof body.thesisId === 'string' && body.thesisId.trim() ? body.thesisId.trim() : null
     const outcomeNote = typeof body.outcomeNote === 'string' ? body.outcomeNote.trim().slice(0, 500) : null

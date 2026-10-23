@@ -140,12 +140,15 @@ describe('createScheduler', () => {
       const { port } = await startServer((req, res) => { paths.push(req.url); res.end('{}') })
       const fetchOnly = makeScheduler({ port })
       await fetchOnly.runOnce()
-      expect(paths).toEqual(['/api/cron/fetch'])
+      expect(paths).toEqual(['/api/cron/fetch', '/api/cron/cockpit-daily'])
 
       paths.length = 0
       const full = makeScheduler({ port, getSettings: async () => ({ llm_api_key: 'sk-xxx' }) })
       await full.runOnce()
-      expect(paths).toEqual(PIPELINE_JOBS.map((j) => `/api/cron/${j}`))
+      expect(paths).toEqual([
+        ...PIPELINE_JOBS.map((j) => `/api/cron/${j}`),
+        '/api/cron/cockpit-daily',
+      ])
     } finally {
       if (saved.llm === undefined) delete process.env.LLM_API_KEY
       else process.env.LLM_API_KEY = saved.llm
@@ -206,7 +209,10 @@ describe('createScheduler', () => {
     const scheduler = makeScheduler({ port, getSettings: async () => ({ llm_api_key: 'sk' }), onRunEnd })
     try {
       await scheduler.runOnce() // 不抛:失败被单 job 捕获
-      expect(paths).toEqual(PIPELINE_JOBS.map((j) => `/api/cron/${j}`))
+      expect(paths).toEqual([
+        ...PIPELINE_JOBS.map((j) => `/api/cron/${j}`),
+        '/api/cron/cockpit-daily',
+      ])
       expect(onRunEnd).toHaveBeenCalledTimes(1)
     } finally {
       logSpy.mockRestore()

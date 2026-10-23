@@ -4,6 +4,9 @@
 // tests/electron/scheduler-core.test.js 有相等性断言防止漂移)。
 const PIPELINE_JOBS = ['fetch', 'analyze', 'deep-analyze', 'event-threads', 'fetch-market'];
 
+/** 收盘手记每日链路。路由自身按交易日、报告是否已发布和任务幂等键节流。 */
+const COCKPIT_DAILY_JOB = 'cockpit-daily';
+
 /** 未配 LLM key 时只抓取不分析。 */
 function buildJobSequence({ llmConfigured }) {
   return llmConfigured ? [...PIPELINE_JOBS] : ['fetch'];
@@ -18,4 +21,4 @@ function isLlmConfigured(settings) {
   );
 }
 
-module.exports = { PIPELINE_JOBS, buildJobSequence, isLlmConfigured };
+module.exports = { PIPELINE_JOBS, COCKPIT_DAILY_JOB, buildJobSequence, isLlmConfigured };
