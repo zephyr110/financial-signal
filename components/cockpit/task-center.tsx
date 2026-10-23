@@ -35,7 +35,7 @@ const QUICK_ACTIONS: Array<{
     type: 'daily_brief',
     params: {},
     title: '生成今日简报',
-    hint: '事实包 → 校验 → 版本化',
+    hint: '事实→校验→版本',
     icon: FileText,
   },
   {
@@ -49,14 +49,14 @@ const QUICK_ACTIONS: Array<{
     type: 'weekly_review',
     params: {},
     title: '生成周度复盘',
-    hint: '持仓、论点与日志汇总',
+    hint: '持仓、论点汇总',
     icon: CalendarRange,
   },
   {
     type: 'daily_brief',
     params: { force: true },
     title: '重算并发布新版本',
-    hint: '保留旧版本，版本号递增',
+    hint: '旧版保留，版本递增',
     icon: RefreshCw,
   },
 ]

@@ -111,7 +111,7 @@
   border-radius: var(--ck-radius-sm);
   background: color-mix(in srgb, var(--ck-copper-soft) 72%, var(--ck-surface));
   color: var(--ck-muted);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -122,7 +122,7 @@
   border-radius: 999px;
   color: var(--ck-copper);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
 }
@@ -154,7 +154,7 @@
 .ck-section-title {
   color: var(--ck-ink);
   font-family: var(--ck-sans);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.4;
@@ -164,7 +164,7 @@
   margin-left: 5px;
   color: var(--ck-faint);
   font-family: var(--ck-sans);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   vertical-align: 2px;
@@ -174,14 +174,14 @@
   display: block;
   margin-top: 3px !important;
   color: var(--ck-faint);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .ck-section-action {
   flex: none;
   color: var(--ck-accent);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -223,7 +223,7 @@
   align-items: center;
   gap: 6px;
   color: var(--ck-faint);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ck-sep {
@@ -242,7 +242,7 @@
   border-radius: 999px;
   background: var(--ck-surface-2);
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   vertical-align: middle;
 }
@@ -264,7 +264,7 @@ a.ck-chip:hover {
   flex: none;
   color: var(--ck-faint);
   font-family: var(--ck-sans);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
 }
@@ -375,7 +375,7 @@ a.ck-chip:hover {
   align-items: center;
   gap: 6px;
   color: var(--ck-muted);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .ck-confidence-label {
@@ -411,7 +411,7 @@ a.ck-chip:hover {
 .ck-confidence-score {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -434,7 +434,7 @@ a.ck-chip:hover {
 .ck-hero-kicker {
   color: var(--ck-faint);
   font-family: var(--ck-sans);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0;
 }
@@ -460,7 +460,7 @@ a.ck-chip:hover {
   margin-top: 0;
   padding: 0 0 4px;
   color: var(--ck-muted);
-  font-size: 12.5px;
+  font-size: 13.5px;
   line-height: 1.75;
 }
 
@@ -569,7 +569,7 @@ a.ck-chip:hover {
   margin-bottom: 1px !important;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -585,7 +585,7 @@ a.ck-chip:hover {
 
 .ck-spine-label {
   color: var(--ck-ink);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
 }
@@ -594,14 +594,14 @@ a.ck-chip:hover {
   margin-left: 6px;
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
 .ck-spine-detail {
   margin-top: 2px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -633,7 +633,7 @@ a.ck-chip:hover {
   gap: 4px;
   overflow: hidden;
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -641,7 +641,7 @@ a.ck-chip:hover {
 .ck-snapshot-name code {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 8.5px;
+  font-size: 10.5px;
   opacity: 0.75;
 }
 
@@ -658,7 +658,7 @@ a.ck-chip:hover {
 }
 
 .ck-snapshot-index .ck-delta {
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .ck-snapshot-stats {
@@ -673,7 +673,7 @@ a.ck-chip:hover {
 .ck-snapshot-label {
   display: block;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-snapshot-breadth-line {
@@ -716,7 +716,7 @@ a.ck-chip:hover {
   align-items: baseline;
   gap: 3px;
   font-family: var(--ck-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -731,7 +731,7 @@ a.ck-chip:hover {
   column-gap: 10px;
   margin-top: 2px;
   color: var(--ck-faint);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 .ck-nowrap {
@@ -751,7 +751,7 @@ a.ck-chip:hover {
 }
 
 .ck-snapshot-turnover .ck-delta {
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .ck-snapshot-source {
@@ -761,7 +761,7 @@ a.ck-chip:hover {
   gap: 6px;
   margin-top: 10px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-snapshot-source .ck-chip {
@@ -791,7 +791,7 @@ a.ck-chip:hover {
   gap: 8px;
   padding: 11px 14px;
   color: var(--ck-ink);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   line-height: 1.4;
   cursor: pointer;
@@ -829,7 +829,7 @@ a.ck-chip:hover {
   min-width: 0;
   overflow: hidden;
   color: var(--ck-faint);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -888,7 +888,7 @@ a.ck-chip:hover {
   min-height: 36px;
   padding: 8px 11px;
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -918,13 +918,13 @@ a.ck-chip:hover {
   justify-content: space-between;
   gap: 8px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-confidence-item-head b {
   color: var(--ck-muted);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -945,7 +945,7 @@ a.ck-chip:hover {
 .ck-confidence-note {
   margin-top: 8px !important;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.55;
 }
 
@@ -996,7 +996,7 @@ a.ck-chip:hover {
 .ck-index-name {
   overflow: hidden;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1006,7 +1006,7 @@ a.ck-chip:hover {
   flex: none;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .ck-index-value {
@@ -1026,7 +1026,7 @@ a.ck-chip:hover {
   justify-content: space-between;
   gap: 4px;
   margin-top: 1px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-index-spark {
@@ -1060,13 +1060,13 @@ a.ck-chip:hover {
 
 .ck-pulse-title {
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .ck-pulse-note {
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-breadth-bar {
@@ -1111,7 +1111,7 @@ a.ck-chip:hover {
   align-items: center;
   gap: 5px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -1136,7 +1136,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-stat-line {
@@ -1157,7 +1157,7 @@ a.ck-chip:hover {
 .ck-stat-label {
   display: block;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-stat-value {
@@ -1174,7 +1174,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 /* ---------- 个人影响 ---------- */
@@ -1202,13 +1202,13 @@ a.ck-chip:hover {
 .ck-impact-code span {
   display: block;
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .ck-impact-name {
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-impact-main {
@@ -1217,7 +1217,7 @@ a.ck-chip:hover {
 
 .ck-impact-headline {
   color: var(--ck-ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.55;
 }
@@ -1225,7 +1225,7 @@ a.ck-chip:hover {
 .ck-impact-detail {
   margin-top: 3px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.65;
 }
 
@@ -1266,7 +1266,7 @@ a.ck-chip:hover {
 .ck-doc-title {
   min-width: 0;
   color: var(--ck-ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.55;
 }
@@ -1278,7 +1278,7 @@ a.ck-chip:hover {
   gap: 6px;
   margin-top: 6px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-doc-source {
@@ -1307,13 +1307,13 @@ a.ck-chip:hover {
 .ck-focus-index {
   color: var(--ck-line-strong);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.9;
 }
 
 .ck-focus-text {
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -1380,20 +1380,20 @@ a.ck-chip:hover {
 
 .ck-quality-name {
   color: var(--ck-ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .ck-quality-status {
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
 .ck-quality-message {
   margin-top: 2px !important;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1402,7 +1402,7 @@ a.ck-chip:hover {
   align-items: center;
   gap: 5px;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -1427,7 +1427,7 @@ a.ck-chip:hover {
   max-width: 42ch;
   margin: 6px auto 0 !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -1446,7 +1446,7 @@ a.ck-chip:hover {
   border-radius: 5px;
   background: var(--ck-critical-soft);
   color: var(--ck-critical);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -1466,7 +1466,7 @@ a.ck-chip:hover {
 .ck-rail-title {
   color: var(--ck-ink);
   font-family: var(--ck-sans);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.4;
@@ -1475,7 +1475,7 @@ a.ck-chip:hover {
 .ck-rail-note {
   margin-top: 8px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -1507,7 +1507,7 @@ a.ck-chip:hover {
   display: block;
   overflow: hidden;
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1517,7 +1517,7 @@ a.ck-chip:hover {
   overflow: hidden;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1532,7 +1532,7 @@ a.ck-chip:hover {
   padding-top: 10px;
   border-top: 1px solid var(--ck-line);
   color: var(--ck-accent);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -1566,7 +1566,7 @@ a.ck-chip:hover {
 
 .ck-metric-label {
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .ck-metric-value {
@@ -1584,7 +1584,7 @@ a.ck-chip:hover {
 .ck-metric-note {
   margin-top: 3px !important;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1611,13 +1611,13 @@ a.ck-chip:hover {
 
 .ck-exposure-name {
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ck-exposure-value {
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1663,14 +1663,14 @@ a.ck-chip:hover {
 
 .ck-risk-title {
   color: var(--ck-ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .ck-risk-detail {
   margin-top: 2px !important;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.6;
 }
 
@@ -1686,13 +1686,13 @@ a.ck-chip:hover {
   width: 100%;
   min-width: 530px;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .ck-table caption {
   padding: 12px 13px 0;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   text-align: left;
 }
 
@@ -1701,7 +1701,7 @@ a.ck-chip:hover {
   border-bottom: 1px solid var(--ck-line);
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-align: left;
@@ -1733,13 +1733,13 @@ a.ck-chip:hover {
 .ck-table-code {
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ck-table-sub {
   display: block;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-table tr:hover td {
@@ -1783,7 +1783,7 @@ a.ck-chip:hover {
 
 .ck-table-name {
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -1793,7 +1793,7 @@ a.ck-chip:hover {
 
 .ck-table-industry {
   color: var(--ck-muted);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .ck-table th.ck-table-action,
@@ -1829,7 +1829,7 @@ a.ck-chip:hover {
 .ck-position-code span {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-position-name {
@@ -1837,7 +1837,7 @@ a.ck-chip:hover {
   max-width: 100%;
   overflow: hidden;
   color: var(--ck-ink);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   text-overflow: ellipsis;
   vertical-align: bottom;
@@ -1849,7 +1849,7 @@ a.ck-chip:hover {
   margin-top: 3px;
   margin-left: 6px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-position-value {
@@ -1868,7 +1868,7 @@ a.ck-chip:hover {
   display: block;
   color: var(--ck-faint);
   font-family: var(--ck-sans);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 400;
   white-space: normal;
 }
@@ -1889,7 +1889,7 @@ a.ck-chip:hover {
 .ck-position-cell span {
   display: block;
   color: var(--ck-faint);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 .ck-position-cell b {
@@ -1898,7 +1898,7 @@ a.ck-chip:hover {
   margin-top: 1px;
   color: var(--ck-ink);
   font-family: var(--ck-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   text-overflow: ellipsis;
@@ -1910,7 +1910,7 @@ a.ck-chip:hover {
   margin-top: 1px;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1987,12 +1987,12 @@ a.ck-chip:hover {
 .ck-watch-code span:first-child {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .ck-watch-name {
   color: var(--ck-ink);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -2003,13 +2003,13 @@ a.ck-chip:hover {
   gap: 5px;
   margin-top: 2px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-watch-note {
   margin: 2px 0 0;
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -2032,7 +2032,7 @@ a.ck-chip:hover {
 .ck-watch-price.is-pending {
   color: var(--ck-faint);
   font-family: var(--ck-sans);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -2073,7 +2073,7 @@ a.ck-chip:hover {
 .ck-stock-code {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.04em;
 }
 
@@ -2083,7 +2083,7 @@ a.ck-chip:hover {
   gap: 6px;
   margin-top: 6px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-stock-price {
@@ -2107,7 +2107,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 2px;
   font-family: var(--ck-mono);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .ck-stock-chart {
@@ -2126,7 +2126,7 @@ a.ck-chip:hover {
   margin-top: 4px;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-price-table {
@@ -2137,7 +2137,7 @@ a.ck-chip:hover {
 .ck-price-table summary {
   padding: 8px 0 0;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -2146,7 +2146,7 @@ a.ck-chip:hover {
   margin-top: 6px;
   border-collapse: collapse;
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2190,7 +2190,7 @@ a.ck-chip:hover {
 .ck-thesis-code {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-thesis-title {
@@ -2205,7 +2205,7 @@ a.ck-chip:hover {
 .ck-thesis-claim {
   margin-top: 5px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -2219,7 +2219,7 @@ a.ck-chip:hover {
 .ck-thesis-invalidation-label {
   color: var(--ck-copper);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
 }
@@ -2228,7 +2228,7 @@ a.ck-chip:hover {
   margin: 4px 0 0;
   padding-left: 14px;
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.65;
 }
 
@@ -2242,19 +2242,19 @@ a.ck-chip:hover {
   padding-top: 9px;
   border-top: 1px solid var(--ck-line);
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-thesis-counts {
   display: flex;
   gap: 10px;
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-thesis-horizon {
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 /* ---------- 表单 ---------- */
@@ -2273,7 +2273,7 @@ a.ck-chip:hover {
 .ck-form-hint {
   margin-top: 3px !important;
   color: var(--ck-faint);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -2291,7 +2291,7 @@ a.ck-chip:hover {
   display: block;
   margin-bottom: 4px;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -2307,7 +2307,7 @@ a.ck-chip:hover {
   outline: none;
   background: var(--ck-surface);
   color: var(--ck-ink);
-  font-size: 14px;
+  font-size: 15px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -2369,14 +2369,14 @@ a.ck-chip:hover {
 .ck-form-error {
   margin-top: 8px;
   color: var(--ck-critical);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
 .ck-form-success {
   margin-top: 8px;
   color: var(--ck-ok);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -2399,7 +2399,7 @@ a.ck-chip:hover {
   align-items: baseline;
   gap: 6px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-journal-date {
@@ -2410,7 +2410,7 @@ a.ck-chip:hover {
 .ck-journal-code {
   color: var(--ck-accent);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-journal-tag {
@@ -2420,7 +2420,7 @@ a.ck-chip:hover {
   border-radius: 3px;
   background: var(--ck-surface-2);
   color: var(--ck-muted);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -2429,14 +2429,14 @@ a.ck-chip:hover {
   padding-left: 8px;
   border-left: 2px solid var(--ck-line-strong);
   color: var(--ck-faint);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
 .ck-journal-reason {
   margin-top: 4px !important;
   color: var(--ck-muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -2457,7 +2457,7 @@ a.ck-chip:hover {
 .ck-task-composer-hint {
   margin-top: 2px !important;
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.5;
 }
 
@@ -2520,15 +2520,16 @@ a.ck-chip:hover {
 
 .ck-task-quick-copy strong {
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
 }
 
 .ck-task-quick-copy > span {
   color: var(--ck-faint);
-  font-size: 9.5px;
+  font-size: 11px;
   line-height: 1.45;
+  text-wrap: balance;
 }
 
 .ck-task-forms {
@@ -2560,7 +2561,7 @@ a.ck-chip:hover {
 
 .ck-task-type {
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -2569,7 +2570,7 @@ a.ck-chip:hover {
   align-items: center;
   gap: 4px;
   color: var(--ck-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-task-status::before {
@@ -2603,7 +2604,7 @@ a.ck-chip:hover {
   justify-content: space-between;
   gap: 8px;
   color: var(--ck-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-task-progress {
@@ -2628,12 +2629,12 @@ a.ck-chip:hover {
   gap: 6px;
   margin-top: 7px;
   color: var(--ck-faint);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-task-meta code {
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-task-result {
@@ -2642,7 +2643,7 @@ a.ck-chip:hover {
   border-left: 2px solid var(--ck-line-strong);
   background: color-mix(in srgb, var(--ck-surface-2) 60%, transparent);
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -2652,13 +2653,13 @@ a.ck-chip:hover {
   display: block;
   margin-bottom: 2px;
   color: var(--ck-ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ck-task-error {
   margin-top: 8px;
   color: var(--ck-critical);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -2670,7 +2671,7 @@ a.ck-chip:hover {
 
 .ck-task-empty {
   color: var(--ck-faint);
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
   padding: 24px 12px;
 }
@@ -2755,7 +2756,7 @@ a.ck-chip:hover {
   }
 
   .ck-index-name {
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .ck-index-value {
@@ -2790,7 +2791,7 @@ a.ck-chip:hover {
 
   .ck-table {
     min-width: 0;
-    font-size: 13px;
+    font-size: 14px;
   }
 }
 
@@ -2822,6 +2823,12 @@ a.ck-chip:hover {
   .ck-textarea {
     font-size: 16px;
   }
+
+  /* 窄屏三列指数只留名称，代码留在桌面与详情页。 */
+  .ck-index-code,
+  .ck-snapshot-name code {
+    display: none;
+  }
 }
 
 @media (max-width: 359px) {
@@ -2843,15 +2850,7 @@ a.ck-chip:hover {
   }
 
   .ck-index-value {
-    font-size: 14px;
-  }
-
-  .ck-index-code {
-    display: none;
-  }
-
-  .ck-snapshot-name code {
-    display: none;
+    font-size: 15px;
   }
 
   .ck-position-grid {
@@ -2920,7 +2919,7 @@ a.ck-chip:hover {
   background: var(--ck-up);
   color: #fff;
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 700;
   line-height: 1;
 }
@@ -2956,7 +2955,7 @@ a.ck-chip:hover {
 .ck-notify-title {
   margin: 0;
   font-family: var(--ck-sans);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -2964,7 +2963,7 @@ a.ck-chip:hover {
   margin: 2px 0 0 !important;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-notify-enable {
@@ -2975,7 +2974,7 @@ a.ck-chip:hover {
 .ck-notify-empty {
   margin: 12px 0 2px !important;
   color: var(--ck-faint);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -3035,7 +3034,7 @@ a.ck-chip:hover {
 
 .ck-notify-copy strong {
   color: var(--ck-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.5;
 }
@@ -3047,7 +3046,7 @@ a.ck-chip:hover {
 
 .ck-notify-copy span {
   color: var(--ck-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -3055,7 +3054,7 @@ a.ck-chip:hover {
 .ck-notify-copy time {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .ck-index-table {
