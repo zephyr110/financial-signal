@@ -85,7 +85,10 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
                       <div className="ck-watch-copy">
                         <div className="ck-watch-code">
                           <span>{item.code}</span>
-                          <span className="ck-watch-name">{item.name}</span>
+                          {/* 名称未入库时回退为代码，这里不再重复显示。 */}
+                          {item.name !== item.code && (
+                            <span className="ck-watch-name">{item.name}</span>
+                          )}
                         </div>
                         <div className="ck-watch-meta">
                           {item.thesisStatus && <ThesisTag status={item.thesisStatus} />}
