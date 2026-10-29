@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   CalendarRange,
+  Database,
   FileText,
   ListChecks,
   RefreshCw,
@@ -18,6 +19,7 @@ const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
   daily_close: '收盘全链路',
   market_ingest: '行情入库',
+  akshare_ingest: 'T2 补充入库',
   thesis_review: '论点复核',
   ask: '向简报提问',
   weekly_review: '周度复盘',
@@ -58,6 +60,13 @@ const QUICK_ACTIONS: Array<{
     title: '重算并发布新版本',
     hint: '旧版保留，版本递增',
     icon: RefreshCw,
+  },
+  {
+    type: 'akshare_ingest',
+    params: {},
+    title: '补充 T2 行情',
+    hint: 'AKShare 侧车 · 不覆盖 T0/T1',
+    icon: Database,
   },
 ]
 
@@ -102,6 +111,16 @@ function resultView(task: TaskRecord): TaskResultView | null {
           result.limitUpDownAvailable === false ? '涨跌停统计不可用' : '',
           warningsText(result.warnings),
         ].filter(Boolean).join('\n'),
+      }
+    case 'akshare_ingest':
+      return {
+        title: `T2 补充入库 ${String(result.tradeDate ?? '')}`,
+        body: result.configured === false
+          ? '未配置侧车：设置 AKSHARE_SIDECAR_URL 与 AKSHARE_SIDECAR_TOKEN 后重试。'
+          : [
+            `${String(result.insertedBars ?? 0)}/${String(result.bars ?? 0)} 根日线新增 · 涨停池 ${String(result.limitPoolWritten ?? 0)} 条`,
+            warningsText(result.warnings),
+          ].filter(Boolean).join('\n'),
       }
     case 'thesis_review':
       return {

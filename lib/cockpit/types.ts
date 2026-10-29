@@ -11,6 +11,7 @@ export type TaskType =
   | 'weekly_review'
   | 'symbol_deep_dive'
   | 'market_ingest'
+  | 'akshare_ingest'
   | 'daily_close'
 export type ThesisStatus = 'active' | 'strengthened' | 'weakened' | 'broken' | 'review_due'
 export type HealthStatus = 'ok' | 'stale' | 'error' | 'demo' | 'inactive'

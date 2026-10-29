@@ -6,6 +6,7 @@ import { getJournal, getPortfolio, getStockDetail, getTheses, getTodayPayload } 
 import { createNotification } from './notifications'
 import { answerBriefQuestion } from './narrative'
 import { ingestTushare } from './sources/tushare'
+import { ingestAkshare } from './sources/akshare'
 import { ingestOfficialDocuments } from './sources/official'
 import type { TaskEvent, TaskRecord, TaskStatus, TaskType } from './types'
 
@@ -16,6 +17,7 @@ export const TASK_TYPES: TaskType[] = [
   'weekly_review',
   'symbol_deep_dive',
   'market_ingest',
+  'akshare_ingest',
   'daily_close',
 ]
 const MAX_ATTEMPTS = 2
@@ -29,6 +31,7 @@ const TASK_LABEL: Record<string, string> = {
   weekly_review: '周度复盘',
   symbol_deep_dive: '个股深挖',
   market_ingest: '行情入库',
+  akshare_ingest: 'T2 补充入库',
   daily_close: '每日收盘流程',
 }
 
@@ -336,6 +339,22 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         warnings: ingest.warnings,
       }
     }
+    case 'akshare_ingest': {
+      const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
+      await setProgress(task.id, 15, '检查 AKShare 侧车配置')
+      const ingest = await ingestAkshare({ tradeDate })
+      await setProgress(task.id, 85, '写入 T2 日线与涨停池')
+      return {
+        configured: ingest.configured,
+        tradeDate: ingest.tradeDate,
+        codes: ingest.codes,
+        bars: ingest.bars,
+        insertedBars: ingest.insertedBars,
+        limitPool: ingest.limitPool,
+        limitPoolWritten: ingest.limitPoolWritten,
+        warnings: ingest.warnings,
+      }
+    }
     case 'daily_close': {
       const requested = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
       await setProgress(task.id, 15, '拉取 Tushare 收盘行情')
@@ -512,6 +531,16 @@ function taskNotification(
         body: [data.tradeDate, data.bars ? `${String(data.bars)} 根日线` : '', data.documents ? `${String(data.documents)} 条公告` : '']
           .filter(Boolean).join(' · '),
         deepLink: '/today',
+        severity: 'info',
+      }
+    case 'akshare_ingest':
+      return {
+        title: data.configured === false ? 'T2 补充入库已跳过' : 'T2 补充入库完成',
+        body: data.configured === false
+          ? '未配置 AKShare 侧车，未写入任何数据。'
+          : [data.tradeDate, `${String(data.insertedBars ?? 0)} 根日线新增`, `${String(data.limitPoolWritten ?? 0)} 条涨停池`]
+            .filter(Boolean).join(' · '),
+        deepLink: '/tasks',
         severity: 'info',
       }
     default:

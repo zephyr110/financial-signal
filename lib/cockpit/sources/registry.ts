@@ -9,6 +9,7 @@ const SOURCE_SEEDS = [
   { id: 'cninfo', name: '巨潮资讯', tier: 0, kind: 'disclosure', base_url: 'https://www.cninfo.com.cn' },
   { id: 'csrc', name: '中国证监会', tier: 0, kind: 'regulator', base_url: 'https://www.csrc.gov.cn' },
   { id: 'tushare', name: 'Tushare Pro', tier: 1, kind: 'market', base_url: 'https://tushare.pro' },
+  { id: 'akshare', name: 'AKShare（东财等公开接口）', tier: 2, kind: 'market', base_url: 'https://akshare.akfamily.xyz' },
 ] as const
 
 export async function ensureCockpitSources(): Promise<void> {
@@ -61,11 +62,13 @@ export async function assertNoDemoData(): Promise<void> {
     sql: `SELECT
             (SELECT COUNT(*) FROM market_bars WHERE is_demo = 1) AS bars,
             (SELECT COUNT(*) FROM market_overview WHERE is_demo = 1) AS overviews,
-            (SELECT COUNT(*) FROM source_documents WHERE is_demo = 1) AS documents`,
+            (SELECT COUNT(*) FROM source_documents WHERE is_demo = 1) AS documents,
+            (SELECT COUNT(*) FROM limit_pool WHERE is_demo = 1) AS limit_pools`,
     args: [],
   })
   const row = res.rows[0]
-  const total = Number(row?.bars || 0) + Number(row?.overviews || 0) + Number(row?.documents || 0)
+  const total = Number(row?.bars || 0) + Number(row?.overviews || 0)
+    + Number(row?.documents || 0) + Number(row?.limit_pools || 0)
   if (total > 0) {
     throw new Error('当前数据库含示例行情/公告，真实数据接入已停止；请改用新的数据库后再接入，避免示例与真实数据混用。')
   }

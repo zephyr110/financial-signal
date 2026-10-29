@@ -4,7 +4,7 @@ import fs from 'fs'
 import { describe, it, expect, afterAll, vi } from 'vitest'
 
 /**
- * v8 驾驶舱表结构：旧库只补表、新库一次建齐；任务幂等键和来源文档外部 ID
+ * 驾驶舱表结构：旧库只补表、新库一次建齐；任务幂等键和来源文档外部 ID
  * 必须由数据库拒绝重复，不能只靠应用层判断。
  */
 
@@ -20,9 +20,9 @@ async function loadDb(file: string) {
 
 const now = '2026-10-22T08:00:00.000Z'
 
-describe('cockpit schema v8', () => {
+describe('cockpit schema', () => {
   it('建齐驾驶舱表，并强制任务幂等键唯一', async () => {
-    const { getDb } = await loadDb(path.join(dir, 'v8.db'))
+    const { getDb } = await loadDb(path.join(dir, 'schema.db'))
     const db = await getDb()
 
     const tables = await db.execute({
@@ -83,7 +83,7 @@ describe('cockpit schema v8', () => {
       sql: 'SELECT MAX(version) AS v FROM schema_migrations',
       args: [],
     })
-    expect(Number(version.rows[0].v)).toBe(8)
+    expect(Number(version.rows[0].v)).toBe(9)
     const rows = await db2.execute({ sql: 'SELECT COUNT(*) AS n FROM watchlist_items', args: [] })
     expect(Number(rows.rows[0].n)).toBe(1)
   })
