@@ -8,10 +8,27 @@ import type {
 } from './types'
 
 const ADVICE_PATTERNS: Array<{ re: RegExp; message: string }> = [
-  { re: /买入|卖出|加仓|减仓|清仓|抄底|逃顶|满仓|空仓/, message: '出现交易动作指令' },
+  { re: /买入|卖出|加仓|减仓|清仓|建仓|补仓|低吸|高抛|离场|入场|抄底|逃顶|满仓|空仓/, message: '出现交易动作指令' },
   { re: /目标价|止盈|止损|预期收益|翻倍/, message: '出现价格目标或收益承诺' },
   { re: /(建议|推荐)(买|卖|持有|加仓|减仓)/, message: '出现直接买卖建议' },
 ]
+
+// 叙述/问答层额外拦截仓位姿态词；用户手写论点仍走 ADVICE_PATTERNS。
+const STRONG_ADVICE = /建议|推荐|操作|买入|卖出|加仓|减仓|清仓|建仓|补仓|离场|入场|持有|观望|抄底|逃顶|止损|止盈|目标价/
+
+const CHINESE_NUMERAL = '[零〇一二三四五六七八九十百千万亿两]'
+const NUMERIC_CLAIM = new RegExp(
+  `\\d|${CHINESE_NUMERAL}+(?:成|倍|个百分点|个点|%)|百分之${CHINESE_NUMERAL}+`,
+)
+
+/** 全角数字、中文数字与百分比都算数字主张；仅“一定/一致”这类无单位词不误伤。 */
+export function containsNumericClaim(text: string): boolean {
+  return NUMERIC_CLAIM.test(text.normalize('NFKC'))
+}
+
+export function findStrongAdvice(text: string): boolean {
+  return STRONG_ADVICE.test(text)
+}
 
 /** 返回命中的违规片段；空数组表示通过。只检查生成内容，不检查页脚免责声明。 */
 export function findAdviceLanguage(text: string): string[] {
@@ -56,12 +73,18 @@ function issue(issues: ValidationIssue[], code: string, message: string, severit
   issues.push({ code, message, severity })
 }
 
-function checkText(issues: ValidationIssue[], code: string, text: string, maxLen = 240) {
+function checkText(
+  issues: ValidationIssue[],
+  code: string,
+  text: string,
+  maxLen = 240,
+  lengthSeverity: 'warn' | 'fail' = 'warn',
+) {
   if (!text || !text.trim()) {
     issue(issues, code, '内容为空')
     return
   }
-  if (text.length > maxLen) issue(issues, code, `内容超过 ${maxLen} 字`, 'warn')
+  if (text.length > maxLen) issue(issues, code, `内容超过 ${maxLen} 字`, lengthSeverity)
   for (const hit of findAdviceLanguage(text)) issue(issues, `${code}.advice`, hit)
 }
 
@@ -152,6 +175,19 @@ export function validateBriefPayload(
       }
     }
   }
+  if (payload.narrative) {
+    if (typeof payload.narrative.text !== 'string' || !payload.narrative.model) {
+      issue(issues, 'narrative.shape', '模型叙述层缺少正文或模型标识')
+    } else {
+      checkText(issues, 'narrative', payload.narrative.text, 320)
+      if (containsNumericClaim(payload.narrative.text)) {
+        issue(issues, 'narrative.numbers', '模型叙述层不得引入数字；数字只由事实区展示')
+      }
+      if (findStrongAdvice(payload.narrative.text)) {
+        issue(issues, 'narrative.advice', '模型叙述层不得出现交易指令或仓位姿态')
+      }
+    }
+  }
   for (const line of payload.tomorrow || []) checkText(issues, 'tomorrow', line, 120)
   if (!payload.tomorrow || payload.tomorrow.length === 0) {
     issue(issues, 'tomorrow.empty', '“明日看什么”不能为空', 'warn')
@@ -162,12 +198,13 @@ export function validateBriefPayload(
 
 export function validateThesis(thesis: { title: string; claim: string; invalidation: string[] }): ValidationResult {
   const issues: ValidationIssue[] = []
-  checkText(issues, 'thesis.title', thesis.title || '', 80)
-  checkText(issues, 'thesis.claim', thesis.claim || '', 300)
+  // 用户手写的论点字段按硬上限拒绝；模型生成的简报文本仍只告警。
+  checkText(issues, 'thesis.title', thesis.title || '', 80, 'fail')
+  checkText(issues, 'thesis.claim', thesis.claim || '', 300, 'fail')
   if (!Array.isArray(thesis.invalidation) || thesis.invalidation.length === 0) {
     issue(issues, 'thesis.invalidation', '论点必须有至少一条失效条件')
   } else {
-    for (const line of thesis.invalidation) checkText(issues, 'thesis.invalidation.line', line, 160)
+    for (const line of thesis.invalidation) checkText(issues, 'thesis.invalidation.line', line, 160, 'fail')
   }
   return { ok: issues.every((i) => i.severity !== 'fail'), issues }
 }

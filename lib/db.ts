@@ -78,6 +78,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 6, name: 'event_thread_signal 关联表 + 历史回填', up: migrationEventThreadSignal },
   { version: 7, name: 'event_log.created_at 索引', up: migrationEventLogCreatedIndex },
   { version: 8, name: '个人投研驾驶舱表结构(来源/行情/简报/持仓/任务)', up: migrationCockpitSchema },
+  { version: 9, name: 'AKShare T2 涨停池快照表', up: migrationAkshareLimitPool },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -386,6 +387,33 @@ async function migrationCockpitSchema(db) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_llm_usage_created ON llm_usage(created_at);
+  `);
+}
+
+/** v9：AKShare（T2）涨停池快照。独立成表，避免覆盖 T0/T1 的广度与涨跌停统计。 */
+async function migrationAkshareLimitPool(db) {
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS limit_pool (
+      trade_date TEXT NOT NULL,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      latest_price REAL,
+      pct_change REAL,
+      amount REAL,
+      turnover_rate REAL,
+      seal_amount REAL,
+      first_seal_time TEXT,
+      last_seal_time TEXT,
+      open_times INTEGER,
+      limit_up_stats TEXT,
+      streak INTEGER,
+      industry TEXT,
+      source_id TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (trade_date, code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_limit_pool_date ON limit_pool(trade_date);
   `);
 }
 

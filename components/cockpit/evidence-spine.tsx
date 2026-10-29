@@ -2,10 +2,10 @@ import type { EvidenceItem, EvidenceKind } from '@/lib/cockpit/types'
 import { SourceChip } from './bits'
 
 const KIND_LABEL: Record<EvidenceKind, string> = {
-  fact: '事实 FCT',
-  inference: '推断 INF',
-  counter: '反证 CTR',
-  conclusion: '结论 CON',
+  fact: '事实',
+  inference: '推断',
+  counter: '反证',
+  conclusion: '结论',
 }
 
 export function EvidenceSpine({ items }: { items: EvidenceItem[] }) {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   PIPELINE_JOBS,
+  COCKPIT_DAILY_JOB,
   buildJobSequence,
   isLlmConfigured,
 } from '../../electron/scheduler-core'
@@ -19,6 +20,11 @@ describe('buildJobSequence', () => {
 
   it('runs fetch-only when LLM not configured', () => {
     expect(buildJobSequence({ llmConfigured: false })).toEqual(['fetch'])
+  })
+
+  it('收盘链路独立于 LLM 序列，由调度器每轮追加', () => {
+    expect(COCKPIT_DAILY_JOB).toBe('cockpit-daily')
+    expect(PIPELINE_JOBS).not.toContain(COCKPIT_DAILY_JOB)
   })
 })
 

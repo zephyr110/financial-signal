@@ -1,5 +1,5 @@
 /* 收盘手记 service worker：只缓存离线外壳与静态资源，绝不缓存登录后的页面 HTML 或 /api 数据。 */
-const VERSION = 'afterclose-v2'
+const VERSION = 'afterclose-v3'
 const ASSET_CACHE = `${VERSION}-assets`
 const OFFLINE_URL = '/offline.html'
 const PRECACHE = [
@@ -25,6 +25,28 @@ self.addEventListener('activate', (event) => {
       ))
       .then(() => self.clients.claim()),
   )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  let target = '/tasks'
+  try {
+    const url = new URL(event.notification.data?.url || '/tasks', self.location.origin)
+    if (url.origin === self.location.origin) target = `${url.pathname}${url.search}`
+  } catch {
+    /* 非站内链接回落到任务中心 */
+  }
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    for (const client of windows) {
+      if ('focus' in client) {
+        await client.focus()
+        if ('navigate' in client) await client.navigate(target)
+        return
+      }
+    }
+    await self.clients.openWindow(target)
+  })())
 })
 
 self.addEventListener('message', (event) => {

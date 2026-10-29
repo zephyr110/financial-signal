@@ -14,9 +14,9 @@ export default function Document() {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         {/* 浏览器按树序取第一个 media 匹配项，通用兜底必须放最后。 */}
-        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#edf1ef" />
-        <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1514" />
-        <meta name="theme-color" content="#1f5c55" />
+        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafafa" />
+        <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0a" />
+        <meta name="theme-color" content="#2563eb" />
         {/* 主题预置脚本(防 FOUC):首帧渲染前按 localStorage/system 偏好给 <html> 加 class,
             与 next-themes(attribute="class", storage key "theme")行为一致。 */}
         <script

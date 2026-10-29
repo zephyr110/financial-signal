@@ -3,12 +3,37 @@ import { getDb } from '../db'
 import { buildAndStoreDailyReport, PROMPT_VERSION } from './brief'
 import { todayShanghai } from './format'
 import { getJournal, getPortfolio, getStockDetail, getTheses, getTodayPayload } from './repo'
+import { createNotification } from './notifications'
+import { answerBriefQuestion } from './narrative'
+import { ingestTushare } from './sources/tushare'
+import { ingestAkshare } from './sources/akshare'
+import { ingestOfficialDocuments } from './sources/official'
 import type { TaskEvent, TaskRecord, TaskStatus, TaskType } from './types'
 
-export const TASK_TYPES: TaskType[] = ['daily_brief', 'thesis_review', 'ask', 'weekly_review', 'symbol_deep_dive']
+export const TASK_TYPES: TaskType[] = [
+  'daily_brief',
+  'thesis_review',
+  'ask',
+  'weekly_review',
+  'symbol_deep_dive',
+  'market_ingest',
+  'akshare_ingest',
+  'daily_close',
+]
 const MAX_ATTEMPTS = 2
 const LEASE_MS = 5 * 60 * 1000
 const MODEL = 'deterministic'
+
+const TASK_LABEL: Record<string, string> = {
+  daily_brief: '收盘简报',
+  thesis_review: '论点复核',
+  ask: '简报问答',
+  weekly_review: '周度复盘',
+  symbol_deep_dive: '个股深挖',
+  market_ingest: '行情入库',
+  akshare_ingest: 'T2 补充入库',
+  daily_close: '每日收盘流程',
+}
 
 type Row = Record<string, unknown>
 
@@ -126,6 +151,7 @@ export async function getTaskEvents(id: string, afterSeq = 0): Promise<TaskEvent
 /**
  * 同 type + 参数 + 交易日只允许一个任务。显式 key 可用于“今天只生成一次日报”。
  * 排队/运行/成功任务原样返回；失败或取消的任务重置为排队，让同参数可以重试。
+ * force 时已成功任务改用唯一 key 新建，真正触发重建而不是被幂等键吞掉。
  */
 export async function enqueueTask(input: {
   type: TaskType
@@ -134,10 +160,11 @@ export async function enqueueTask(input: {
 }): Promise<TaskRecord> {
   if (!TASK_TYPES.includes(input.type)) throw new Error(`未知任务类型: ${input.type}`)
   const params = input.params && typeof input.params === 'object' ? input.params : {}
+  const force = params.force === true
   const paramDate = typeof params.tradeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.tradeDate)
     ? params.tradeDate
     : todayShanghai()
-  const idempotencyKey = input.idempotencyKey || defaultIdempotencyKey(input.type, params, paramDate)
+  let idempotencyKey = input.idempotencyKey || defaultIdempotencyKey(input.type, params, paramDate)
   const db = await getDb()
   const tx = await db.transaction('write')
   try {
@@ -145,7 +172,11 @@ export async function enqueueTask(input: {
       sql: 'SELECT * FROM tasks WHERE idempotency_key = ?',
       args: [idempotencyKey],
     })
-    const existing = existingRes.rows[0] as unknown as Row | undefined
+    let existing = existingRes.rows[0] as unknown as Row | undefined
+    if (existing && force && existing.status === 'succeeded') {
+      idempotencyKey = `${idempotencyKey}:force:${crypto.randomUUID()}`
+      existing = undefined
+    }
     if (existing) {
       const id = str(existing.id)
       if (existing.status === 'failed' || existing.status === 'canceled') {
@@ -194,6 +225,27 @@ async function setProgress(id: string, progress: number, step: string): Promise<
   })
 }
 
+/**
+ * 长任务可能很久才走到下一个进度点；独立心跳避免 5 分钟租约把仍在执行的
+ * 任务重新放回队列。任务结束时调用返回的 stop，定时器不阻止进程退出。
+ */
+export function startTaskHeartbeat(taskId: string, intervalMs = 10_000): () => void {
+  const tick = async () => {
+    try {
+      const db = await getDb()
+      await db.execute({
+        sql: "UPDATE tasks SET heartbeat_at = ? WHERE id = ? AND status = 'running'",
+        args: [new Date().toISOString(), taskId],
+      })
+    } catch (err) {
+      console.error('[cockpit/tasks] heartbeat', err instanceof Error ? err.message : err)
+    }
+  }
+  const timer = setInterval(() => { void tick() }, Math.max(10, intervalMs))
+  timer.unref?.()
+  return () => clearInterval(timer)
+}
+
 /** 单 worker 认领：写事务内先选再标记，避免两个进程拿到同一行。 */
 export async function claimNextTask(): Promise<TaskRecord | null> {
   const db = await getDb()
@@ -201,8 +253,9 @@ export async function claimNextTask(): Promise<TaskRecord | null> {
   const tx = await db.transaction('write')
   try {
     await tx.execute({
+      // heartbeat 为空说明进程在首次心跳前就崩了，同样按租约过期回收。
       sql: `UPDATE tasks SET status = 'queued', step = '租约过期，等待重试', heartbeat_at = NULL
-            WHERE status = 'running' AND heartbeat_at IS NOT NULL AND heartbeat_at < ?`,
+            WHERE status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at < ?)`,
       args: [staleBefore],
     })
     // 单任务串行：已有 worker 在跑时其它进程/请求只排队，不能再并行认领。
@@ -256,7 +309,10 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : await latestTradeDate()
       if (!tradeDate) throw new Error('没有可用的交易日，先完成行情入库')
       await setProgress(task.id, 25, '构建事实包')
-      const report = await buildAndStoreDailyReport(tradeDate, { force: Boolean(params.force) })
+      const report = await buildAndStoreDailyReport(tradeDate, {
+        force: Boolean(params.force),
+        taskId: task.id,
+      })
       await setProgress(task.id, 85, '校验并发布')
       return {
         reportId: report.reportId,
@@ -264,6 +320,80 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         version: report.version,
         claim: report.payload.hero.claim,
         confidence: report.payload.hero.confidence.label,
+        narrative: Boolean(report.payload.narrative),
+        narrativeModel: report.payload.narrative?.model || null,
+      }
+    }
+    case 'market_ingest': {
+      const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
+      await setProgress(task.id, 15, '拉取 Tushare 收盘行情')
+      const ingest = await ingestTushare({ tradeDate })
+      await setProgress(task.id, 85, '写入日线、广度与成交额')
+      return {
+        tradeDate: ingest.tradeDate,
+        bars: ingest.bars,
+        indices: ingest.indices,
+        breadth: ingest.breadth,
+        turnover: ingest.turnover,
+        limitUpDownAvailable: ingest.limitUpDownAvailable,
+        warnings: ingest.warnings,
+      }
+    }
+    case 'akshare_ingest': {
+      const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
+      await setProgress(task.id, 15, '检查 AKShare 侧车配置')
+      const ingest = await ingestAkshare({ tradeDate })
+      await setProgress(task.id, 85, '写入 T2 日线与涨停池')
+      return {
+        configured: ingest.configured,
+        tradeDate: ingest.tradeDate,
+        codes: ingest.codes,
+        bars: ingest.bars,
+        insertedBars: ingest.insertedBars,
+        limitPool: ingest.limitPool,
+        limitPoolWritten: ingest.limitPoolWritten,
+        warnings: ingest.warnings,
+      }
+    }
+    case 'daily_close': {
+      const requested = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
+      await setProgress(task.id, 15, '拉取 Tushare 收盘行情')
+      const ingest = await ingestTushare({ tradeDate: requested })
+      const warnings = [...ingest.warnings]
+
+      await setProgress(task.id, 45, '抓取官方公告与政策')
+      let documents = 0
+      try {
+        const official = await ingestOfficialDocuments({ tradeDate: ingest.tradeDate })
+        documents = official.documents
+        warnings.push(...official.warnings)
+      } catch (err) {
+        // 官方公告失败不能阻断已入库行情与简报；来源健康度会同时标红。
+        warnings.push(`官方公告未完成：${err instanceof Error ? err.message : String(err)}`)
+      }
+
+      await setProgress(task.id, 65, '生成并校验收盘简报')
+      const report = await buildAndStoreDailyReport(ingest.tradeDate, {
+        force: Boolean(params.force),
+        taskId: task.id,
+      })
+      await setProgress(task.id, 92, '发布简报并写入通知')
+      return {
+        tradeDate: ingest.tradeDate,
+        ingest: {
+          bars: ingest.bars,
+          indices: ingest.indices,
+          breadth: ingest.breadth,
+          turnover: ingest.turnover,
+        },
+        documents,
+        reportId: report.reportId,
+        version: report.version,
+        claim: report.payload.hero.claim,
+        confidence: report.payload.hero.confidence.label,
+        narrative: Boolean(report.payload.narrative),
+        narrativeModel: report.payload.narrative?.model || null,
+        warnings,
       }
     }
     case 'thesis_review': {
@@ -293,16 +423,16 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       await setProgress(task.id, 35, '检索最新简报')
       const payload = await getTodayPayload()
       if (!payload) throw new Error('没有可引用的简报，先生成日报')
-      const evidence = payload.hero.evidence
-      const citations = evidence
-        .filter((item) => item.source)
-        .map((item) => ({ id: item.source!.id, name: item.source!.name, tier: item.source!.tier }))
-      const answer = [
-        payload.hero.claim,
-        ...evidence.slice(0, 3).map((item) => `· ${item.label}`),
-        `置信度：${payload.hero.confidence.label}（${payload.hero.confidence.score}）`,
-      ].join('\n')
-      return { question, answer, citations, tradeDate: payload.tradeDate }
+      await setProgress(task.id, 65, '引用事实包作答')
+      const result = await answerBriefQuestion(question, payload, task.id)
+      return {
+        question,
+        answer: result.answer,
+        citations: result.citations,
+        tradeDate: payload.tradeDate,
+        model: result.model,
+        fallbackReason: result.fallbackReason || null,
+      }
     }
     case 'weekly_review': {
       await setProgress(task.id, 30, '汇总持仓与论点')
@@ -334,6 +464,87 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
     }
     default:
       throw new Error(`未知任务类型: ${task.type}`)
+  }
+}
+
+function taskNotification(
+  task: TaskRecord,
+  status: 'succeeded' | 'failed',
+  result: Record<string, unknown> | undefined,
+  errorMessage?: string,
+): { title: string; body?: string; deepLink?: string; severity: 'info' | 'warn' } {
+  const label = TASK_LABEL[task.type] || task.type
+  if (status === 'failed') {
+    return {
+      title: `${label}失败`,
+      body: errorMessage || '任务未完成，请到任务中心查看重试记录。',
+      deepLink: '/tasks',
+      severity: 'warn',
+    }
+  }
+  const data = result || {}
+  switch (task.type) {
+    case 'daily_brief':
+    case 'daily_close':
+      return {
+        title: '收盘简报已生成',
+        body: [
+          data.tradeDate ? String(data.tradeDate) : '',
+          data.version ? `v${String(data.version)}` : '',
+          data.claim ? String(data.claim) : '',
+        ].filter(Boolean).join(' · ').slice(0, 500),
+        deepLink: '/today',
+        severity: 'info',
+      }
+    case 'thesis_review':
+      return {
+        title: '论点复核完成',
+        body: `已复核 ${String(data.reviewed ?? 0)} 条论点${data.weakened ? `，其中 ${String(data.weakened)} 条出现反证` : ''}。`,
+        deepLink: '/research',
+        severity: 'info',
+      }
+    case 'ask':
+      return {
+        title: '简报问答已完成',
+        body: String(data.answer || data.question || '').slice(0, 300),
+        deepLink: '/tasks',
+        severity: 'info',
+      }
+    case 'weekly_review':
+      return {
+        title: '周度复盘已生成',
+        body: `持仓 ${String(data.positions ?? 0)} 只 · 论点 ${String(data.theses ?? 0)} 条 · 日志 ${String(data.journalEntries ?? 0)} 条。`,
+        deepLink: '/tasks',
+        severity: 'info',
+      }
+    case 'symbol_deep_dive':
+      return {
+        title: '个股证据已归档',
+        body: [data.code, data.name, data.price != null ? `最新价 ${String(data.price)}` : '暂无最新行情']
+          .filter(Boolean).join(' · '),
+        deepLink: data.code ? `/stock/${encodeURIComponent(String(data.code))}` : '/watchlist',
+        severity: 'info',
+      }
+    case 'market_ingest':
+      return {
+        title: '行情入库完成',
+        body: [data.tradeDate, data.bars ? `${String(data.bars)} 根日线` : '', data.documents ? `${String(data.documents)} 条公告` : '']
+          .filter(Boolean).join(' · '),
+        deepLink: '/today',
+        severity: 'info',
+      }
+    case 'akshare_ingest':
+      return {
+        title: data.configured === false ? 'T2 补充入库已跳过' : 'T2 补充入库完成',
+        body: data.configured === false
+          ? '未配置 AKShare 侧车，未写入任何数据。'
+          : [data.tradeDate, `${String(data.insertedBars ?? 0)} 根日线新增`, `${String(data.limitPoolWritten ?? 0)} 条涨停池`]
+            .filter(Boolean).join(' · '),
+        deepLink: '/tasks',
+        severity: 'info',
+      }
+    default:
+      return { title: `${label}完成`, deepLink: '/tasks', severity: 'info' }
   }
 }
 
@@ -376,14 +587,39 @@ async function finishTask(
       error: patch.errorMessage || null,
       result: patch.result || null,
     }, db)
+    // 模型调用成本记在 llm_usage；任务结束后汇总，任务中心才能展示真实花费。
+    await db.execute({
+      sql: `UPDATE tasks SET cost_micros =
+              COALESCE((SELECT SUM(cost_micros) FROM llm_usage WHERE task_id = ?), 0)
+            WHERE id = ?`,
+      args: [task.id, task.id],
+    })
   }
   const row = await getTaskRow(task.id)
+  if (!patch.requeue && (status === 'succeeded' || status === 'failed')) {
+    const result = patch.result && typeof patch.result === 'object'
+      ? patch.result as Record<string, unknown>
+      : undefined
+    const notice = taskNotification(task, status, result, patch.errorMessage)
+    await createNotification({
+      id: `task:${task.id}:${status}`,
+      kind: status === 'succeeded' ? 'task_succeeded' : 'task_failed',
+      severity: notice.severity,
+      title: notice.title,
+      body: notice.body || null,
+      deepLink: notice.deepLink || null,
+    }).catch((err) => {
+      // 通知是附属产物；写失败不能把已完成的任务改判为失败。
+      console.error('[cockpit/tasks] notification', err instanceof Error ? err.message : err)
+    })
+  }
   return row ? mapTask(row) : task
 }
 
 export async function processNextTask(): Promise<TaskRecord | null> {
   const task = await claimNextTask()
   if (!task) return null
+  const stopHeartbeat = startTaskHeartbeat(task.id)
   try {
     const result = await runTask(task)
     return await finishTask(task, 'succeeded', { progress: 100, step: '完成', result })
@@ -404,6 +640,8 @@ export async function processNextTask(): Promise<TaskRecord | null> {
       errorCode: 'TASK_FAILED',
       errorMessage: safeMessage,
     })
+  } finally {
+    stopHeartbeat()
   }
 }
 

@@ -117,6 +117,19 @@ describe('cockpit API', () => {
       expect(listed._body.data[0].reason).toBe('先观察广度能否回到 50% 以上')
     })
 
+    it.each([
+      ['600519', '600519.SH'],
+      ['SH600519', '600519.SH'],
+      ['000001', '000001.SZ'],
+    ])('代码 %s 写入前归一化为 %s', async (input, expected) => {
+      const res = mockRes()
+      await journalHandler(mockReq('POST', {
+        body: { action: 'watch', reason: '代码归一化测试', code: input },
+      }), res)
+      expect(res._status).toBe(201)
+      expect(res._body.data.code).toBe(expected)
+    })
+
     it('小数 limit 不会把非法 SQL 参数传给 SQLite', async () => {
       const res = mockRes()
       await journalHandler(mockReq('GET', { query: { limit: '2.5' } }), res)

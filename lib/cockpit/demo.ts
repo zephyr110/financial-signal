@@ -275,6 +275,7 @@ const REAL_DATA_SQL = `SELECT 1 FROM symbols WHERE source_id IS NOT NULL AND sou
   UNION ALL SELECT 1 FROM source_documents WHERE is_demo = 0
   UNION ALL SELECT 1 FROM market_bars WHERE is_demo = 0
   UNION ALL SELECT 1 FROM market_overview WHERE is_demo = 0
+  UNION ALL SELECT 1 FROM limit_pool WHERE is_demo = 0
   UNION ALL SELECT 1 FROM positions WHERE account_id <> 'demo-account'
   UNION ALL SELECT 1 FROM portfolio_accounts WHERE id <> 'demo-account'
   UNION ALL SELECT 1 FROM theses WHERE id NOT LIKE 'thesis-demo-%'

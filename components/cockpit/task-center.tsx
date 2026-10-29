@@ -1,13 +1,77 @@
 import { useEffect, useState } from 'react'
+import {
+  CalendarRange,
+  Database,
+  FileText,
+  ListChecks,
+  RefreshCw,
+  type LucideIcon,
+} from 'lucide-react'
 import type { TaskRecord } from '@/lib/cockpit/types'
 import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Disclosure, closeDisclosure } from './bits'
 
 const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
+  daily_close: '收盘全链路',
+  market_ingest: '行情入库',
+  akshare_ingest: 'T2 补充入库',
   thesis_review: '论点复核',
   ask: '向简报提问',
   weekly_review: '周度复盘',
   symbol_deep_dive: '个股深挖',
+}
+
+const QUICK_ACTIONS: Array<{
+  type: string
+  params: Record<string, unknown>
+  title: string
+  hint: string
+  icon: LucideIcon
+}> = [
+  {
+    type: 'daily_brief',
+    params: {},
+    title: '生成今日简报',
+    hint: '事实→校验→版本',
+    icon: FileText,
+  },
+  {
+    type: 'thesis_review',
+    params: {},
+    title: '复核全部论点',
+    hint: '更新复核时间与反证',
+    icon: ListChecks,
+  },
+  {
+    type: 'weekly_review',
+    params: {},
+    title: '生成周度复盘',
+    hint: '持仓、论点汇总',
+    icon: CalendarRange,
+  },
+  {
+    type: 'daily_brief',
+    params: { force: true },
+    title: '重算并发布新版本',
+    hint: '旧版保留，版本递增',
+    icon: RefreshCw,
+  },
+  {
+    type: 'akshare_ingest',
+    params: {},
+    title: '补充 T2 行情',
+    hint: 'AKShare 侧车 · 不覆盖 T0/T1',
+    icon: Database,
+  },
+]
+
+function warningsText(value: unknown): string {
+  return Array.isArray(value) ? value.map(String).filter(Boolean).join('\n') : ''
 }
 
 interface TaskResultView {
@@ -25,6 +89,38 @@ function resultView(task: TaskRecord): TaskResultView | null {
         body: [result.claim, result.confidence ? `置信度：${String(result.confidence)}` : '']
           .filter(Boolean)
           .join('\n'),
+      }
+    case 'daily_close': {
+      const ingest = result.ingest && typeof result.ingest === 'object'
+        ? result.ingest as Record<string, unknown>
+        : {}
+      return {
+        title: `简报 v${String(result.version ?? '—')} · ${String(result.tradeDate ?? '')}`,
+        body: [
+          result.claim ? String(result.claim) : '',
+          `行情 ${String(ingest.bars ?? 0)} 根日线 · 公告 ${String(result.documents ?? 0)} 条`,
+          warningsText(result.warnings),
+        ].filter(Boolean).join('\n'),
+      }
+    }
+    case 'market_ingest':
+      return {
+        title: `行情入库 ${String(result.tradeDate ?? '')}`,
+        body: [
+          `${String(result.bars ?? 0)} 根日线 · ${String(result.indices ?? 0)} 个指数`,
+          result.limitUpDownAvailable === false ? '涨跌停统计不可用' : '',
+          warningsText(result.warnings),
+        ].filter(Boolean).join('\n'),
+      }
+    case 'akshare_ingest':
+      return {
+        title: `T2 补充入库 ${String(result.tradeDate ?? '')}`,
+        body: result.configured === false
+          ? '未配置侧车：设置 AKSHARE_SIDECAR_URL 与 AKSHARE_SIDECAR_TOKEN 后重试。'
+          : [
+            `${String(result.insertedBars ?? 0)}/${String(result.bars ?? 0)} 根日线新增 · 涨停池 ${String(result.limitPoolWritten ?? 0)} 条`,
+            warningsText(result.warnings),
+          ].filter(Boolean).join('\n'),
       }
     case 'thesis_review':
       return {
@@ -79,11 +175,15 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
   const hasActive = tasks.some((task) => task.status === 'queued' || task.status === 'running')
 
   useEffect(() => {
-    if (!hasActive) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     let controller: AbortController | null = null
     let failures = 0
+    let idleTicks = 0
+    // 空闲也要轮询，否则页面打开后 cron 入队的任务永远不会出现。
+    let previousActive = new Set(
+      initialTasks.filter((task) => task.status === 'queued' || task.status === 'running').map((task) => task.id),
+    )
 
     const loadFull = async () => {
       const res = await fetch('/api/cockpit/tasks?limit=50', { headers: { Accept: 'application/json' } })
@@ -104,26 +204,39 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
         if (cancelled) return
         failures = 0
         const active = Array.isArray(json.data) ? json.data : []
-        if (active.length === 0) {
-          await loadFull()
-          // 空窗口之后可能刚好派发了新任务；继续轮询，任务全结束时由 hasActive 关掉 effect。
+        const activeIds = new Set(active.map((task) => task.id))
+        // 已知活跃任务消失说明它已完成/失败，需全量刷新拿到最终结果。
+        const disappeared = [...previousActive].some((id) => !activeIds.has(id))
+        previousActive = activeIds
+
+        if (active.length > 0) {
+          idleTicks = 0
+          setTasks((current) => {
+            const merged = new Map(current.map((task) => [task.id, task]))
+            for (const task of active) merged.set(task.id, task)
+            return [...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          })
+          if (disappeared) await loadFull()
+          if (cancelled) return
           timer = setTimeout(tick, 2500)
           return
         }
-        setTasks((current) => {
-          const merged = new Map(current.map((task) => [task.id, task]))
-          for (const task of active) merged.set(task.id, task)
-          return [...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        })
-        timer = setTimeout(tick, 2500)
+
+        idleTicks += 1
+        // 空闲低频刷新兜底：任务可能在两次轮询之间完成，也要出现在流水里。
+        if (disappeared || idleTicks % 4 === 0) await loadFull()
+        if (cancelled) return
+        timer = setTimeout(tick, 15000)
       } catch (err) {
         if (cancelled || (err instanceof Error && err.name === 'AbortError')) return
         failures += 1
         if (failures >= 5) {
-          setError('自动刷新连续失败，请刷新页面查看任务状态。')
+          setError('自动刷新连续失败，正在降低刷新频率。')
+          failures = 0
+          timer = setTimeout(tick, 60000)
           return
         }
-        timer = setTimeout(tick, Math.min(3000 * 2 ** failures, 15000))
+        timer = setTimeout(tick, Math.min(3000 * 2 ** failures, 30000))
       }
     }
 
@@ -133,9 +246,15 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       if (timer) clearTimeout(timer)
       controller?.abort()
     }
-  }, [hasActive])
+    // initialTasks 只用于初始化活跃集合；后续状态由轮询接管。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function run(type: string, params: Record<string, unknown> = {}) {
+  async function run(
+    type: string,
+    params: Record<string, unknown> = {},
+    form?: HTMLFormElement | null,
+  ) {
     setBusy(type)
     setError(null)
     setMessage(null)
@@ -169,6 +288,8 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       }
       if (type === 'ask') setQuestion('')
       if (type === 'symbol_deep_dive') setCode('')
+      // 只收起刚提交的表单，并让键盘焦点回到它的标题；其它展开的表单保持原样。
+      if (form) closeDisclosure(form)
     } catch {
       setError('网络连接失败，任务未派发。')
     } finally {
@@ -200,107 +321,96 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
   return (
     <>
       <section className="ck-card ck-task-composer" aria-labelledby="task-composer-title">
-        <h2 className="ck-form-title" id="task-composer-title">派发任务</h2>
-        <p className="ck-form-hint">任务在服务端串行执行，结果写入研究记录；同一参数不会重复计费。</p>
+        <div className="ck-task-composer-head">
+          <h2 className="ck-task-composer-title" id="task-composer-title">快速派发</h2>
+          <p className="ck-task-composer-hint">串行执行，结果写入研究记录；同参数不会重复计费。</p>
+        </div>
         <div className="ck-task-grid">
-          <button
-            className="ck-task-quick"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => run('daily_brief')}
-          >
-            <strong>生成今日简报</strong>
-            <span>事实包 → 校验 → 版本化</span>
-          </button>
-          <button
-            className="ck-task-quick"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => run('thesis_review')}
-          >
-            <strong>复核全部论点</strong>
-            <span>更新复核时间与反证</span>
-          </button>
-          <button
-            className="ck-task-quick"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => run('weekly_review')}
-          >
-            <strong>生成周度复盘</strong>
-            <span>持仓、论点与日志汇总</span>
-          </button>
-          <button
-            className="ck-task-quick"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => run('daily_brief', { force: true })}
-          >
-            <strong>重算并发布新版本</strong>
-            <span>保留旧版本，版本号递增</span>
-          </button>
+          {QUICK_ACTIONS.map((action) => {
+            const Icon = action.icon
+            return (
+              <Button
+                key={`${action.type}:${action.title}`}
+                variant="outline"
+                className="ck-task-quick"
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => run(action.type, action.params)}
+              >
+                <span className="ck-task-quick-icon">
+                  <Icon aria-hidden="true" />
+                </span>
+                <span className="ck-task-quick-copy">
+                  <strong>{action.title}</strong>
+                  <span>{action.hint}</span>
+                </span>
+              </Button>
+            )
+          })}
         </div>
 
         <div className="ck-task-forms">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              const value = question.trim()
-              if (!value) {
-                setError('请先写下问题。')
-                return
-              }
-              void run('ask', { question: value })
-            }}
-          >
-            <div className="ck-field">
-              <label className="ck-label" htmlFor="task-question">向最新简报提问</label>
-              <textarea
-                className="ck-textarea"
-                id="task-question"
-                value={question}
-                maxLength={2000}
-                placeholder="例如：今天指数上涨，但上涨家数偏少，这个背离意味着什么？"
-                onChange={(event) => setQuestion(event.target.value)}
-              />
-            </div>
-            <div className="ck-form-actions">
-              <button className="ck-button ck-button-primary" type="submit" disabled={Boolean(busy)}>
-                {busy === 'ask' ? '派发中…' : '提交问题'}
-              </button>
-              <span className="ck-inline-meta">回答只引用已校验的简报证据</span>
-            </div>
-          </form>
+          <Disclosure title="向最新简报提问" hint="只引用已校验证据" headingLevel={3}>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                const value = question.trim()
+                if (!value) {
+                  setError('请先写下问题。')
+                  return
+                }
+                void run('ask', { question: value }, event.currentTarget)
+              }}
+            >
+              <div className="ck-field">
+                <label className="ck-label" htmlFor="task-question">问题</label>
+                <Textarea
+                  className="min-h-20 text-base md:text-sm"
+                  id="task-question"
+                  value={question}
+                  maxLength={2000}
+                  placeholder="例如：今天指数上涨，但上涨家数偏少，这个背离意味着什么？"
+                  onChange={(event) => setQuestion(event.target.value)}
+                />
+              </div>
+              <div className="ck-form-actions">
+                <Button type="submit" disabled={Boolean(busy)}>
+                  {busy === 'ask' ? '派发中…' : '提交问题'}
+                </Button>
+              </div>
+            </form>
+          </Disclosure>
 
-          <form
-            style={{ marginTop: 10 }}
-            onSubmit={(event) => {
-              event.preventDefault()
-              const value = code.trim().toUpperCase()
-              if (!value) {
-                setError('请填写股票代码。')
-                return
-              }
-              void run('symbol_deep_dive', { code: value })
-            }}
-          >
-            <div className="ck-field">
-              <label className="ck-label" htmlFor="task-code">个股深挖</label>
-              <input
-                className="ck-input"
-                id="task-code"
-                value={code}
-                maxLength={20}
-                placeholder="例如 600519.SH"
-                onChange={(event) => setCode(event.target.value)}
-              />
-            </div>
-            <div className="ck-form-actions">
-              <button className="ck-button" type="submit" disabled={Boolean(busy)}>
-                {busy === 'symbol_deep_dive' ? '派发中…' : '读取个股证据'}
-              </button>
-            </div>
-          </form>
+          <Disclosure title="个股深挖" hint="读取已入库的行情、公告与论点" headingLevel={3}>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                const value = code.trim().toUpperCase()
+                if (!value) {
+                  setError('请填写股票代码。')
+                  return
+                }
+                void run('symbol_deep_dive', { code: value }, event.currentTarget)
+              }}
+            >
+              <div className="ck-field">
+                <label className="ck-label" htmlFor="task-code">股票代码</label>
+                <Input
+                  className="text-base md:text-sm"
+                  id="task-code"
+                  value={code}
+                  maxLength={20}
+                  placeholder="例如 600519.SH"
+                  onChange={(event) => setCode(event.target.value)}
+                />
+              </div>
+              <div className="ck-form-actions">
+                <Button variant="outline" type="submit" disabled={Boolean(busy)}>
+                  {busy === 'symbol_deep_dive' ? '派发中…' : '开始深挖'}
+                </Button>
+              </div>
+            </form>
+          </Disclosure>
         </div>
 
         {error && <p className="ck-form-error" role="alert">{error}</p>}
@@ -310,9 +420,11 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       <section className="ck-section" aria-labelledby="task-list-title">
         <div className="ck-section-head">
           <div className="ck-section-head-main">
-            <h2 className="ck-section-title" id="task-list-title">任务流水</h2>
+            <h2 className="ck-section-title" id="task-list-title">
+              任务流水 <span className="ck-section-count">{tasks.length}</span>
+            </h2>
             <p className="ck-section-detail">
-              {hasActive ? '有任务正在执行，列表会自动刷新。' : '最近 50 条任务，含失败与取消记录。'}
+              {hasActive ? '有任务正在执行，列表会自动刷新。' : '最近 50 条，含失败与取消记录。'}
             </p>
           </div>
         </div>
@@ -323,6 +435,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
             tasks.map((task) => {
               const view = resultView(task)
               const progress = Math.max(0, Math.min(100, Math.round(task.progress || 0)))
+              const active = task.status === 'queued' || task.status === 'running'
               const canCancel = task.status === 'queued' && busy !== task.id
               return (
                 <article
@@ -331,26 +444,31 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                 >
                   <div className="ck-task-head">
                     <span className="ck-task-type">{TYPE_LABEL[task.type] || task.type}</span>
-                    <span className={`ck-task-status is-${task.status}`}>
-                      {taskStatusLabel(task.status)}
-                    </span>
-                  </div>
-                  <div className="ck-task-body">
-                    <div className="ck-task-step">
-                      <span>{task.step || (task.status === 'queued' ? '等待执行' : '已结束')}</span>
-                      <span>{progress}%</span>
-                    </div>
-                    <div
-                      className="ck-task-progress"
-                      role="progressbar"
-                      aria-label={`${TYPE_LABEL[task.type] || task.type}进度`}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={progress}
+                    <Badge
+                      variant="outline"
+                      className={`ck-task-status is-${task.status}`}
                     >
-                      <div className="ck-task-progress-fill" style={{ width: `${progress}%` }} />
-                    </div>
+                      {taskStatusLabel(task.status)}
+                    </Badge>
                   </div>
+                  {active && (
+                    <div className="ck-task-body">
+                      <div className="ck-task-step">
+                        <span>{task.step || (task.status === 'queued' ? '等待执行' : '执行中')}</span>
+                        <span>{progress}%</span>
+                      </div>
+                      <div
+                        className="ck-task-progress"
+                        role="progressbar"
+                        aria-label={`${TYPE_LABEL[task.type] || task.type}进度`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={progress}
+                      >
+                        <div className="ck-task-progress-fill" style={{ width: `${progress}%` }} />
+                      </div>
+                    </div>
+                  )}
                   {view && (
                     <div className="ck-task-result">
                       <strong>{view.title}</strong>
@@ -377,14 +495,15 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                   </div>
                   {canCancel && (
                     <div className="ck-task-actions">
-                      <button
-                        className="ck-button ck-button-danger ck-button-small"
+                      <Button
+                        variant="destructive"
+                        size="sm"
                         type="button"
                         disabled={busy === task.id}
                         onClick={() => void cancel(task.id)}
                       >
                         取消任务
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </article>

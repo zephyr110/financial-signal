@@ -33,13 +33,16 @@ export default async function handler(req: any, res: any) {
         urlSet: has(SETTING_KEYS.TURSO_DATABASE_URL),
         tokenSet: has(SETTING_KEYS.TURSO_AUTH_TOKEN),
       },
+      tushare: {
+        tokenSet: has(SETTING_KEYS.TUSHARE_TOKEN),
+      },
       cronSecretSet: has(SETTING_KEYS.CRON_SECRET),
     });
     return;
   }
 
   if (req.method === 'POST') {
-    const { llmModel, llmBaseUrl, llmApiKey, tursoUrl, tursoToken, cronSecret } = req.body || {};
+    const { llmModel, llmBaseUrl, llmApiKey, tursoUrl, tursoToken, tushareToken, cronSecret } = req.body || {};
     // 留空字符串 = 保持不变；未传 = 忽略；只有显式 null 才清除
     const patch: Record<string, string | null> = {};
     if (llmModel != null) patch[SETTING_KEYS.LLM_MODEL] = llmModel === '' ? null : String(llmModel).trim();
@@ -47,6 +50,7 @@ export default async function handler(req: any, res: any) {
     if (llmApiKey != null) patch[SETTING_KEYS.LLM_API_KEY] = llmApiKey === '' ? null : String(llmApiKey).trim();
     if (tursoUrl != null) patch[SETTING_KEYS.TURSO_DATABASE_URL] = tursoUrl === '' ? null : String(tursoUrl).trim();
     if (tursoToken != null) patch[SETTING_KEYS.TURSO_AUTH_TOKEN] = tursoToken === '' ? null : String(tursoToken).trim();
+    if (tushareToken != null) patch[SETTING_KEYS.TUSHARE_TOKEN] = tushareToken === '' ? null : String(tushareToken).trim();
     if (cronSecret != null) patch[SETTING_KEYS.CRON_SECRET] = cronSecret === '' ? null : String(cronSecret).trim();
     if (Object.keys(patch).length === 0) return res.status(400).json({ error: '没有需要保存的配置' });
 

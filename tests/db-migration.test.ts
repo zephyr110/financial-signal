@@ -52,7 +52,7 @@ async function loadDb(file: string) {
 
 /** 还原旧版 migrate 遗留的真实老库:PRAGMA user_version=3(旧机制写)、
  * v1+v2+v3 结构已应用、app_session 表存在但无 user_id 列且存旧明文 token、
- * 无 schema_migrations 表。升级时应:回填 {1,2,3} → 只跑 v4-v8 → 表 {1,2,3,4}。 */
+ * 无 schema_migrations 表。升级时应:回填 {1,2,3} → 只跑 v4-v9 → 表 {1,2,3,4}。 */
 async function buildLegacyDb(file: string) {
   const db = createClient({ url: `file:${file}` })
   await db.executeMultiple(`
@@ -96,14 +96,14 @@ describe('schema migration (schema_migrations 表)', () => {
     const db = await getDb()
 
     const r = await db.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
-    expect(Number(r.rows[0].v)).toBe(8)
+    expect(Number(r.rows[0].v)).toBe(9)
 
     const tables = await db.execute({
       sql: "SELECT name FROM sqlite_master WHERE type='table'",
       args: [],
     })
     const names = tables.rows.map((t) => t.name)
-    for (const t of ['news_archive', 'analysis_result', 'event_threads', 'event_thread_signal', 'market_data', 'backtest_result', 'event_log', 'pipeline_run', 'pipeline_cursor', 'agent_session', 'agent_message', 'agent_share', 'app_account', 'app_session', 'app_settings', 'source_registry', 'source_documents', 'market_bars', 'market_overview', 'reports', 'theses', 'positions', 'tasks', 'task_events']) {
+    for (const t of ['news_archive', 'analysis_result', 'event_threads', 'event_thread_signal', 'market_data', 'backtest_result', 'event_log', 'pipeline_run', 'pipeline_cursor', 'agent_session', 'agent_message', 'agent_share', 'app_account', 'app_session', 'app_settings', 'source_registry', 'source_documents', 'market_bars', 'market_overview', 'limit_pool', 'reports', 'theses', 'positions', 'tasks', 'task_events']) {
       expect(names).toContain(t)
     }
 
@@ -130,7 +130,7 @@ describe('schema migration (schema_migrations 表)', () => {
     const db = await getDb()
 
     const r = await db.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
-    expect(Number(r.rows[0].v)).toBe(8)
+    expect(Number(r.rows[0].v)).toBe(9)
 
     const newsCols = await db.execute({ sql: 'PRAGMA table_info(news_archive)', args: [] })
     expect(newsCols.rows.some((c) => c.name === 'docurl')).toBe(true)
@@ -155,7 +155,7 @@ describe('schema migration (schema_migrations 表)', () => {
     ).rejects.toThrow(/UNIQUE/i)
   })
 
-  it('遗留老库(PRAGMA=3 + 旧明文会话):回填版本表、只跑 v4-v8、旧会话自然失效', async () => {
+  it('遗留老库(PRAGMA=3 + 旧明文会话):回填版本表、只跑 v4-v9、旧会话自然失效', async () => {
     const file = path.join(dir, 'legacy.db')
     await buildLegacyDb(file)
     const { getDb } = await loadDb(file)
@@ -166,7 +166,7 @@ describe('schema migration (schema_migrations 表)', () => {
       sql: 'SELECT version FROM schema_migrations ORDER BY version',
       args: [],
     })
-    expect(versions.rows.map((r) => Number(r.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(versions.rows.map((r) => Number(r.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
 
     // v2/v3 列保持(不重跑);v4 补 user_id 列
     const newsCols = await db.execute({ sql: 'PRAGMA table_info(news_archive)', args: [] })
@@ -190,7 +190,7 @@ describe('schema migration (schema_migrations 表)', () => {
       sql: 'SELECT version FROM schema_migrations ORDER BY version',
       args: [],
     })
-    expect(versions2.rows.map((r) => Number(r.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(versions2.rows.map((r) => Number(r.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
   })
 
   it('迁移幂等:已是最新版本时再次加载不报错、不改动数据', async () => {
@@ -207,7 +207,7 @@ describe('schema migration (schema_migrations 表)', () => {
     const mod2 = await import('../lib/db')
     const db2 = await mod2.getDb()
     const r = await db2.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
-    expect(Number(r.rows[0].v)).toBe(8)
+    expect(Number(r.rows[0].v)).toBe(9)
 
     const rows = await db2.execute({ sql: 'SELECT COUNT(*) as n FROM event_threads', args: [] })
     expect(Number(rows.rows[0].n)).toBe(1)
