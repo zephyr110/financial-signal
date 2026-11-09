@@ -51,7 +51,7 @@ export default function SignalPage({ data: ssgData, error: ssgError }) {
   if (loading) {
     return (
       <>
-        <Head><title>加载中… — 财经信号</title></Head>
+        <Head><title>加载中… · 收盘手记</title></Head>
         <AppShell title="信号详情">
           <div className="mx-auto flex min-h-full max-w-[720px] lg:max-w-[960px] flex-col px-4 sm:px-6 pb-12 pt-8">
             <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground">
@@ -68,7 +68,7 @@ export default function SignalPage({ data: ssgData, error: ssgError }) {
   if (error && !data) {
     return (
       <>
-        <Head><title>信号详情 — 财经信号</title></Head>
+        <Head><title>信号详情 · 收盘手记</title></Head>
         <AppShell title="信号详情">
           <div className="mx-auto max-w-[720px] lg:max-w-[960px] px-4 sm:px-6 pb-12 pt-8">
             <Link
@@ -92,8 +92,8 @@ export default function SignalPage({ data: ssgData, error: ssgError }) {
       <Head>
         <title>
           {signal
-            ? `${signal.summary?.slice(0, 40)} — 财经信号`
-            : "信号详情 — 财经信号"}
+            ? `${signal.summary?.slice(0, 40)} · 收盘手记`
+            : "信号详情 · 收盘手记"}
         </title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta
@@ -101,7 +101,7 @@ export default function SignalPage({ data: ssgData, error: ssgError }) {
           content={
             signal?.deep_analysis?.slice(0, 160) ||
             signal?.summary?.slice(0, 160) ||
-            "AI 驱动的财经信号深度分析"
+            "已入库信号的深度分析"
           }
         />
       </Head>

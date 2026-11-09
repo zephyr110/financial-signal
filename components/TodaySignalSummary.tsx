@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Zap } from "lucide-react";
+import { ArrowRight, Zap } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -76,8 +76,9 @@ export default function TodaySignalSummary({ items }: TodaySignalSummaryProps) {
             </Badge>
           )}
         </div>
-        <span className="text-primary text-xs ml-auto shrink-0 transition-transform group-hover:translate-x-0.5">
-          查看分析 →
+        <span className="inline-flex items-center gap-1 text-primary text-xs ml-auto shrink-0 transition-transform group-hover:translate-x-0.5">
+          查看分析
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </span>
       </div>
     </Link>

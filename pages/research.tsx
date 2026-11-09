@@ -1,5 +1,6 @@
 import Head from 'next/head'
 import Link from 'next/link'
+import { ArrowRight } from 'lucide-react'
 import type { GetServerSideProps } from 'next'
 import type { JournalEntry, SourceHealth, ThesisView } from '@/lib/cockpit/types'
 import { todayShanghai } from '@/lib/cockpit/format'
@@ -88,11 +89,11 @@ export default function ResearchPage({
   return (
     <>
       <Head>
-        <title>研究 · 收盘手记</title>
+        <title>研究笔记 · 收盘手记</title>
         <meta name="description" content="投资论点、失效条件与个人研究日志" />
       </Head>
       <CockpitShell
-        title="研究"
+        title="研究笔记"
         eyebrow="论点与日志"
         subtitle="把观点写成可被推翻的句子。价格只负责检验，不负责说服。"
         isDemo={isDemo}
@@ -118,7 +119,12 @@ export default function ResearchPage({
             id="theses-title"
             title={`${theses.length} 条研究论点`}
             detail="每条论点同时展示支持证据、反证与失效条件。"
-            action={<Link href="/tasks">派发复核 →</Link>}
+            action={(
+              <Link href="/tasks" className="inline-flex items-center gap-1">
+                派发复核
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            )}
           />
           {theses.length === 0 ? (
             <EmptyState title="还没有研究论点">

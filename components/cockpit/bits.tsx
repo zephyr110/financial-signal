@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, Minus } from 'lucide-react'
 import type {
   Confidence,
-  DataQualityItem,
   HealthStatus,
   SourceHealth,
   SourceRef,
@@ -21,8 +20,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-
-type HealthLike = SourceHealth | DataQualityItem
 
 const STATUS_TEXT: Record<HealthStatus, string> = {
   ok: '正常',
@@ -98,13 +95,19 @@ export function ConfidencePill({ confidence }: { confidence: Confidence }) {
 
 export function DeltaValue({ value }: { value: number | null | undefined }) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return <span className="ck-delta ck-flat" aria-label="无涨跌数据">—</span>
+    return (
+      <span className="ck-delta ck-flat" aria-label="无涨跌数据">
+        <Minus className="ck-delta-icon" aria-hidden="true" />
+      </span>
+    )
   }
-  const tone = value > 0.00001 ? 'ck-up' : value < -0.00001 ? 'ck-down' : 'ck-flat'
-  const icon = value > 0.00001 ? '▲' : value < -0.00001 ? '▼' : '—'
+  const up = value > 0.00001
+  const down = value < -0.00001
+  const tone = up ? 'ck-up' : down ? 'ck-down' : 'ck-flat'
+  const Icon = up ? ArrowUp : down ? ArrowDown : Minus
   return (
     <span className={`ck-delta ${tone}`} aria-label={`涨跌幅 ${formatSignedPct(value)}`}>
-      <span className="ck-delta-icon" aria-hidden="true">{icon}</span>
+      <Icon className="ck-delta-icon" aria-hidden="true" />
       {formatSignedPct(value)}
     </span>
   )
@@ -181,6 +184,7 @@ export function Disclosure({
   headingLevel,
   id,
   summaryLabel,
+  icon,
   children,
 }: {
   title: string
@@ -190,6 +194,7 @@ export function Disclosure({
   headingLevel?: 2 | 3
   id?: string
   summaryLabel?: string
+  icon?: ReactNode
   children: ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -218,6 +223,11 @@ export function Disclosure({
     >
       <Collapsible open={open} onOpenChange={setOpen}>
         <div className="ck-disclosure-head">
+          {icon && (
+            <span className="ck-disclosure-leading" aria-hidden="true">
+              {icon}
+            </span>
+          )}
           {titleNode}
           {hint && <span className="ck-disclosure-hint">{hint}</span>}
           <ChevronDown className="ck-disclosure-icon" aria-hidden="true" />
@@ -284,9 +294,8 @@ export function EmptyState({
   )
 }
 
-function healthMeta(item: HealthLike): { last?: string; message?: string } {
-  const last = (item as SourceHealth).lastSuccessAt || (item as DataQualityItem).asOf
-  return { last, message: item.message }
+function healthMeta(item: SourceHealth): { last?: string; message?: string } {
+  return { last: item.lastSuccessAt, message: item.message }
 }
 
 export function SourceHealthRail({ sources }: { sources: SourceHealth[] }) {
@@ -317,35 +326,5 @@ export function SourceHealthRail({ sources }: { sources: SourceHealth[] }) {
         )
       })}
     </ul>
-  )
-}
-
-export function DataQualityPanel({ items }: { items: DataQualityItem[] }) {
-  const sorted = sortByStatus(items)
-  return (
-    <div className="ck-card ck-quality-list">
-      {sorted.length === 0 ? (
-        <p className="ck-rail-note" style={{ padding: '12px 13px' }}>暂无数据源状态。</p>
-      ) : (
-        sorted.map((item) => (
-          <div className="ck-quality-row" key={item.id}>
-            <span className={`ck-status-dot ck-status-${item.status}`} aria-hidden="true" />
-            <div className="ck-quality-body">
-              <div className="ck-quality-head">
-                <span className="ck-quality-name">{item.name}</span>
-                <span className="ck-quality-status">
-                  {tierLabel(item.tier).slice(0, 2)} · {STATUS_TEXT[item.status]}
-                </span>
-              </div>
-              {(item.message || item.asOf) && (
-                <p className="ck-quality-message">
-                  {item.message || `更新于 ${formatTime(item.asOf)}`}
-                </p>
-              )}
-            </div>
-          </div>
-        ))
-      )}
-    </div>
   )
 }

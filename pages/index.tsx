@@ -7,7 +7,8 @@ import ErrorBanner from "../components/ErrorBanner";
 import EmptyState from "../components/EmptyState";
 import TodaySignalSummary from "../components/TodaySignalSummary";
 import WelcomeScreen from "../components/WelcomeScreen";
-import { RefreshCw } from "lucide-react";
+import { Clock, RefreshCw } from "lucide-react";
+import { TodayTabs } from "../components/TodayTabs";
 import { getNewsByDate, getAvailableDates, getDb } from "../lib/db";
 import { todayKey } from "../lib/format";
 
@@ -214,11 +215,11 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
   return (
     <>
       <Head>
-        <title>财经信号 — 实时快讯 · AI 信号识别</title>
+        <title>新闻线索 · 收盘手记</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta
           name="description"
-          content="AI 驱动的财经信号识别引擎，自动筛选政策、行业、公司关键信号"
+          content="7×24 财经快讯与信号筛选，个人收盘研究用途"
         />
         <link
           rel="alternate"
@@ -229,7 +230,7 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
       </Head>
 
       <AppShell
-        title="新闻快讯"
+        title="今日"
         actions={<TopbarRefreshButton onClick={doRefresh} refreshing={fetching} />}
       >
       <div
@@ -264,23 +265,18 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
         {/* 内容列宽度随分辨率阶梯放大，与 agent/analysis 一致 */}
         <div className="mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px] px-4 sm:px-6 pb-12">
           {/* Hero */}
-          <div className="pt-8 pb-6 flex items-end justify-between gap-4 flex-wrap">
+          <div className="pt-6 pb-6 flex items-end justify-between gap-4 flex-wrap">
             <div className="min-w-0">
               <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">
-                实时财经快讯
+                新闻线索
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                7×24 全球快讯 · AI 智能筛选高价值信号
+                7×24 全球快讯 · AI 辅助筛选值得跟进的线索
               </p>
-              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="relative flex h-2 w-2" aria-hidden>
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                </span>
-                信号流在线
-                {lastUpdated && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Clock className="size-3.5" aria-hidden="true" />
+                {lastUpdated ? (
                   <>
-                    <span aria-hidden>·</span>
                     更新于{" "}
                     {lastUpdated.toLocaleTimeString("zh-CN", {
                       hour: "2-digit",
@@ -288,9 +284,12 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
                       second: "2-digit",
                     })}
                   </>
+                ) : (
+                  <>7×24 快讯 · 下拉刷新</>
                 )}
               </div>
             </div>
+            <TodayTabs active="news" />
           </div>
 
           <ErrorBanner message={error} />

@@ -1,5 +1,6 @@
 import Head from 'next/head'
 import Link from 'next/link'
+import { ArrowRight } from 'lucide-react'
 import type { GetServerSideProps } from 'next'
 import type { SourceHealth, StockDetail } from '@/lib/cockpit/types'
 import { formatDateCn, formatPrice, formatTime } from '@/lib/cockpit/format'
@@ -162,7 +163,12 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
             id="stock-evidence-title"
             title="证据链"
             detail="个股页只复述已入库事实与当前论点，不给出买卖动作。"
-            action={<Link href="/research">研究页 →</Link>}
+            action={(
+              <Link href="/research" className="inline-flex items-center gap-1">
+                研究页
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            )}
           />
           {detail.evidence.length > 0 ? (
             <div className="ck-card">

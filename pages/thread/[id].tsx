@@ -77,7 +77,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
   if (loading) {
     return (
       <>
-        <Head><title>加载中… — 财经信号</title></Head>
+        <Head><title>加载中… · 收盘手记</title></Head>
         <AppShell title="事件线索">
           <div className="mx-auto flex min-h-full max-w-[720px] lg:max-w-[960px] flex-col px-4 sm:px-6 pb-12 pt-8">
             <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground">
@@ -93,7 +93,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
   if (error && !data) {
     return (
       <>
-        <Head><title>事件线索 — 财经信号</title></Head>
+        <Head><title>事件线索 · 收盘手记</title></Head>
         <AppShell title="事件线索">
           <div className="mx-auto max-w-[720px] lg:max-w-[960px] px-4 sm:px-6 pb-12 pt-8">
             <Link
@@ -119,7 +119,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
     <>
       <Head>
         <title>
-          {thread ? `${thread.title} — 事件线索 | 财经信号` : "事件线索 — 财经信号"}
+          {thread ? `${thread.title} — 事件线索 · 收盘手记` : "事件线索 · 收盘手记"}
         </title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta

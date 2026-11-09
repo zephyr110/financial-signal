@@ -202,10 +202,6 @@
   padding: 16px;
 }
 
-.ck-mobile-only {
-  display: block;
-}
-
 .ck-link {
   color: var(--ck-accent);
   text-decoration: underline;
@@ -330,8 +326,9 @@ a.ck-chip:hover {
 }
 
 .ck-delta-icon {
-  font-size: 0.78em;
-  line-height: 1;
+  width: 0.78em;
+  height: 0.78em;
+  flex: none;
 }
 
 .ck-up {
@@ -802,6 +799,13 @@ a.ck-chip:hover {
   background: color-mix(in srgb, var(--ck-surface-2) 60%, transparent);
 }
 
+.ck-disclosure-leading {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--ck-faint);
+}
+
 .ck-disclosure-title {
   min-width: 0;
   margin: 0;
@@ -864,14 +868,20 @@ a.ck-chip:hover {
   display: none;
 }
 
-.ck-disclosure-body > .ck-quality-list {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 .ck-disclosure .ck-section-detail {
   display: none;
+}
+
+/* 页脚的数据源状态：默认收起，只留一行摘要。 */
+.ck-source-status .ck-disclosure-head {
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.ck-source-status .ck-disclosure-body {
+  padding-top: 2px;
+  padding-bottom: 10px;
 }
 
 /* 首屏内的次级说明：叙述、置信度构成 */
@@ -1317,24 +1327,6 @@ a.ck-chip:hover {
   line-height: 1.7;
 }
 
-/* ---------- 数据质量 ---------- */
-
-.ck-quality-list {
-  overflow: hidden;
-}
-
-.ck-quality-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 10px 13px;
-  border-top: 1px solid var(--ck-line);
-}
-
-.ck-quality-row:first-child {
-  border-top: 0;
-}
-
 .ck-status-dot {
   flex: none;
   width: 7px;
@@ -1363,38 +1355,6 @@ a.ck-chip:hover {
 .ck-status-inactive {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--ck-faint);
-}
-
-.ck-quality-body {
-  min-width: 0;
-  flex: 1;
-}
-
-.ck-quality-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 8px;
-}
-
-.ck-quality-name {
-  color: var(--ck-ink);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.ck-quality-status {
-  color: var(--ck-faint);
-  font-size: 10.5px;
-  white-space: nowrap;
-}
-
-.ck-quality-message {
-  margin-top: 2px !important;
-  color: var(--ck-faint);
-  font-size: 11px;
-  line-height: 1.5;
 }
 
 .ck-status-label {
@@ -2800,10 +2760,6 @@ a.ck-chip:hover {
     position: sticky;
     top: 16px;
     display: block;
-  }
-
-  .ck-mobile-only {
-    display: none;
   }
 
   .ck-index-value {

@@ -1,5 +1,6 @@
 import Head from 'next/head'
 import Link from 'next/link'
+import { ArrowRight } from 'lucide-react'
 import type { GetServerSideProps } from 'next'
 import type { SourceHealth, TodayPayload } from '@/lib/cockpit/types'
 import { formatDateCn, formatTime } from '@/lib/cockpit/format'
@@ -10,10 +11,10 @@ import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { EvidenceSpine } from '@/components/cockpit/evidence-spine'
 import { MarketPulse, MarketSnapshot } from '@/components/cockpit/market-pulse'
 import { DocumentList } from '@/components/cockpit/document-list'
+import { TodayTabs } from '@/components/TodayTabs'
 import { buttonVariants } from '@/components/ui/button'
 import {
   ConfidencePill,
-  DataQualityPanel,
   Disclosure,
   EmptyState,
   SectionHeader,
@@ -49,13 +50,14 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
     return (
       <>
         <Head>
-          <title>今日收盘 · 收盘手记</title>
+          <title>今日 · 收盘手记</title>
           <meta name="description" content="个人收盘研究简报" />
         </Head>
         <CockpitShell
-          title="今日收盘"
+          title="今日"
           eyebrow="收盘简报"
           subtitle="收盘后先看今天的事实，再决定原来的判断是否需要改变。"
+          headerAction={<TodayTabs active="brief" />}
           sourceHealth={sourceHealth}
         >
           {loadError && <div className="ck-error-banner">{loadError}</div>}
@@ -75,32 +77,26 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
     )
   }
 
-  const { hero, indices, breadth, turnover, impacts, documents, tomorrow, dataQuality } = payload
+  const { hero, indices, breadth, turnover, impacts, documents, tomorrow } = payload
   const confidenceInputs = [
     ['数据完整度', hero.confidence.inputs.completeness],
     ['时效性', hero.confidence.inputs.freshness],
     ['指标一致性', hero.confidence.inputs.agreement],
     ['来源质量', hero.confidence.inputs.sourceQuality],
   ] as const
-  const qualityIssues = dataQuality.filter(
-    (item) => item.status === 'error' || item.status === 'stale',
-  ).length
-  const qualityHint = qualityIssues > 0
-    ? `${qualityIssues} 项需注意`
-    : `${dataQuality.length} 个来源`
-
   return (
     <>
       <Head>
-        <title>今日收盘 · 收盘手记</title>
+        <title>今日 · 收盘手记</title>
         <meta name="description" content={`${payload.tradeDate} 收盘简报，个人研究用途，不构成投资建议`} />
       </Head>
       <CockpitShell
-        title="今日收盘"
+        title="今日"
         eyebrow={formatDateCn(payload.tradeDate)}
         subtitle={`第 ${payload.issueNo} 期 · 生成于 ${formatTime(payload.generatedAt)}`}
         asOf={payload.generatedAt}
         isDemo={payload.isDemo}
+        headerAction={<TodayTabs active="brief" />}
         sourceHealth={sourceHealth}
       >
         <article className="ck-card ck-hero-card" aria-labelledby="brief-claim">
@@ -168,7 +164,12 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             id="impact-title"
             title="对你的影响"
             detail="只统计已录入的持仓与自选；描述影响，不生成买卖动作。"
-            action={<Link href="/portfolio">持仓详情 →</Link>}
+            action={(
+              <Link href="/portfolio" className="inline-flex items-center gap-1">
+                持仓详情
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            )}
           />
           {impacts.length === 0 ? (
             <EmptyState title="今天没有触及你的标的">
@@ -207,6 +208,12 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             id="documents-title"
             title="政策与公告"
             detail="只列已入库、可回溯到原始来源的文档；聚合线索不进入结论。"
+            action={(
+              <Link href="/" className="inline-flex items-center gap-1">
+                看新闻线索
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            )}
           />
           <DocumentList documents={documents} />
         </section>
@@ -233,16 +240,6 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
           )}
         </section>
 
-        <section className="ck-section ck-mobile-only" aria-labelledby="data-quality-title">
-          <Disclosure
-            title="数据质量"
-            hint={qualityHint}
-            id="data-quality-title"
-            headingLevel={2}
-          >
-            <DataQualityPanel items={dataQuality} />
-          </Disclosure>
-        </section>
       </CockpitShell>
     </>
   )

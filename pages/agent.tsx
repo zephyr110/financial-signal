@@ -98,7 +98,7 @@ export default function AgentPage() {
       const url = `${window.location.origin}${data.path}`;
       if (typeof navigator !== "undefined" && navigator.share) {
         try {
-          await navigator.share({ title: "财经信号会话分享", url });
+          await navigator.share({ title: "收盘手记会话分享", url });
           return;
         } catch {
           // 用户取消分享等，降级为复制链接
@@ -534,7 +534,7 @@ export default function AgentPage() {
   return (
     <>
       <Head>
-        <title>研究助手 — 财经信号</title>
+        <title>研究助手 · 收盘手记</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="description" content="AI 研究助手 — 政策、行业、事件线索问答" />
       </Head>

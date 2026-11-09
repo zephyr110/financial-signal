@@ -40,7 +40,7 @@ export default function ValueReportPage() {
   return (
     <>
       <Head>
-        <title>价值验证报告 — 财经信号</title>
+        <title>价值验证报告 · 收盘手记</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="robots" content="noindex" />
       </Head>

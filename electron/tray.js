@@ -22,7 +22,7 @@ function createTray({ onOpen, onFetchNow, onOpenDataDir, onCheckUpdate, onQuit }
   const icon = nativeImage.createFromPath(resolvePublic('trayTemplate.png'));
   icon.setTemplateImage(true);
   tray = new Tray(icon);
-  tray.setToolTip('Financial Signal');
+  tray.setToolTip('收盘手记');
   const menu = Menu.buildFromTemplate([
     { label: '打开主窗口', click: onOpen },
     { label: '立即抓取', click: onFetchNow },

@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { Breadth, MarketIndex, Turnover } from '@/lib/cockpit/types'
 import { formatPrice, formatYi } from '@/lib/cockpit/format'
 import {
@@ -65,9 +66,15 @@ export function MarketSnapshot({
               ))}
             </span>
             <span className="ck-snapshot-breadth-nums">
-              <b className="ck-up">↑ {breadth.up.toLocaleString('zh-CN')}</b>
+              <b className="ck-up inline-flex items-center gap-0.5">
+                <ArrowUp className="size-3" aria-hidden="true" />
+                {breadth.up.toLocaleString('zh-CN')}
+              </b>
               <span className="ck-sep">/</span>
-              <b className="ck-down">↓ {breadth.down.toLocaleString('zh-CN')}</b>
+              <b className="ck-down inline-flex items-center gap-0.5">
+                <ArrowDown className="size-3" aria-hidden="true" />
+                {breadth.down.toLocaleString('zh-CN')}
+              </b>
             </span>
           </div>
           <span

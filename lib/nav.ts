@@ -1,12 +1,11 @@
 import {
-  BookOpen,
   Bot,
   Briefcase,
+  CalendarDays,
+  ChartNoAxesCombined,
   ListChecks,
-  Newspaper,
+  NotebookPen,
   Star,
-  SunMedium,
-  TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -17,8 +16,14 @@ export interface NavItem {
   match: (pathname: string) => boolean
 }
 
-export const DAILY_ITEMS: NavItem[] = [
-  { href: '/today', label: '今日收盘', icon: SunMedium, match: (p) => p === '/today' },
+// “今日”同时覆盖收盘简报（/today）与新闻线索（/），两个视图共用这一入口。
+export const TODAY_ITEMS: NavItem[] = [
+  {
+    href: '/today',
+    label: '今日',
+    icon: CalendarDays,
+    match: (p) => p === '/today' || p === '/',
+  },
   {
     href: '/watchlist',
     label: '自选',
@@ -26,16 +31,14 @@ export const DAILY_ITEMS: NavItem[] = [
     match: (p) => p === '/watchlist' || p.startsWith('/stock/'),
   },
   { href: '/portfolio', label: '持仓', icon: Briefcase, match: (p) => p === '/portfolio' },
-  { href: '/research', label: '研究', icon: BookOpen, match: (p) => p === '/research' },
-  { href: '/tasks', label: '任务', icon: ListChecks, match: (p) => p === '/tasks' },
 ]
 
-export const WORKBENCH_ITEMS: NavItem[] = [
-  { href: '/', label: '新闻快讯', icon: Newspaper, match: (p) => p === '/' },
+export const RESEARCH_ITEMS: NavItem[] = [
+  { href: '/research', label: '研究笔记', icon: NotebookPen, match: (p) => p === '/research' },
   {
     href: '/analysis',
     label: '信号分析',
-    icon: TrendingUp,
+    icon: ChartNoAxesCombined,
     match: (p) =>
       p === '/analysis' || p.startsWith('/signal/') || p.startsWith('/thread/') || p === '/analytics/value',
   },
@@ -47,13 +50,18 @@ export const WORKBENCH_ITEMS: NavItem[] = [
   },
 ]
 
-export const SIDEBAR_GROUPS = [
-  { label: '每日', items: DAILY_ITEMS },
-  { label: '工作台', items: WORKBENCH_ITEMS },
+export const SYSTEM_ITEMS: NavItem[] = [
+  { href: '/tasks', label: '任务中心', icon: ListChecks, match: (p) => p === '/tasks' },
 ]
 
-export const MOBILE_ITEMS = DAILY_ITEMS
+export const SIDEBAR_GROUPS = [
+  { label: '日常', items: TODAY_ITEMS },
+  { label: '研究', items: RESEARCH_ITEMS },
+  { label: '系统', items: SYSTEM_ITEMS },
+]
 
-export function isCockpitPath(pathname: string): boolean {
-  return DAILY_ITEMS.some((item) => item.match(pathname))
-}
+// 手机底栏只放五个最高频入口；新闻线索在“今日”页内切换。
+export const MOBILE_ITEMS: NavItem[] = TODAY_ITEMS.slice(0, 3).concat(
+  RESEARCH_ITEMS.slice(0, 1),
+  SYSTEM_ITEMS,
+)

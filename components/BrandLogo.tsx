@@ -6,7 +6,7 @@ type BrandLogoProps = {
 };
 
 /** White mark on transparent; invert on light theme, native white on dark. */
-export default function BrandLogo({ className, alt = "财经信号" }: BrandLogoProps) {
+export default function BrandLogo({ className, alt = "收盘手记" }: BrandLogoProps) {
   return (
     <img
       src="/logo.png"

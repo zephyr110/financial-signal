@@ -3,12 +3,12 @@ import { useRouter } from 'next/router'
 import { MOBILE_ITEMS } from '@/lib/nav'
 import { cn } from '@/lib/utils'
 
-/** 手机端常驻五个每日入口；工作台通过顶栏或侧栏进入，避免底栏塞满六个。 */
+/** 手机端常驻五个主入口；新闻线索在“今日”页内切换。 */
 export function MobileBottomNav() {
   const router = useRouter()
   return (
     <nav
-      aria-label="每日快捷导航"
+      aria-label="主要导航"
       className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-background/85 lg:hidden"
     >
       <div className="grid grid-cols-5">

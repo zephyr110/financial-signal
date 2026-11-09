@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Head from "next/head";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import AnalysisOverview from "../components/AnalysisOverview";
 import ScoreFilter from "../components/ScoreFilter";
 import IndustryBarChart from "../components/IndustryBarChart";
@@ -350,9 +351,9 @@ export default function Analysis({
   return (
     <>
       <Head>
-        <title>信号分析 — 财经信号</title>
+        <title>信号分析 · 收盘手记</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="description" content="AI 驱动的财经信号识别引擎 — 政策、行业、公司信号强度分析" />
+        <meta name="description" content="基于已入库新闻与数据的信号强度、行业与事件线索分析" />
       </Head>
 
       {/* 全局壳：左侧导航侧栏（页面内容分组）+ 顶栏 + 内容滚动区 */}
@@ -551,9 +552,10 @@ export default function Analysis({
                 <button
                   type="button"
                   onClick={handleClearSearch}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  ← 返回时间线
+                  <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                  返回时间线
                 </button>
               </div>
               <SignalSearchResults
