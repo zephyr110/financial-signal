@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Database } from 'lucide-react'
-import type { SourceHealth } from '@/lib/cockpit/types'
-import { formatTime } from '@/lib/cockpit/format'
+import type { DataQualityItem, SourceHealth } from '@/lib/cockpit/types'
+import { briefQualityHint, formatTime, sourceHealthHint } from '@/lib/cockpit/format'
 import AppShell from '@/components/app-shell'
-import { DemoBanner, Disclosure, SourceHealthRail } from './bits'
+import { BriefQualityList, DemoBanner, Disclosure, SourceHealthRail } from './bits'
 
 
 /**
@@ -20,6 +20,7 @@ export function CockpitShell({
   actions,
   headerAction,
   sourceHealth = [],
+  dataQuality,
   children,
 }: {
   title: string
@@ -30,20 +31,15 @@ export function CockpitShell({
   actions?: ReactNode
   headerAction?: ReactNode
   sourceHealth?: SourceHealth[]
+  /** 简报生成时冻结的数据质量快照；只有 /today 传。 */
+  dataQuality?: DataQualityItem[]
   children: ReactNode
 }) {
-  const issueCount = sourceHealth.filter(
-    (source) => source.status === 'error' || source.status === 'stale',
-  ).length
-  const healthyCount = sourceHealth.filter((source) => source.status === 'ok').length
-  const hasDemo = sourceHealth.some((source) => source.status === 'demo')
-  const sourceHint = sourceHealth.length === 0
-    ? '暂无数据'
-    : issueCount > 0
-      ? `${issueCount} 个需注意`
-      : hasDemo
-        ? '含示例数据'
-        : `${healthyCount}/${sourceHealth.length} 正常`
+  const sourceHint = [briefQualityHint(dataQuality ?? []), sourceHealthHint(sourceHealth)]
+    .filter(Boolean)
+    .join(' · ')
+  // /today 多一份简报期快照，标题里点出来，否则用户不知道收起的内容还有它。
+  const sourceTitle = dataQuality?.length ? '数据源与简报质量' : '数据源状态'
 
   return (
     <AppShell title={title} actions={actions}>
@@ -72,13 +68,14 @@ export function CockpitShell({
             <footer className="mt-8 border-t pt-3">
               <Disclosure
                 className="ck-source-status"
-                title="数据源状态"
+                title={sourceTitle}
                 hint={sourceHint}
                 headingLevel={2}
-                summaryLabel={`数据源状态，${sourceHint}`}
+                summaryLabel={`${sourceTitle}，${sourceHint}`}
                 icon={<Database className="size-3.5" />}
               >
                 <SourceHealthRail sources={sourceHealth} />
+                {dataQuality && <BriefQualityList items={dataQuality} />}
                 <Link className="ck-rail-link" href="/tasks">
                   查看任务中心
                   <ArrowRight aria-hidden="true" />

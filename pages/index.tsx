@@ -285,11 +285,11 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
                     })}
                   </>
                 ) : (
-                  <>7×24 快讯 · 下拉刷新</>
+                  <>7×24 快讯 · 下拉或点右上角刷新</>
                 )}
               </div>
             </div>
-            <TodayTabs active="news" />
+            <TodayTabs />
           </div>
 
           <ErrorBanner message={error} />

@@ -3,7 +3,9 @@ import {
   Briefcase,
   CalendarDays,
   ChartNoAxesCombined,
+  FileText,
   ListChecks,
+  Newspaper,
   NotebookPen,
   Star,
   type LucideIcon,
@@ -60,8 +62,18 @@ export const SIDEBAR_GROUPS = [
   { label: '系统', items: SYSTEM_ITEMS },
 ]
 
-// 手机底栏只放五个最高频入口；新闻线索在“今日”页内切换。
-export const MOBILE_ITEMS: NavItem[] = TODAY_ITEMS.slice(0, 3).concat(
-  RESEARCH_ITEMS.slice(0, 1),
-  SYSTEM_ITEMS,
-)
+// 今日的两个视图；顺序即页内切换顺序。
+export const TODAY_VIEWS = [
+  { href: '/today', label: '收盘简报', icon: FileText, key: 'brief' },
+  { href: '/', label: '新闻线索', icon: Newspaper, key: 'news' },
+] as const
+
+export type TodayView = (typeof TODAY_VIEWS)[number]['key']
+
+// 手机底栏固定五个入口。显式列出 href：新增侧栏项不会悄悄挤进 grid-cols-5。
+const MOBILE_HREFS = ['/today', '/watchlist', '/portfolio', '/research', '/tasks']
+const ALL_NAV_ITEMS = SIDEBAR_GROUPS.flatMap((group) => group.items)
+
+export const MOBILE_ITEMS: NavItem[] = MOBILE_HREFS
+  .map((href) => ALL_NAV_ITEMS.find((item) => item.href === href))
+  .filter((item): item is NavItem => Boolean(item))

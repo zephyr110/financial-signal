@@ -1,6 +1,5 @@
 import Head from 'next/head'
 import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
 import type { GetServerSideProps } from 'next'
 import type { JournalEntry, SourceHealth, ThesisView } from '@/lib/cockpit/types'
 import { todayShanghai } from '@/lib/cockpit/format'
@@ -13,7 +12,7 @@ import { ThesisCard } from '@/components/cockpit/thesis-card'
 import { ThesisActions, ThesisComposer } from '@/components/cockpit/thesis-editor'
 import { JournalComposer } from '@/components/cockpit/journal-composer'
 import { Badge } from '@/components/ui/badge'
-import { Disclosure, EmptyState, SectionHeader } from '@/components/cockpit/bits'
+import { Disclosure, EmptyState, SectionHeader, SectionLink } from '@/components/cockpit/bits'
 
 const ACTION_LABEL: Record<string, string> = {
   watch: '继续观察',
@@ -119,12 +118,7 @@ export default function ResearchPage({
             id="theses-title"
             title={`${theses.length} 条研究论点`}
             detail="每条论点同时展示支持证据、反证与失效条件。"
-            action={(
-              <Link href="/tasks" className="inline-flex items-center gap-1">
-                派发复核
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </Link>
-            )}
+            action={<SectionLink href="/tasks">派发复核</SectionLink>}
           />
           {theses.length === 0 ? (
             <EmptyState title="还没有研究论点">

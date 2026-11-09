@@ -1410,27 +1410,7 @@ a.ck-chip:hover {
   line-height: 1.6;
 }
 
-/* ---------- 右侧栏 ---------- */
-
-.ck-rail {
-  display: none;
-}
-
-.ck-rail-card {
-  padding: 14px;
-  border: 1px solid var(--ck-line);
-  border-radius: var(--ck-radius);
-  background: var(--ck-surface);
-}
-
-.ck-rail-title {
-  color: var(--ck-ink);
-  font-family: var(--ck-sans);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0;
-  line-height: 1.4;
-}
+/* ---------- 数据源状态 ---------- */
 
 .ck-rail-note {
   margin-top: 8px !important;
@@ -1474,13 +1454,32 @@ a.ck-chip:hover {
 
 .ck-rail-row-meta {
   display: block;
-  overflow: hidden;
   margin-top: 1px;
   color: var(--ck-faint);
   font-size: 11.5px;
   line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.ck-quality-snapshot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--ck-line);
+}
+
+.ck-quality-title {
+  color: var(--ck-ink);
+  font-family: var(--ck-sans);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.ck-quality-note {
+  margin: 2px 0 0;
+  color: var(--ck-faint);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .ck-rail-link {
@@ -2756,12 +2755,6 @@ a.ck-chip:hover {
 }
 
 @media (min-width: 1024px) {
-  .ck-rail {
-    position: sticky;
-    top: 16px;
-    display: block;
-  }
-
   .ck-index-value {
     font-size: 21px;
   }

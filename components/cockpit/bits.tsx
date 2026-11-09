@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, Minus } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, Minus } from 'lucide-react'
 import type {
   Confidence,
+  DataQualityItem,
   HealthStatus,
   SourceHealth,
   SourceRef,
@@ -96,8 +98,9 @@ export function ConfidencePill({ confidence }: { confidence: Confidence }) {
 export function DeltaValue({ value }: { value: number | null | undefined }) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return (
-      <span className="ck-delta ck-flat" aria-label="无涨跌数据">
+      <span className="ck-delta ck-flat">
         <Minus className="ck-delta-icon" aria-hidden="true" />
+        <span className="sr-only">无涨跌数据</span>
       </span>
     )
   }
@@ -106,8 +109,9 @@ export function DeltaValue({ value }: { value: number | null | undefined }) {
   const tone = up ? 'ck-up' : down ? 'ck-down' : 'ck-flat'
   const Icon = up ? ArrowUp : down ? ArrowDown : Minus
   return (
-    <span className={`ck-delta ${tone}`} aria-label={`涨跌幅 ${formatSignedPct(value)}`}>
+    <span className={`ck-delta ${tone}`}>
       <Icon className="ck-delta-icon" aria-hidden="true" />
+      <span className="sr-only">涨跌幅：</span>
       {formatSignedPct(value)}
     </span>
   )
@@ -254,6 +258,15 @@ export function ThesisTag({ status }: { status?: ThesisStatus | string }) {
   )
 }
 
+export function SectionLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="inline-flex items-center gap-1">
+      {children}
+      <ArrowRight className="size-3.5" aria-hidden="true" />
+    </Link>
+  )
+}
+
 export function SectionHeader({
   title,
   detail,
@@ -298,6 +311,14 @@ function healthMeta(item: SourceHealth): { last?: string; message?: string } {
   return { last: item.lastSuccessAt, message: item.message }
 }
 
+/** 与状态同义的说明不重复；示例库把“尚未接入”写成长句，也算同义。 */
+function sourceMessage(status: HealthStatus, message?: string): string {
+  if (!message) return ''
+  if (message === STATUS_TEXT[status]) return ''
+  if (status === 'inactive' && message.includes('尚未接入')) return ''
+  return message
+}
+
 export function SourceHealthRail({ sources }: { sources: SourceHealth[] }) {
   if (sources.length === 0) {
     return <p className="ck-rail-note">暂无数据源状态。</p>
@@ -305,10 +326,9 @@ export function SourceHealthRail({ sources }: { sources: SourceHealth[] }) {
   const sorted = sortByStatus(sources)
   return (
     <ul className="ck-rail-list">
-      {sorted.slice(0, 7).map((source) => {
+      {sorted.map((source) => {
         const meta = healthMeta(source)
-        // 未接入源的说明都一样，列在侧栏只会占高度；完整说明留在移动端数据质量面板。
-        const detail = source.status === 'inactive' ? '' : meta.message
+        const detail = sourceMessage(source.status, meta.message)
         return (
           <li className="ck-rail-row" key={source.id}>
             <span className={`ck-status-dot ck-status-${source.status}`} aria-hidden="true" />
@@ -316,7 +336,7 @@ export function SourceHealthRail({ sources }: { sources: SourceHealth[] }) {
               <span className="ck-rail-row-title">
                 {source.name} <span className="ck-chip-tier">T{source.tier}</span>
               </span>
-              <span className="ck-rail-row-meta" title={source.status === 'inactive' ? meta.message : undefined}>
+              <span className="ck-rail-row-meta">
                 {STATUS_TEXT[source.status]}
                 {meta.last ? ` · ${formatTime(meta.last)}` : ''}
                 {detail ? ` · ${detail}` : ''}
@@ -326,5 +346,36 @@ export function SourceHealthRail({ sources }: { sources: SourceHealth[] }) {
         )
       })}
     </ul>
+  )
+}
+
+/** 简报生成时冻结的质量快照；与页脚的实时 sourceHealth 分开看。 */
+export function BriefQualityList({ items }: { items: DataQualityItem[] }) {
+  if (items.length === 0) return null
+  return (
+    <div className="ck-quality-snapshot">
+      <h3 className="ck-quality-title">本期简报数据质量</h3>
+      <p className="ck-quality-note">生成简报时的来源快照，不随后续同步变化。</p>
+      <ul className="ck-rail-list">
+        {sortByStatus(items).map((item) => {
+          const detail = sourceMessage(item.status, item.message)
+          return (
+            <li className="ck-rail-row" key={item.id}>
+              <span className={`ck-status-dot ck-status-${item.status}`} aria-hidden="true" />
+              <div className="ck-rail-row-main">
+                <span className="ck-rail-row-title">
+                  {item.name} <span className="ck-chip-tier">T{item.tier}</span>
+                </span>
+                <span className="ck-rail-row-meta">
+                  {STATUS_TEXT[item.status]}
+                  {item.asOf ? ` · ${formatTime(item.asOf)}` : ''}
+                  {detail ? ` · ${detail}` : ''}
+                </span>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }

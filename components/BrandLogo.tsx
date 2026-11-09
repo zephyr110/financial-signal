@@ -6,7 +6,8 @@ type BrandLogoProps = {
 };
 
 /** White mark on transparent; invert on light theme, native white on dark. */
-export default function BrandLogo({ className, alt = "收盘手记" }: BrandLogoProps) {
+// 相邻已有可见品牌名时图片是装饰；图标态的链接自己带 aria-label。
+export default function BrandLogo({ className, alt = "" }: BrandLogoProps) {
   return (
     <img
       src="/logo.png"

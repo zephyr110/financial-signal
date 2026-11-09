@@ -15,11 +15,13 @@ export function MobileBottomNav() {
         {MOBILE_ITEMS.map((item) => {
           const Icon = item.icon
           const active = item.match(router.pathname)
+          // 只有 href 就是当前路径时才说“当前页”；子页面只标记所属分区。
+          const current = router.pathname === item.href
           return (
             <Link
               key={item.href}
               href={item.href}
-              aria-current={active ? 'page' : undefined}
+              aria-current={active ? (current ? 'page' : 'true') : undefined}
               className={cn(
                 'relative flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors',
                 active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',

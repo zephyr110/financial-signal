@@ -63,10 +63,16 @@ describe('侧栏信息架构', () => {
 })
 
 describe('手机底栏', () => {
-  it('根路径仍把“今日”标为当前页', () => {
+  it('根路径只把“今日”标为当前分区，不冒充当前页', () => {
     routerState.pathname = '/'
     render(<MobileBottomNav />)
     expect(screen.getAllByRole('link')).toHaveLength(5)
+    expect(screen.getByRole('link', { name: /今日/ }).getAttribute('aria-current')).toBe('true')
+  })
+
+  it('收盘简报路径才把“今日”标为当前页', () => {
+    routerState.pathname = '/today'
+    render(<MobileBottomNav />)
     expect(screen.getByRole('link', { name: /今日/ }).getAttribute('aria-current')).toBe('page')
   })
 
@@ -79,13 +85,15 @@ describe('手机底栏', () => {
 
 describe('今日视图切换', () => {
   it('收盘简报为当前视图时只标记对应入口', () => {
-    render(<TodayTabs active="brief" />)
+    routerState.pathname = '/today'
+    render(<TodayTabs />)
     expect(screen.getByRole('link', { name: /收盘简报/ }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: /新闻线索/ }).getAttribute('aria-current')).toBeNull()
   })
 
   it('新闻线索为当前视图时指回根路径', () => {
-    render(<TodayTabs active="news" />)
+    routerState.pathname = '/'
+    render(<TodayTabs />)
     const news = screen.getByRole('link', { name: /新闻线索/ })
     expect(news.getAttribute('aria-current')).toBe('page')
     expect(news.getAttribute('href')).toBe('/')

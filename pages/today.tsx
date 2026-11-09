@@ -1,6 +1,5 @@
 import Head from 'next/head'
 import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
 import type { GetServerSideProps } from 'next'
 import type { SourceHealth, TodayPayload } from '@/lib/cockpit/types'
 import { formatDateCn, formatTime } from '@/lib/cockpit/format'
@@ -18,6 +17,7 @@ import {
   Disclosure,
   EmptyState,
   SectionHeader,
+  SectionLink,
   SourceChip,
   ThesisTag,
 } from '@/components/cockpit/bits'
@@ -57,7 +57,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
           title="今日"
           eyebrow="收盘简报"
           subtitle="收盘后先看今天的事实，再决定原来的判断是否需要改变。"
-          headerAction={<TodayTabs active="brief" />}
+          headerAction={<TodayTabs />}
           sourceHealth={sourceHealth}
         >
           {loadError && <div className="ck-error-banner">{loadError}</div>}
@@ -77,7 +77,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
     )
   }
 
-  const { hero, indices, breadth, turnover, impacts, documents, tomorrow } = payload
+  const { hero, indices, breadth, turnover, impacts, documents, tomorrow, dataQuality } = payload
   const confidenceInputs = [
     ['数据完整度', hero.confidence.inputs.completeness],
     ['时效性', hero.confidence.inputs.freshness],
@@ -96,8 +96,9 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
         subtitle={`第 ${payload.issueNo} 期 · 生成于 ${formatTime(payload.generatedAt)}`}
         asOf={payload.generatedAt}
         isDemo={payload.isDemo}
-        headerAction={<TodayTabs active="brief" />}
+        headerAction={<TodayTabs />}
         sourceHealth={sourceHealth}
+        dataQuality={dataQuality}
       >
         <article className="ck-card ck-hero-card" aria-labelledby="brief-claim">
           <div className="ck-hero-top">
@@ -164,12 +165,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             id="impact-title"
             title="对你的影响"
             detail="只统计已录入的持仓与自选；描述影响，不生成买卖动作。"
-            action={(
-              <Link href="/portfolio" className="inline-flex items-center gap-1">
-                持仓详情
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </Link>
-            )}
+            action={<SectionLink href="/portfolio">持仓详情</SectionLink>}
           />
           {impacts.length === 0 ? (
             <EmptyState title="今天没有触及你的标的">
@@ -208,12 +204,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             id="documents-title"
             title="政策与公告"
             detail="只列已入库、可回溯到原始来源的文档；聚合线索不进入结论。"
-            action={(
-              <Link href="/" className="inline-flex items-center gap-1">
-                看新闻线索
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </Link>
-            )}
+            action={<SectionLink href="/">看新闻线索</SectionLink>}
           />
           <DocumentList documents={documents} />
         </section>

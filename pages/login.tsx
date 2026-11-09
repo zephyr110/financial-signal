@@ -93,7 +93,7 @@ export default function LoginPage() {
   return (
     <>
       <Head>
-        <title>{setupRequired ? "设置密码 — 收盘手记" : "登录 — 收盘手记"}</title>
+        <title>{setupRequired ? "设置密码 · 收盘手记" : "登录 · 收盘手记"}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="robots" content="noindex" />
       </Head>

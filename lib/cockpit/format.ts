@@ -1,5 +1,5 @@
 import { toDate } from '../format'
-import type { ConfidenceLabel, SourceTier } from './types'
+import type { ConfidenceLabel, DataQualityItem, SourceHealth, SourceTier } from './types'
 
 const yuan = new Intl.NumberFormat('zh-CN', {
   minimumFractionDigits: 2,
@@ -102,4 +102,32 @@ export function taskStatusLabel(status: string): string {
 export function formatCost(micros: number): string {
   if (!micros) return '¥0.0000'
   return `¥${(micros / 1e6).toFixed(4)}`
+}
+
+/** 页脚一行摘要：未接入的源不计入“正常”分母，避免被读成故障。 */
+export function sourceHealthHint(sources: SourceHealth[]): string {
+  if (sources.length === 0) return '暂无数据'
+  let ok = 0
+  let issue = 0
+  let demo = 0
+  let inactive = 0
+  for (const source of sources) {
+    if (source.status === 'ok') ok += 1
+    else if (source.status === 'error' || source.status === 'stale') issue += 1
+    else if (source.status === 'demo') demo += 1
+    else inactive += 1
+  }
+  if (issue > 0) return `${issue} 个需注意`
+  if (demo > 0) return '含示例数据'
+  const connected = sources.length - inactive
+  if (connected === 0) return '尚未接入'
+  return inactive > 0 ? `${ok}/${connected} 正常 · ${inactive} 未接入` : `${ok}/${connected} 正常`
+}
+
+/** 折叠摘要里单独点出简报快照的异常，实时源恢复后也不会被掩盖。 */
+export function briefQualityHint(items: DataQualityItem[]): string {
+  const issues = items.filter(
+    (item) => item.status === 'error' || item.status === 'stale',
+  ).length
+  return issues > 0 ? `简报 ${issues} 项需注意` : ''
 }

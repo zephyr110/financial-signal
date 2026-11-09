@@ -57,7 +57,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
               size="lg"
               tooltip="收盘手记"
               className={SIDEBAR_FOOTER_ICON_BTN}
-              render={<Link href="/today" className="no-underline" />}
+              render={<Link href="/today" aria-label="收盘手记" className="no-underline" />}
             >
               <BrandLogo className="size-7 group-data-[collapsible=icon]:size-6" />
               <span className="truncate text-base font-semibold tracking-tight text-sidebar-foreground group-data-[collapsible=icon]:hidden">
@@ -75,13 +75,15 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
             <SidebarMenu className="gap-0.5">
               {group.items.map((item) => {
                 const active = item.match(router.pathname);
+                // 只有 href 就是当前路径时才说“当前页”；子页面只标记所属分区。
+                const current = router.pathname === item.href;
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       render={
                         <Link
                           href={item.href}
-                          aria-current={active ? "page" : undefined}
+                          aria-current={active ? (current ? "page" : "true") : undefined}
                           className="no-underline"
                         />
                       }

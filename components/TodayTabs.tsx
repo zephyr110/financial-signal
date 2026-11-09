@@ -1,22 +1,18 @@
 import Link from 'next/link'
-import { FileText, Newspaper } from 'lucide-react'
+import { useRouter } from 'next/router'
+import { TODAY_VIEWS } from '@/lib/nav'
 import { cn } from '@/lib/utils'
 
-const VIEWS = [
-  { href: '/today', label: '收盘简报', icon: FileText, key: 'brief' },
-  { href: '/', label: '新闻线索', icon: Newspaper, key: 'news' },
-] as const
-
-export type TodayView = (typeof VIEWS)[number]['key']
-
 /** 今日模块的两个视图共用同一入口，用路由切换，不再拆成两套产品。 */
-export function TodayTabs({ active }: { active: TodayView }) {
+export function TodayTabs() {
+  const { pathname } = useRouter()
+  const active = TODAY_VIEWS.find((view) => view.href === pathname)?.key ?? 'brief'
   return (
     <nav
       aria-label="今日视图"
       className="inline-flex items-center gap-0.5 rounded-lg border bg-muted/40 p-0.5"
     >
-      {VIEWS.map((view) => {
+      {TODAY_VIEWS.map((view) => {
         const Icon = view.icon
         const current = view.key === active
         return (
