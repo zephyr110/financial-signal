@@ -171,6 +171,21 @@ describe('agent memory & projects & safe actions', () => {
     expect(watchDone?.status).toBe('confirmed')
     expect(notifyMock.createNotification).toHaveBeenCalled()
 
+    const watchDb = await dbModule.getDb()
+    const noteOf = async () => String((await watchDb.execute({
+      sql: 'SELECT note FROM watchlist_items WHERE code = ?',
+      args: ['688041'],
+    })).rows[0]?.note)
+    expect(await noteOf()).toBe('验证渠道库存')
+    // 后一次关注不带备注，不能把用户已写的备注盖成兜底文案
+    const again = await actions.proposeAgentAction({ type: 'watch_event', payload: { title: '重复关注', code: '688041' } })
+    await actions.resolveAgentAction(again.id, 'confirm')
+    expect(await noteOf()).toBe('验证渠道库存')
+    expect((await watchDb.execute({
+      sql: 'SELECT COUNT(*) AS n FROM watchlist_items WHERE code = ?',
+      args: ['688041'],
+    })).rows[0]?.n).toBe(1)
+
     const project = await projects.createProject({ name: '项目挂载', symbols: [] })
     const pin = await actions.proposeAgentAction({
       type: 'pin_project',

@@ -193,15 +193,21 @@ async function executeAction(action: AgentActionView): Promise<Record<string, un
     case 'watch_event': {
       const code = str(payload.code)
       const title = str(payload.title) || str(payload.eventId) || code
-      const note = str(payload.note)
+      const note = str(payload.note).trim()
       if (code) {
         const db = await getDb()
+        // 传 null 而不是兜底文案：空备注不能盖掉用户已写的备注。
         await db.execute({
-          // 已关注的代码也要能用新备注覆盖，空备注则保留原值。
           sql: `INSERT INTO watchlist_items (code, note, created_at) VALUES (?, ?, ?)
                 ON CONFLICT(code) DO UPDATE SET note = COALESCE(NULLIF(excluded.note, ''), watchlist_items.note)`,
-          args: [code, note || `来自研究 Agent：${title}`, new Date().toISOString()],
+          args: [code, note || null, new Date().toISOString()],
         })
+        if (!note) {
+          await db.execute({
+            sql: `UPDATE watchlist_items SET note = ? WHERE code = ? AND note IS NULL`,
+            args: [`来自研究 Agent：${title}`, code],
+          })
+        }
       }
       await createNotification({
         id: `agent-action:${action.id}`,
