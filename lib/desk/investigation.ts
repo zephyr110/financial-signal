@@ -324,8 +324,15 @@ export async function runInvestigation(
     args: [investigationId],
   })
   let stepNo = num(stepRes.rows[0]?.n)
-  let tokens = 0
-  let costMicros = 0
+  // 失败重试沿用已写步骤：已用轮次计入预算，已花 token 不能在本轮统计里丢失。
+  const priorTokensRes = await db.execute({
+    sql: 'SELECT COALESCE(SUM(tokens), 0) AS t FROM desk_investigation_steps WHERE investigation_id = ?',
+    args: [investigationId],
+  })
+  const usedTurns = Math.max(0, stepNo - 1)
+  const remainingTurns = Math.max(0, budget.maxSteps - usedTurns)
+  let tokens = Math.max(num(row.tokens_used), num(priorTokensRes.rows[0]?.t))
+  let costMicros = num(row.cost_micros)
   let refs: EvidenceRef[] = []
   let timedOut = false
 
@@ -412,7 +419,7 @@ export async function runInvestigation(
       ]
       try {
         // 每一轮模型输出（含拒答/未知工具）都计入预算，避免未知工具导致死循环
-        for (let turn = 0; turn < budget.maxSteps; turn++) {
+        for (let turn = 0; turn < remainingTurns; turn++) {
           if (Date.now() > deadline) { timedOut = true; break }
           const result = await chatCompletion({ messages, maxTokens: 1200, temperature: 0.2 })
           const usage = (result.usage || {}) as Record<string, unknown>
@@ -455,7 +462,7 @@ export async function runInvestigation(
             durationMs: Date.now() - toolStarted,
             stepTokens: promptTokens + completionTokens,
           })
-          await mark(15 + ((turn + 1) / budget.maxSteps) * 65, `工具 ${turn + 1}/${budget.maxSteps}：${call.tool}`)
+          await mark(15 + ((usedTurns + turn + 1) / budget.maxSteps) * 65, `工具 ${usedTurns + turn + 1}/${budget.maxSteps}：${call.tool}`)
           messages.push({ role: 'assistant', content: text })
           messages.push({ role: 'user', content: `【工具 ${call.tool} 结果】\n${toolResult.text.slice(0, 3000)}` })
         }
@@ -495,8 +502,9 @@ export async function runInvestigation(
     return getInvestigation(investigationId) as Promise<InvestigationView>
   } catch (err) {
     await db.execute({
-      sql: `UPDATE desk_investigations SET status = 'failed', error_message = ?, finished_at = ? WHERE id = ?`,
-      args: [(err as Error).message, new Date().toISOString(), investigationId],
+      sql: `UPDATE desk_investigations SET status = 'failed', error_message = ?, finished_at = ?,
+            steps_used = ?, tokens_used = ?, cost_micros = ? WHERE id = ?`,
+      args: [err instanceof Error ? err.message : String(err), new Date().toISOString(), stepNo, tokens, Math.round(costMicros), investigationId],
     })
     throw err
   }

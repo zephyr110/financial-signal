@@ -137,6 +137,24 @@ describe('agent memory & projects & safe actions', () => {
     expect(tasksMock.enqueueTask).not.toHaveBeenCalled()
   })
 
+  it('过期提案不会被再次复用', async () => {
+    const first = await actions.proposeAgentAction({
+      type: 'watch_event',
+      payload: { title: '过期事项', code: '600000' },
+    })
+    const db = await dbModule.getDb()
+    await db.execute({
+      sql: "UPDATE agent_action SET expires_at = datetime('now', '-1 hour') WHERE id = ?",
+      args: [first.id],
+    })
+    const second = await actions.proposeAgentAction({
+      type: 'watch_event',
+      payload: { title: '过期事项', code: '600000' },
+    })
+    expect(second.id).not.toBe(first.id)
+    expect(second.status).toBe('proposed')
+  })
+
   it('拒绝后不产生副作用，非法任务被白名单拦截', async () => {
     const proposed = await actions.proposeAgentAction({
       type: 'create_task',

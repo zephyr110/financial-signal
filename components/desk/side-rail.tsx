@@ -85,12 +85,16 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
     setBusy(action.id)
     setError('')
     try {
-      await deskApi('/api/agent-actions', {
+      const data = await deskApi<{ action: AgentActionView }>('/api/agent-actions', {
         method: 'PATCH',
         body: JSON.stringify({ id: action.id, decision }),
       })
       setActions((prev) => prev.filter((item) => item.id !== action.id))
-      if (decision === 'confirm') onChanged?.()
+      if (decision === 'confirm') {
+        // 接口 200 也可能是执行失败/已过期，必须看动作最终状态再报成功。
+        if (data.action.status === 'confirmed') onChanged?.()
+        else setError(data.action.errorMessage || (data.action.status === 'expired' ? '动作已过期，请重新发起。' : '动作执行失败，请重试。'))
+      }
     } catch (err) {
       setError((err as Error).message)
     } finally {

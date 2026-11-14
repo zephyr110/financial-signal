@@ -31,5 +31,7 @@ describe('trade instruction split', () => {
     expect(findTradeInstruction('建议关注存储链条，等待批价验证')).toBe(false)
     expect(findActionableTradeInstruction('建议买入存储龙头')).toBe(true)
     expect(findActionableTradeInstruction('不构成买入建议，注意回撤风险')).toBe(false)
+    expect(findActionableTradeInstruction('目前不建议加仓，先等验证')).toBe(false)
+    expect(findActionableTradeInstruction('不宜买入，继续观察')).toBe(false)
   })
 })

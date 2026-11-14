@@ -99,7 +99,21 @@ export function validateActionPayload(type: AgentActionType, payload: Record<str
     case 'create_task': {
       const taskType = String(payload.type || '') as TaskType
       if (!TASK_TYPES.includes(taskType)) throw new Error('任务类型不在白名单内')
-      return { type: taskType, params: sanitizeParams(payload.params) }
+      const params = sanitizeParams(payload.params)
+      // 与 /api/cockpit/tasks 保持同一套必填校验，避免确认一个注定失败的任务。
+      if (params.tradeDate !== undefined && (typeof params.tradeDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(params.tradeDate))) {
+        throw new Error('tradeDate 格式应为 YYYY-MM-DD')
+      }
+      if (taskType === 'ask' && (typeof params.question !== 'string' || !params.question.trim())) {
+        throw new Error('问答任务需要 question')
+      }
+      if (taskType === 'symbol_deep_dive' && (typeof params.code !== 'string' || !params.code.trim())) {
+        throw new Error('个股深挖需要 code')
+      }
+      if (taskType === 'desk_investigation' && (typeof params.investigationId !== 'string' || !params.investigationId.trim())) {
+        throw new Error('深挖任务需要 investigationId')
+      }
+      return { type: taskType, params }
     }
     case 'pin_project': {
       const projectId = String(payload.projectId || '').trim()
@@ -142,6 +156,7 @@ export async function proposeAgentAction(input: {
   const payloadJson = JSON.stringify(payload)
   const existing = await db.execute({
     sql: `SELECT * FROM agent_action WHERE type = ? AND payload_json = ? AND status = 'proposed'
+          AND (expires_at IS NULL OR julianday(expires_at) >= julianday('now'))
           ORDER BY created_at DESC LIMIT 1`,
     args: [input.type, payloadJson],
   })

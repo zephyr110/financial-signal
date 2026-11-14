@@ -454,7 +454,11 @@ async function loadMarketInputs(tradeDate: string): Promise<MarketInputs> {
       args: [...INDEX_CODES, tradeDate, tradeDate],
     }),
     db.execute({
-      sql: 'SELECT * FROM overseas_quotes ORDER BY symbol, trade_time DESC LIMIT 30',
+      // 每个 symbol 先取最新一行再截断；先 LIMIT 会让历史累积后排在末尾的指数整段消失。
+      sql: `SELECT * FROM (
+              SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_time DESC) AS rn
+              FROM overseas_quotes
+            ) WHERE rn = 1`,
       args: [],
     }),
   ])

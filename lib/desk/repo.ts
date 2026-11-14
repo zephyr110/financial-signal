@@ -188,12 +188,13 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
       args: [date],
     }),
     db.execute({
-      // 快照只展示未处理预警；已确认的由台账/状态计数负责，不能重新弹出。
-      sql: `SELECT * FROM alerts WHERE trade_date = ? AND status = 'open'
+      // 快照只展示未处理预警；驾驶舱（未指定日期）连历史未处理一起列出，
+      // 否则面板正文只显示当日、计数 status.openAlerts 却是全量，两边长期对不上。
+      sql: `SELECT * FROM alerts WHERE status = 'open'${tradeDate ? ' AND trade_date = ?' : ''}
             ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'important' THEN 1 WHEN 'watch' THEN 2 ELSE 3 END,
                      triggered_at DESC
             LIMIT 6`,
-      args: [date],
+      args: tradeDate ? [tradeDate] : [],
     }),
     personalIndustrySets(),
   ])

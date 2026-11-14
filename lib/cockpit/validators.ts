@@ -32,7 +32,7 @@ export function findActionableTradeInstruction(text: string): boolean {
   const stripped = text
     .normalize('NFKC')
     .replace(/不构成[^。；\n]{0,20}(建议|推荐)/g, '')
-    .replace(/(禁止|不得|切勿|不要|避免|不应)[^。；\n]{0,12}(买入|卖出|加仓|减仓|清仓|建仓|补仓|止损|止盈)/g, '')
+    .replace(/(禁止|不得|切勿|不要|避免|不应|不建议|不推荐|不宜|不必|无需)[^。；\n]{0,12}(买入|卖出|加仓|减仓|清仓|建仓|补仓|止损|止盈)/g, '')
   return findTradeInstruction(stripped)
 }
 
