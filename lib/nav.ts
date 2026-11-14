@@ -7,6 +7,7 @@ import {
   ListChecks,
   Newspaper,
   NotebookPen,
+  Radar,
   Star,
   type LucideIcon,
 } from 'lucide-react'
@@ -36,6 +37,7 @@ export const TODAY_ITEMS: NavItem[] = [
 ]
 
 export const RESEARCH_ITEMS: NavItem[] = [
+  { href: '/desk', label: '投研台', icon: Radar, match: (p) => p === '/desk' },
   { href: '/research', label: '研究笔记', icon: NotebookPen, match: (p) => p === '/research' },
   {
     href: '/analysis',
@@ -71,7 +73,7 @@ export const TODAY_VIEWS = [
 export type TodayView = (typeof TODAY_VIEWS)[number]['key']
 
 // 手机底栏固定五个入口。显式列出 href：新增侧栏项不会悄悄挤进 grid-cols-5。
-const MOBILE_HREFS = ['/today', '/watchlist', '/portfolio', '/research', '/tasks']
+const MOBILE_HREFS = ['/today', '/desk', '/watchlist', '/portfolio', '/tasks']
 const ALL_NAV_ITEMS = SIDEBAR_GROUPS.flatMap((group) => group.items)
 
 export const MOBILE_ITEMS: NavItem[] = MOBILE_HREFS

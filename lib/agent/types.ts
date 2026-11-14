@@ -22,12 +22,17 @@ export interface AgentMessage {
 }
 
 /** 工具定义：schema 注入 system prompt，execute 执行。 */
+export interface ToolContext {
+  sessionId?: number;
+  turnId?: string | null;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
   /** JSON Schema 描述参数 */
   parameters: Record<string, unknown>;
-  execute(args: Record<string, unknown>): Promise<string>;
+  execute(args: Record<string, unknown>, context?: ToolContext): Promise<string>;
 }
 
 /** 单轮循环结果 */

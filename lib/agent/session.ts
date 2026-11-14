@@ -3,12 +3,27 @@
  */
 import { getAgentMessages, compactAgentMessages } from '../db';
 import { chatCompletion } from '../llm/client';
+import { loadAgentMemoryPrompt } from './memory';
 import type { AgentMessage } from './types';
 
-/** 上下文 token 软预算（超出后触发压缩） */
+export { loadAgentMemoryPrompt };
+
+/** 上下文 token 软预算默认值；运行时可用 LLM_CONTEXT_TOKENS 覆盖。 */
 export const CONTEXT_BUDGET_TOKENS = 12000;
 /** 压缩时保留的最近完整消息数 */
 export const KEEP_RECENT_MESSAGES = 8;
+
+/**
+ * 动态上下文预算：环境变量可声明模型上下文窗口，压缩线取一半留出回答与工具结果空间。
+ * 未配置时退回固定软预算，保证本地小模型也不会因上下文过长被截断。
+ */
+export function contextBudgetTokens(): number {
+  const window = Number(process.env.LLM_CONTEXT_TOKENS);
+  if (Number.isFinite(window) && window >= 4000) {
+    return Math.max(4000, Math.floor(window * 0.5));
+  }
+  return CONTEXT_BUDGET_TOKENS;
+}
 /** 压缩摘要的 LLM 调用最大输出 */
 const SUMMARY_MAX_TOKENS = 800;
 
@@ -23,7 +38,7 @@ export interface LoadAgentContextOptions {
   onCompact?: (event: ContextCompactEvent) => void;
 }
 
-function estimateTokens(messages: AgentMessage[]): number {
+export function estimateContextTokens(messages: AgentMessage[]): number {
   const chars = messages.reduce((sum, m) => sum + m.content.length, 0);
   return Math.ceil(chars / 1.5);
 }
@@ -89,7 +104,7 @@ export async function loadAgentContext(
   }));
   const messages = orderMessagesForContext(rows, mapped);
 
-  if (estimateTokens(messages) <= CONTEXT_BUDGET_TOKENS) return messages;
+  if (estimateContextTokens(messages) <= contextBudgetTokens()) return messages;
 
   const keep = messages.slice(-KEEP_RECENT_MESSAGES);
   const toSummarize = messages.slice(0, -KEEP_RECENT_MESSAGES);

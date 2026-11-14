@@ -36,6 +36,10 @@ describe('cockpit schema', () => {
       'reports', 'theses', 'thesis_evidence', 'portfolio_accounts',
       'positions', 'journal_entries', 'watchlist_items', 'tasks',
       'task_events', 'notifications', 'llm_usage',
+      'industry_daily', 'industry_events', 'judgments', 'judgment_evidence',
+      'alerts', 'overseas_quotes', 'judgment_evaluations', 'agent_turn',
+      'desk_investigations', 'desk_investigation_steps', 'agent_memory',
+      'agent_project', 'agent_project_item', 'agent_action',
     ]) {
       expect(names).toContain(t)
     }
@@ -83,7 +87,7 @@ describe('cockpit schema', () => {
       sql: 'SELECT MAX(version) AS v FROM schema_migrations',
       args: [],
     })
-    expect(Number(version.rows[0].v)).toBe(9)
+    expect(Number(version.rows[0].v)).toBe(14)
     const rows = await db2.execute({ sql: 'SELECT COUNT(*) AS n FROM watchlist_items', args: [] })
     expect(Number(rows.rows[0].n)).toBe(1)
   })

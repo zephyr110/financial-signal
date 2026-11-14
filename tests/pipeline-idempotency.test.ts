@@ -302,13 +302,14 @@ describe('agent 会话分享（公开只读链接）', () => {
     await appendAgentMessage(sid, 'user', '你好');
     await appendAgentMessage(sid, 'assistant', '**回复**');
 
-    const t1 = await createAgentShare(sid);
-    const t2 = await createAgentShare(sid);
-    expect(t1).toBeTruthy();
-    expect(t1).toBe(t2);
-    expect(t1).toMatch(/^[0-9a-f]{32}$/); // randomUUID 去连字符
+    const s1 = await createAgentShare(sid);
+    const s2 = await createAgentShare(sid);
+    expect(s1.token).toBeTruthy();
+    expect(s1.token).toBe(s2.token);
+    expect(s1.token).toMatch(/^[0-9a-f]{32}$/); // randomUUID 去连字符
+    expect(s1.expiresAt).toBeTruthy();
 
-    const shared = await getSharedSession(t1);
+    const shared = await getSharedSession(s1.token);
     expect(shared).not.toBeNull();
     expect(shared!.title).toBe('分享测试');
     expect(shared!.messages.length).toBe(2);
@@ -337,9 +338,9 @@ describe('agent 会话分享（公开只读链接）', () => {
     expect(await getSharedSession('nonexistent-token')).toBeNull();
 
     const sid = await createAgentSession('待删除分享');
-    const token = await createAgentShare(sid);
+    const share = await createAgentShare(sid);
     await deleteAgentSession(sid);
-    expect(await getSharedSession(token)).toBeNull();
+    expect(await getSharedSession(share.token)).toBeNull();
   });
 });
 

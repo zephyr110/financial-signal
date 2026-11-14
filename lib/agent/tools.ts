@@ -7,6 +7,9 @@
 import type { ToolDefinition } from './types';
 import { searchSignals, getEventThreads, getEventThreadById, getIndustryHeatmap, getIndustryTrend, getBacktestByIndustry } from '../db';
 import { fixMarkdown, repairJson } from './format';
+import { getDeskSnapshot, listAlerts, listJudgments } from '../desk/repo';
+import { getInvestigation, listInvestigations } from '../desk/investigation';
+import { proposeAgentAction, type AgentActionType } from './actions';
 
 /** 简洁化工具输出：限制文本长度，避免撑爆上下文 */
 function summarizeList(rows, fields, limit = 10) {
@@ -156,6 +159,143 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
         `关注点: ${(thread.watch_points || []).join('；') || '无'}`,
         `\n关联信号（${thread.signals.length}条）:\n${signalLines || '无'}`,
       ].join('\n');
+    },
+  },
+  {
+    name: 'get_desk_snapshot',
+    description:
+      '读取投研台最新快照：市场判断、行业判断、未处理预警与外盘行情。' +
+      '用于回答"今天投研台怎么说""哪些行业/预警值得关注"类问题。',
+    parameters: {
+      type: 'object',
+      properties: {
+        tradeDate: { type: 'string', description: '交易日 YYYY-MM-DD，不填取最新' },
+      },
+    },
+    async execute(args) {
+      try {
+        const snapshot = await getDeskSnapshot(args.tradeDate ? String(args.tradeDate) : undefined)
+        if (!snapshot.tradeDate) return '投研台还没有快照，请先在 /desk 触发刷新。'
+        const market = snapshot.market
+          ? `市场判断：${snapshot.market.headline}（${snapshot.market.stance}/${snapshot.market.confidence}）`
+          : '市场判断：暂无'
+        const industries = snapshot.industries.slice(0, 8).map((j) =>
+          `- ${j.industry}：${j.stance}/${j.confidence} ${j.headline}`).join('\n')
+        const alerts = snapshot.alerts.slice(0, 6).map((a) =>
+          `- [${a.severity}] ${a.title}${a.industry ? `（${a.industry}）` : ''}`).join('\n')
+        const overseas = snapshot.overseas.map((q) =>
+          `- ${q.symbol} ${q.changePct == null ? '—' : `${q.changePct}%`}（延迟 ${q.delayMinutes ?? '?'} 分钟）`).join('\n')
+        return [
+          `交易日 ${snapshot.tradeDate}${snapshot.isDemo ? '（示例数据）' : ''}`,
+          market,
+          industries ? `行业判断：\n${industries}` : '行业判断：暂无',
+          alerts ? `未处理预警：\n${alerts}` : '未处理预警：无',
+          overseas ? `外盘：\n${overseas}` : '',
+        ].filter(Boolean).join('\n\n')
+      } catch (err) {
+        return `投研台快照不可用：${(err as Error).message}`
+      }
+    },
+  },
+  {
+    name: 'get_open_alerts',
+    description:
+      '列出未处理预警（严重度、行业、为什么是现在、证据数量）。用于回答"现在有哪些风险提示"类问题。',
+    parameters: {
+      type: 'object',
+      properties: {
+        severity: { type: 'string', description: '可选：info/watch/important/critical' },
+        limit: { type: 'number', description: '返回条数，默认 10' },
+      },
+    },
+    async execute(args) {
+      const alerts = await listAlerts({ status: 'open', limit: 30 })
+      const severity = args.severity ? String(args.severity) : ''
+      const filtered = (severity ? alerts.filter((a) => a.severity === severity) : alerts)
+        .slice(0, numArg(args.limit, 10))
+      if (!filtered.length) return '当前没有未处理预警。'
+      return filtered.map((a) =>
+        `#${a.id} [${a.severity}] ${a.title}${a.industry ? `（${a.industry}）` : ''}\n` +
+        `触发原因：${a.whyNow}｜证据 ${a.evidence.length} 条｜${a.triggeredAt}`).join('\n\n')
+    },
+  },
+  {
+    name: 'get_judgments',
+    description:
+      '查询投研台判断台账（市场/行业判断、方向、置信度、摘要与证据数量）。用于回答"哪些行业被看多/看空"类问题。',
+    parameters: {
+      type: 'object',
+      properties: {
+        industry: { type: 'string', description: '可选行业名' },
+        kind: { type: 'string', description: 'market 或 industry' },
+        limit: { type: 'number', description: '返回条数，默认 10' },
+      },
+    },
+    async execute(args) {
+      const kind = args.kind === 'market' || args.kind === 'industry' ? args.kind : undefined
+      const result = await listJudgments({
+        kind,
+        industry: args.industry ? String(args.industry) : undefined,
+        limit: numArg(args.limit, 10),
+      })
+      if (!result.items.length) return '没有匹配的判断。'
+      return result.items.map((j) =>
+        `#${j.id} [${j.kind === 'market' ? '市场' : j.industry}] ${j.headline}\n` +
+        `${j.stance}/${j.confidence}｜${j.tradeDate}｜证据 ${j.evidence.length} 条｜${j.summary}`).join('\n\n')
+    },
+  },
+  {
+    name: 'get_investigation',
+    description:
+      '读取预警深挖的调查结论、置信度、证据强度与工具步骤；可按调查 id 或预警 id 查询。',
+    parameters: {
+      type: 'object',
+      properties: {
+        investigationId: { type: 'string', description: '调查 id' },
+        alertId: { type: 'string', description: '预警 id，取其最近一次调查' },
+      },
+    },
+    async execute(args) {
+      let investigation = args.investigationId
+        ? await getInvestigation(String(args.investigationId))
+        : null
+      if (!investigation && args.alertId) {
+        const items = await listInvestigations({ limit: 20 })
+        investigation = items.find((item) => item.alertId === String(args.alertId)) || null
+      }
+      if (!investigation) return '没有找到该预警的深挖调查。'
+      return [
+        `调查 ${investigation.id}｜${investigation.status}｜置信度 ${investigation.confidence || '—'}｜证据强度 ${investigation.evidenceStrength || '—'}`,
+        `问题：${investigation.question}`,
+        investigation.conclusion || investigation.errorMessage || '尚未生成结论。',
+      ].join('\n\n')
+    },
+  },
+  {
+    name: 'propose_action',
+    description:
+      '提交一个需要用户确认的安全动作提案（关注事件/创建任务/加入研究项目/保存记忆）。' +
+      '工具只创建提案，不会执行；必须在回答中明确告诉用户"待确认"，不得声称已完成。',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', description: 'watch_event | create_task | pin_project | save_memory' },
+        payload: { type: 'object', description: '动作参数，按动作类型填写' },
+      },
+      required: ['type', 'payload'],
+    },
+    async execute(args, context) {
+      try {
+        const action = await proposeAgentAction({
+          type: String(args.type || '') as AgentActionType,
+          payload: args.payload && typeof args.payload === 'object' ? args.payload as Record<string, unknown> : {},
+          sessionId: context?.sessionId == null ? null : String(context.sessionId),
+          turnId: context?.turnId ?? null,
+        })
+        return `已创建待确认动作 ${action.id}（${action.type}，状态 proposed）。请提示用户在界面确认后才会执行。`
+      } catch (err) {
+        return `动作提案被拒绝：${(err as Error).message}`
+      }
     },
   },
   {

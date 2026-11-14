@@ -25,10 +25,27 @@ export interface ProcessingBlock {
   thinking: boolean;
 }
 
+export interface TurnInfo {
+  id: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  cachedTokens?: number;
+  costMicros?: number;
+  contextTokens?: number;
+  compacted?: boolean;
+  steps?: number;
+  toolCalls?: number;
+  feedback?: "up" | "down" | null;
+}
+
 export interface ChatItem {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  /** 本轮遥测 id：反馈与成本归集用 */
+  turnId?: string;
+  feedback?: "up" | "down" | null;
+  stats?: TurnInfo;
   /** 单轮内的思考 + 工具调用过程（与正文同属一条助手消息） */
   processing?: ProcessingBlock;
   /** 本回复因单轮工具上限触顶截断，可展示「继续分析」 */
@@ -43,7 +60,8 @@ export interface ChatItem {
  * - 连续 toolCall 合并为 processing，附着到紧随其后的助手正文（单条消息、单头像）
  * - user 内部工具结果 → 写入上一条工具的 summary
  */
-export function historyToChatItems(rows: any[]): ChatItem[] {
+export function historyToChatItems(rows: any[], turns: TurnInfo[] = []): ChatItem[] {
+  const turnMap = new Map(turns.map((turn) => [turn.id, turn]));
   const out: ChatItem[] = [];
   let pendingTools: ToolCallInfo[] = [];
   let pendingCompaction: CompactionInfo | undefined;
@@ -106,6 +124,15 @@ export function historyToChatItems(rows: any[]): ChatItem[] {
     };
     if (r.role === "assistant" && isTruncatedAgentReply(String(r.content))) {
       item.truncated = true;
+    }
+    const turnId = typeof r.meta?.turnId === "string" ? r.meta.turnId : undefined;
+    if (turnId) {
+      item.turnId = turnId;
+      const turn = turnMap.get(turnId);
+      if (turn) {
+        item.stats = turn;
+        item.feedback = turn.feedback ?? null;
+      }
     }
     const processing = takeProcessing(r.role === "assistant");
     if (processing) item.processing = processing;

@@ -11,6 +11,9 @@ const db = vi.hoisted(() => ({
   // 工具依赖的只读查询也 mock 掉：测试不依赖真实 DB 状态（sweep#1）
   getBacktestByIndustry: vi.fn().mockResolvedValue([]),
   getEventThreadById: vi.fn().mockResolvedValue(null),
+  startAgentTurn: vi.fn().mockResolvedValue('turn-test'),
+  recordAgentTurnUsage: vi.fn().mockResolvedValue(undefined),
+  finishAgentTurn: vi.fn().mockResolvedValue(undefined),
   EVENT_TYPES: {
     NEWS_INGESTED: 'news.ingested',
     SIGNAL_SCORED: 'signal.scored',
@@ -30,6 +33,7 @@ const llmConfig = vi.hoisted(() => ({
     baseUrl: 'https://api.deepseek.com/v1',
     model: 'deepseek-v4-flash',
   }),
+  PRICING: { inputPerMillion: 1, outputPerMillion: 2, currency: '¥' },
 }));
 
 // 保留真实 db 查询函数（tools 依赖），仅覆盖写入/副作用函数
@@ -41,6 +45,8 @@ vi.mock('../llm/client', () => llm);
 vi.mock('../llm/config', () => llmConfig);
 vi.mock('./session', () => ({
   loadAgentContext: vi.fn().mockResolvedValue([]),
+  estimateContextTokens: vi.fn().mockReturnValue(0),
+  loadAgentMemoryPrompt: vi.fn().mockResolvedValue(''),
 }));
 
 import { tryParseToolCall, runAgentTurn } from './loop';

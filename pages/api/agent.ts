@@ -63,6 +63,9 @@ export default async function handler(req, res) {
       // 错误时携带已创建的 sessionId：客户端失败重试可续用同一会话（避免孤儿会话）
       const errorSessionId = (error as Error & { sessionId?: number }).sessionId;
       const extra = errorSessionId ? { sessionId: errorSessionId } : {};
+      if ((error as { code?: string }).code === 'SESSION_BUSY') {
+        return res.status(409).json({ error: msg, ...extra });
+      }
       // LLM 未配置是预期内的可恢复错误，返回 503 让前端提示配置
       if (msg.includes('LLM_API_KEY')) return res.status(503).json({ error: msg, ...extra });
       return res.status(500).json({ error: '研究助手暂时不可用，请稍后再试', ...extra });
@@ -101,11 +104,13 @@ export default async function handler(req, res) {
         else if (e.type === 'done') {
           send('done', {
             sessionId: e.sessionId,
+            turnId: e.turnId,
             reply: e.reply,
             steps: e.steps,
             toolLog: e.toolLog,
             truncated: e.truncated,
             userMessageId: e.userMessageId,
+            stats: e.stats,
           });
         }
       },
@@ -118,7 +123,9 @@ export default async function handler(req, res) {
     const msg = error instanceof Error ? error.message : String(error);
     const errorSessionId = (error as Error & { sessionId?: number }).sessionId;
     send('error', {
-      error: msg.includes('LLM_API_KEY') ? msg : '研究助手暂时不可用，请稍后再试',
+      error: (error as { code?: string }).code === 'SESSION_BUSY'
+        ? msg
+        : msg.includes('LLM_API_KEY') ? msg : '研究助手暂时不可用，请稍后再试',
       sessionId: errorSessionId ?? null,
     });
     res.end();
