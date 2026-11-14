@@ -209,10 +209,10 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       },
     },
     async execute(args) {
-      const alerts = await listAlerts({ status: 'open', limit: 30 })
-      const severity = args.severity ? String(args.severity) : ''
-      const filtered = (severity ? alerts.filter((a) => a.severity === severity) : alerts)
-        .slice(0, numArg(args.limit, 10))
+      const severity = args.severity ? String(args.severity).trim() || undefined : undefined
+      const limit = Math.max(1, Math.min(30, Math.floor(numArg(args.limit, 10))))
+      // 先按 severity 在库里过滤再取条数，否则最新 30 条之外的同级预警会被误报为“没有”。
+      const filtered = await listAlerts({ status: 'open', severity, limit })
       if (!filtered.length) return '当前没有未处理预警。'
       return filtered.map((a) =>
         `#${a.id} [${a.severity}] ${a.title}${a.industry ? `（${a.industry}）` : ''}\n` +
@@ -260,8 +260,8 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
         ? await getInvestigation(String(args.investigationId))
         : null
       if (!investigation && args.alertId) {
-        const items = await listInvestigations({ limit: 20 })
-        investigation = items.find((item) => item.alertId === String(args.alertId)) || null
+        const items = await listInvestigations({ alertId: String(args.alertId), limit: 1 })
+        investigation = items[0] || null
       }
       if (!investigation) return '没有找到该预警的深挖调查。'
       return [

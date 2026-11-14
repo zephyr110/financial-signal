@@ -39,7 +39,8 @@ export async function refreshOverseasQuotes(options: { fetchImpl?: typeof fetch 
   const warnings: string[] = []
   let written = 0
 
-  for (const quote of QUOTES) {
+  // 三个指数互不依赖；串行时任一挂起会把整体拖到 36 秒。
+  const outcomes = await Promise.all(QUOTES.map(async (quote) => {
     try {
       const res = await fetchImpl(`https://cdn-api.cboe.com/api/global/delayed_quotes/quotes/${quote.symbol}.json`, {
         headers: { Accept: 'application/json', 'User-Agent': 'financial-signal/1.0' },
@@ -70,10 +71,17 @@ export async function refreshOverseasQuotes(options: { fetchImpl?: typeof fetch 
             delay_minutes = excluded.delay_minutes, fetched_at = excluded.fetched_at`,
         args: [quote.symbol, tradeTime, price, previousClose, changePct, SOURCE_ID, DELAY_MINUTES, fetchedAt],
       })
-      written += 1
+      return { ok: true as const }
     } catch (err) {
-      warnings.push(`${quote.name}外盘行情未更新：${err instanceof Error ? err.message : String(err)}`)
+      return {
+        ok: false as const,
+        warning: `${quote.name}外盘行情未更新：${err instanceof Error ? err.message : String(err)}`,
+      }
     }
+  }))
+  for (const outcome of outcomes) {
+    if (outcome.ok) written += 1
+    else warnings.push(outcome.warning)
   }
 
   if (written > 0) {

@@ -2,13 +2,9 @@ import { AlertTriangle, ArrowUpRight, FileSearch, TrendingUp } from 'lucide-reac
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { formatSignedPct } from '@/lib/cockpit/format'
 import type { JudgmentView } from '@/lib/desk/types'
 import { ConfidenceBadge, StanceBadge } from './ui'
-
-function pct(value: number | null | undefined) {
-  if (value == null) return '—'
-  return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
-}
 
 export function JudgmentSheet({
   judgment,
@@ -106,10 +102,12 @@ export function JudgmentSheet({
                           <tr key={`${evaluation.horizonDays}-${evaluation.evalDate}`} className="border-t border-border/50">
                             <td className="px-3 py-2">{evaluation.horizonDays} 日</td>
                             <td className={`px-3 py-2 text-right tabular-nums ${(evaluation.returnPct ?? 0) >= 0 ? 'text-chart-3' : 'text-chart-2'}`}>
-                              {pct(evaluation.returnPct)}
+                              {evaluation.returnPct == null ? '—' : formatSignedPct(evaluation.returnPct)}
                             </td>
                             {judgment.evaluations.some((item) => item.benchmarkPct != null) && (
-                              <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{pct(evaluation.benchmarkPct)}</td>
+                              <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                                {evaluation.benchmarkPct == null ? '—' : formatSignedPct(evaluation.benchmarkPct)}
+                              </td>
                             )}
                             <td className="px-3 py-2 text-right text-muted-foreground">{evaluation.hit ? '命中' : '未中'}</td>
                           </tr>

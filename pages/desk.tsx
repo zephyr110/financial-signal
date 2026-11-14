@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
+import { useRouter } from 'next/router'
 import { CloudSun, Gauge, Loader2, Radar, RefreshCw, ShieldAlert, TrendingUp } from 'lucide-react'
 import AppShell from '@/components/app-shell'
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +12,7 @@ import { SideRail } from '@/components/desk/side-rail'
 import { deskApi } from '@/components/desk/api'
 import { AlertRow, ConfidenceBadge, DeskPanel, EmptyHint, JudgmentRow, StanceBadge, confidenceText, stanceText } from '@/components/desk/ui'
 import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
+import { formatPrice, formatSignedPct } from '@/lib/cockpit/format'
 import { serializable } from '@/lib/cockpit/page-data'
 import { getDeskSnapshot, getDeskStatus } from '@/lib/desk/repo'
 import type { DeskSnapshot, DeskStatus, JudgmentView, OverseasQuoteView } from '@/lib/desk/types'
@@ -75,11 +77,6 @@ function freshness(iso?: string | null) {
   return `${Math.round(diff / 86400)} 天前`
 }
 
-function pct(value?: number | null) {
-  if (value == null) return '—'
-  return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
-}
-
 function changeClass(value?: number | null) {
   if (value == null || value === 0) return 'text-muted-foreground'
   return value > 0 ? 'text-chart-3' : 'text-chart-2'
@@ -96,8 +93,10 @@ function OverseasRow({ quote }: { quote: OverseasQuoteView }) {
         </p>
       </div>
       <div className="shrink-0 text-right tabular-nums">
-        <p>{quote.price.toFixed(2)}</p>
-        <p className={changeClass(quote.changePct)}>{pct(quote.changePct)}</p>
+        <p>{formatPrice(quote.price)}</p>
+        <p className={changeClass(quote.changePct)}>
+          {quote.changePct == null ? '—' : formatSignedPct(quote.changePct)}
+        </p>
       </div>
     </div>
   )
@@ -113,6 +112,8 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
   const [investigationTarget, setInvestigationTarget] = useState<InvestigationTarget | null>(null)
   const refreshTimer = useRef<number | null>(null)
   const refreshingRef = useRef(false)
+  const openedAlertRef = useRef('')
+  const router = useRouter()
 
   useEffect(() => () => {
     if (refreshTimer.current) window.clearInterval(refreshTimer.current)
@@ -126,6 +127,16 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
     setSnapshot(nextSnapshot)
     setStatus(nextStatus)
   }, [])
+
+  // 深挖完成通知带 /desk?alert=<id>，进入页面时直接打开对应预警的调查弹层。
+  useEffect(() => {
+    const alertId = typeof router.query.alert === 'string' ? router.query.alert : ''
+    if (!alertId || openedAlertRef.current === alertId) return
+    const alert = snapshot.alerts.find((item) => item.id === alertId)
+    if (!alert) return
+    openedAlertRef.current = alertId
+    setInvestigationTarget({ kind: 'alert', alert })
+  }, [router.query.alert, snapshot.alerts])
 
   // 驾驶舱常驻：页面可见时每分钟静默对齐一次快照
   useEffect(() => {
@@ -346,7 +357,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                   : <EmptyHint>没有未处理的预警。新的政策、公告或异动会出现在这里。</EmptyHint>}
               </DeskPanel>
 
-              <SideRail />
+              <SideRail onChanged={() => void reload()} />
             </div>
           )}
         </div>
@@ -363,6 +374,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
       <InvestigationSheet
         target={investigationTarget}
         onClose={() => setInvestigationTarget(null)}
+        onChanged={() => void reload()}
       />
     </>
   )

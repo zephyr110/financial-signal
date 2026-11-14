@@ -8,6 +8,7 @@ import { chatCompletion } from '../llm/client'
 import { getEffectiveLlmConfig, PRICING } from '../llm/config'
 import { tryParseToolCall } from '../agent/tool-call'
 import { todayShanghai } from '../cockpit/format'
+import { getOverseasQuotes } from './repo'
 import type {
   DeskConfidence,
   InvestigationBudget,
@@ -177,22 +178,15 @@ export async function collectEvidence(input: {
   }
 
   if (refs.some((ref) => ref.kind === 'industry')) {
-    const overseas = await db.execute({
-      sql: `SELECT * FROM (
-              SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_time DESC) AS rn
-              FROM overseas_quotes
-            ) WHERE rn = 1 ORDER BY symbol LIMIT 4`,
-      args: [],
-    })
-    for (const row of overseas.rows as unknown as Row[]) {
-      const ref = `overseas:${str(row.symbol)}:${str(row.trade_time)}`
+    for (const quote of (await getOverseasQuotes()).slice(0, 4)) {
+      const ref = `overseas:${quote.symbol}:${quote.tradeTime}`
       refs.push({
         ref,
         kind: 'overseas',
-        label: str(row.symbol),
-        value: `${num(row.change_pct)}% @ ${str(row.trade_time)}`,
+        label: quote.symbol,
+        value: `${quote.changePct ?? '—'}% @ ${quote.tradeTime}`,
       })
-      lines.push(`${ref}｜${str(row.symbol)} ${num(row.change_pct)}%（延迟 ${num(row.delay_minutes)} 分钟）`)
+      lines.push(`${ref}｜${quote.symbol} ${quote.changePct ?? '—'}%（延迟 ${quote.delayMinutes ?? '?'} 分钟）`)
     }
   }
 
@@ -245,20 +239,13 @@ async function industryMetrics(args: Record<string, unknown>): Promise<ToolResul
 }
 
 async function overseasQuotes(): Promise<ToolResult> {
-  const db = await getDb()
-  const res = await db.execute({
-    sql: `SELECT * FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_time DESC) AS rn
-            FROM overseas_quotes
-          ) WHERE rn = 1 ORDER BY symbol`,
-    args: [],
-  })
-  if (!res.rows.length) return { text: '没有外盘行情（可能未刷新或来源不可用）。', refs: [] }
+  const quotes = await getOverseasQuotes()
+  if (!quotes.length) return { text: '没有外盘行情（可能未刷新或来源不可用）。', refs: [] }
   const refs: EvidenceRef[] = []
-  const lines = (res.rows as unknown as Row[]).map((row) => {
-    const ref = `overseas:${str(row.symbol)}:${str(row.trade_time)}`
-    refs.push({ ref, kind: 'overseas', label: str(row.symbol), value: `${num(row.change_pct)}%` })
-    return `${ref}｜${str(row.symbol)} ${num(row.change_pct)}%｜延迟 ${num(row.delay_minutes)} 分钟`
+  const lines = quotes.map((quote) => {
+    const ref = `overseas:${quote.symbol}:${quote.tradeTime}`
+    refs.push({ ref, kind: 'overseas', label: quote.symbol, value: `${quote.changePct ?? '—'}%` })
+    return `${ref}｜${quote.symbol} ${quote.changePct ?? '—'}%｜延迟 ${quote.delayMinutes ?? '?'} 分钟`
   })
   return { text: lines.join('\n'), refs }
 }
@@ -516,13 +503,15 @@ export async function createInvestigation(input: {
   question?: string
   triggerReason?: string
   manual?: boolean
+  dedupeDate?: string
 }): Promise<{ investigation: InvestigationView; created: boolean }> {
   if (!input.alertId && !input.judgmentId) throw new Error('需要 alertId 或 judgmentId')
   const db = await getDb()
   const budget = input.manual === false ? AUTO_BUDGET : MANUAL_BUDGET
   const kind = input.manual === false ? 'auto' : 'manual'
   const target = input.alertId || input.judgmentId
-  const dedupeKey = `${kind}:${target}:${todayShanghai()}`
+  // 自动深挖按被刷新的交易日去重：隔天重跑旧交易日不能重复烧模型预算。
+  const dedupeKey = `${kind}:${target}:${input.dedupeDate || todayShanghai()}`
 
   let question = (input.question || '').trim()
   if (input.alertId) {
@@ -599,22 +588,15 @@ export async function queueAutoInvestigations(tradeDate = todayShanghai()): Prom
       alertId: str(row.id),
       triggerReason: `自动深挖 ${trigger.score} 分：${trigger.reasons.join('、')}`,
       manual: false,
+      dedupeDate: tradeDate,
     })
     if (created.created) ids.push(created.investigation.id)
   }
   return ids
 }
 
-export async function getInvestigation(id: string): Promise<InvestigationView | null> {
-  const db = await getDb()
-  const res = await db.execute({ sql: 'SELECT * FROM desk_investigations WHERE id = ?', args: [id] })
-  const row = res.rows[0] as Row | undefined
-  if (!row) return null
-  const stepsRes = await db.execute({
-    sql: 'SELECT * FROM desk_investigation_steps WHERE investigation_id = ? ORDER BY step_no ASC',
-    args: [id],
-  })
-  const steps: InvestigationStepView[] = (stepsRes.rows as unknown as Row[]).map((step) => ({
+function mapStep(step: Row): InvestigationStepView {
+  return {
     stepNo: num(step.step_no),
     kind: str(step.kind),
     tool: str(step.tool) || undefined,
@@ -624,7 +606,10 @@ export async function getInvestigation(id: string): Promise<InvestigationView | 
     durationMs: step.duration_ms == null ? undefined : num(step.duration_ms),
     tokens: num(step.tokens),
     createdAt: str(step.created_at),
-  }))
+  }
+}
+
+function mapInvestigation(row: Row, steps: InvestigationStepView[]): InvestigationView {
   return {
     id: str(row.id),
     alertId: str(row.alert_id) || undefined,
@@ -648,24 +633,60 @@ export async function getInvestigation(id: string): Promise<InvestigationView | 
   }
 }
 
-export async function listInvestigations(opts: { status?: string; limit?: number } = {}): Promise<InvestigationView[]> {
+export async function getInvestigation(id: string): Promise<InvestigationView | null> {
+  const db = await getDb()
+  const res = await db.execute({ sql: 'SELECT * FROM desk_investigations WHERE id = ?', args: [id] })
+  const row = res.rows[0] as Row | undefined
+  if (!row) return null
+  const stepsRes = await db.execute({
+    sql: 'SELECT * FROM desk_investigation_steps WHERE investigation_id = ? ORDER BY step_no ASC',
+    args: [id],
+  })
+  return mapInvestigation(row, (stepsRes.rows as unknown as Row[]).map(mapStep))
+}
+
+export async function listInvestigations(
+  opts: { status?: string; alertId?: string; judgmentId?: string; limit?: number } = {},
+): Promise<InvestigationView[]> {
   const db = await getDb()
   const limit = Math.max(1, Math.min(50, opts.limit ?? 20))
-  const res = opts.status
-    ? await db.execute({
-        sql: 'SELECT id FROM desk_investigations WHERE status = ? ORDER BY created_at DESC LIMIT ?',
-        args: [opts.status, limit],
-      })
-    : await db.execute({
-        sql: 'SELECT id FROM desk_investigations ORDER BY created_at DESC LIMIT ?',
-        args: [limit],
-      })
-  const items: InvestigationView[] = []
-  for (const row of res.rows as unknown as Row[]) {
-    const item = await getInvestigation(str(row.id))
-    if (item) items.push(item)
+  const where: string[] = []
+  const args: unknown[] = []
+  if (opts.status) {
+    where.push('status = ?')
+    args.push(opts.status)
   }
-  return items
+  if (opts.alertId) {
+    where.push('alert_id = ?')
+    args.push(opts.alertId)
+  }
+  if (opts.judgmentId) {
+    where.push('judgment_id = ?')
+    args.push(opts.judgmentId)
+  }
+  const res = await db.execute({
+    sql: `SELECT * FROM desk_investigations ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+          ORDER BY created_at DESC LIMIT ?`,
+    args: [...args, limit],
+  })
+  const rows = res.rows as unknown as Row[]
+  if (!rows.length) return []
+  // 一次取回所有步骤再分组，避免每条调查再打 2 次查询（limit=30 时 61 次）。
+  const ids = rows.map((row) => str(row.id))
+  const stepsRes = await db.execute({
+    sql: `SELECT * FROM desk_investigation_steps
+          WHERE investigation_id IN (${ids.map(() => '?').join(',')})
+          ORDER BY investigation_id ASC, step_no ASC`,
+    args: ids,
+  })
+  const stepsById = new Map<string, InvestigationStepView[]>()
+  for (const step of stepsRes.rows as unknown as Row[]) {
+    const key = str(step.investigation_id)
+    const list = stepsById.get(key) || []
+    list.push(mapStep(step))
+    stepsById.set(key, list)
+  }
+  return rows.map((row) => mapInvestigation(row, stepsById.get(str(row.id)) || []))
 }
 
 export async function setInvestigationFeedback(

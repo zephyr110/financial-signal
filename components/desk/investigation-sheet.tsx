@@ -64,7 +64,10 @@ export function InvestigationSheet({
     setLoading(true)
     setError('')
     try {
-      const data = await deskApi<{ investigations: InvestigationView[] }>('/api/desk/investigations?limit=30')
+      const query = target.kind === 'alert'
+        ? `alertId=${encodeURIComponent(target.alert.id)}`
+        : `judgmentId=${encodeURIComponent(target.judgment.id)}`
+      const data = await deskApi<{ investigations: InvestigationView[] }>(`/api/desk/investigations?${query}&limit=1`)
       const found = data.investigations.find(match) || null
       setInvestigation(found)
       if (found?.status === 'queued' || found?.status === 'running') onChanged?.()

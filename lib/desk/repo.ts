@@ -13,6 +13,9 @@ import type {
 
 type Row = Record<string, unknown>
 
+/** 指定交易日没有快照：接口与 SSR 要能把它和数据库故障区分开。 */
+export class DeskSnapshotNotFoundError extends Error {}
+
 function str(value: unknown, fallback = ''): string {
   return value == null ? fallback : String(value)
 }
@@ -161,7 +164,7 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
   const dateRes = tradeDate
     ? await db.execute({ sql: 'SELECT 1 FROM judgments WHERE trade_date = ? LIMIT 1', args: [tradeDate] })
     : await db.execute({ sql: 'SELECT MAX(trade_date) AS d FROM judgments', args: [] })
-  if (tradeDate && !dateRes.rows[0]) throw new Error(`${tradeDate} 没有投研台快照`)
+  if (tradeDate && !dateRes.rows[0]) throw new DeskSnapshotNotFoundError(`${tradeDate} 没有投研台快照`)
   const date = tradeDate || (dateRes.rows[0]?.d ? String(dateRes.rows[0].d) : null)
   const [sourceHealth, overseas] = await Promise.all([getSourceHealth(), getOverseasQuotes()])
   if (!date) {
@@ -339,13 +342,17 @@ export async function listJudgments(options: {
   }
 }
 
-export async function listAlerts(options: { status?: string; limit?: number } = {}): Promise<AlertView[]> {
+export async function listAlerts(options: { status?: string; severity?: string; limit?: number } = {}): Promise<AlertView[]> {
   const db = await getDb()
   const where: string[] = []
   const args: unknown[] = []
   if (options.status) {
     where.push('status = ?')
     args.push(options.status)
+  }
+  if (options.severity) {
+    where.push('severity = ?')
+    args.push(options.severity)
   }
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit || 50)))
   const res = await db.execute({

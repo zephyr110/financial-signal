@@ -23,7 +23,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return
       }
       const status = queryString(req.query.status)
-      const items = await listInvestigations({ status, limit: queryInt(req.query.limit, 20, 1, 50) })
+      const alertId = queryString(req.query.alertId)
+      const judgmentId = queryString(req.query.judgmentId)
+      const items = await listInvestigations({
+        status,
+        alertId,
+        judgmentId,
+        limit: queryInt(req.query.limit, 20, 1, 50),
+      })
       sendData(res, { investigations: items }, await buildMeta())
       return
     }

@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import type { AgentActionView } from '@/lib/agent/actions'
 import type { AgentMemoryView, MemoryScope } from '@/lib/agent/memory'
 import type { AgentProjectView } from '@/lib/agent/projects'
+import { dateShanghai, formatShortDate, formatTime } from '@/lib/cockpit/format'
 import { deskApi } from './api'
 import { EmptyHint } from './ui'
 
@@ -208,7 +209,9 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                 <div key={action.id} className="relative px-4 py-3 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
                   <div className="flex items-center justify-between gap-2">
                     <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{ACTION_LABEL[action.type]}</Badge>
-                    <span className="text-[10px] text-muted-foreground">{action.createdAt.slice(5, 16).replace('T', ' ')}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {formatShortDate(dateShanghai(action.createdAt))} {formatTime(action.createdAt)}
+                    </span>
                   </div>
                   <p className="mt-1 line-clamp-2 text-xs leading-5">{actionSummary(action)}</p>
                   {action.sessionId && <p className="mt-0.5 text-[10px] text-muted-foreground">来自会话 {action.sessionId}</p>}
