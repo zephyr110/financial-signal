@@ -6,7 +6,7 @@ Repository: [github.com/zephyr110/financial-signal](https://github.com/zephyr110
 
 **Live Demo:** [https://financial-signal.vercel.app/](https://financial-signal.vercel.app/)
 
-## 收盘手记（个人投研驾驶舱）
+## 财经信号（个人投研驾驶舱）
 
 在原有资讯信号能力之上新增的个人收盘研究台：`/today`、`/watchlist`、`/portfolio`、`/research`、`/tasks`，移动端优先、可安装为 PWA。只做研究记录，不接券商、不执行交易。
 
@@ -82,7 +82,7 @@ pnpm install
 pnpm dev        # http://localhost:3000
 pnpm build
 pnpm start
-pnpm test       # Vitest（含收盘手记）
+pnpm test       # Vitest（含财经信号）
 pnpm typecheck  # tsc --noEmit
 ```
 

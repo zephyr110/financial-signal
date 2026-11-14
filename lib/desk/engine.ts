@@ -2,13 +2,15 @@ import crypto from 'crypto'
 import { getDb } from '../db'
 import { dateShanghai, formatTime } from '../cockpit/format'
 import type { IndustryDailyView, DeskEvidence, DeskRefreshResult, DeskSeverity } from './types'
+import { personalIndustrySet } from './personal'
 import { refreshOverseasQuotes } from './overseas'
 
 type Row = Record<string, unknown>
 
 const INDEX_CODES = ['000001.SH', '399001.SZ', '399006.SZ'] as const
 const RECENT_TRADE_DATES = 25
-const MAX_INDUSTRY_JUDGMENTS = 3
+// 预警只跟持仓相关与波动最大的行业，行业判断本身全量生成
+const MAX_ALERT_INDUSTRIES = 8
 const MAX_ALERTS = 6
 
 const NEGATIVE_EVENT_WORDS = /下滑|亏损|减持|处罚|立案|退市|风险|下调|召回|事故|监管|违约|爆雷|冻结/
@@ -262,21 +264,6 @@ async function buildIndustryData(tradeDate: string): Promise<IndustryBuild> {
   }
 }
 
-async function personalIndustrySet(): Promise<Set<string>> {
-  const db = await getDb()
-  const res = await db.execute({
-    sql: `SELECT DISTINCT s.industry_l1 AS industry
-          FROM symbols s
-          WHERE s.industry_l1 IS NOT NULL AND s.industry_l1 <> '' AND s.industry_l1 <> '指数'
-            AND s.code IN (
-              SELECT code FROM watchlist_items
-              UNION
-              SELECT code FROM positions WHERE shares > 0
-            )`,
-    args: [],
-  })
-  return new Set((res.rows as unknown as Row[]).map((row) => str(row.industry)).filter(Boolean))
-}
 
 async function buildIndustryEvents(tradeDate: string): Promise<IndustryEventInput[]> {
   const db = await getDb()
@@ -733,13 +720,12 @@ export async function refreshDesk(options: {
     if (aPersonal !== bPersonal) return bPersonal - aPersonal
     return Math.abs(judgmentScore(b)) - Math.abs(judgmentScore(a))
   })
-  const selected = ranked.slice(0, MAX_INDUSTRY_JUDGMENTS)
-  const selectedIndustries = selected.map((row) => row.industry)
-  const judgments = selected.map((aggregate) =>
+  const alertIndustries = ranked.slice(0, MAX_ALERT_INDUSTRIES).map((row) => row.industry)
+  const judgments = ranked.map((aggregate) =>
     industryJudgment(aggregate, industryData.events, industryData.sourceMap, tradeDate, new Date().toISOString()),
   )
   const allJudgments = [market, ...judgments]
-  const alerts = buildAlerts(tradeDate, industryData.aggregates, judgments, market, industryData.events, selectedIndustries)
+  const alerts = buildAlerts(tradeDate, industryData.aggregates, judgments, market, industryData.events, alertIndustries)
   const isDemo = industryData.aggregates.some((row) => row.isDemo) || industryData.events.some((event) => event.isDemo)
 
   await options.onProgress?.(55, '写入行业聚合与公告')
@@ -789,14 +775,16 @@ export async function refreshDesk(options: {
       })
     }
 
+    const activeScopeKeys = judgments.map((judgment) => judgment.scopeKey)
     await tx.execute({
       sql: `UPDATE judgments SET status = 'superseded'
             WHERE trade_date = ? AND kind = 'industry' AND status = 'open'
-              AND scope_key NOT IN (${selectedIndustries.map(() => '?').join(',') || "''"})`,
-      args: [tradeDate, ...selectedIndustries.map((industry) => `industry:${industry}`)],
+              AND scope_key NOT IN (${activeScopeKeys.map(() => '?').join(',') || "''"})`,
+      args: [tradeDate, ...activeScopeKeys],
     })
 
     const now = new Date().toISOString()
+    const sourceByIndustry = new Map(industryData.aggregates.map((row) => [row.industry, row.sourceId]))
     for (const judgment of allJudgments) {
       const industry = 'scopeKey' in judgment && judgment.scopeKey.startsWith('industry:')
         ? judgment.scopeKey.slice('industry:'.length)
@@ -816,7 +804,7 @@ export async function refreshDesk(options: {
           judgment.id, tradeDate, industry ? 'industry' : 'market', judgment.scopeKey, industry,
           judgment.stance, judgment.confidence, judgment.score, judgment.headline, judgment.summary,
           JSON.stringify(judgment.drivers), JSON.stringify(judgment.risks),
-          addDays(tradeDate, 1), industry ? selected.find((row) => row.industry === industry)?.sourceId || null : 'tushare',
+          addDays(tradeDate, 1), industry ? sourceByIndustry.get(industry) || null : 'tushare',
           now, isDemo ? 1 : 0,
         ],
       })

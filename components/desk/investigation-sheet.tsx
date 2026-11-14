@@ -152,15 +152,15 @@ export function InvestigationSheet({
   return (
     <Sheet open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <SheetHeader className="shrink-0 border-b px-5 py-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <SheetHeader className="relative shrink-0 px-5 py-4 after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
+          <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
             <ShieldQuestion className="size-3.5" />
-            {target?.kind === 'judgment' ? '判断深挖' : '预警深挖'}
+            <span className="tracking-wide">{target?.kind === 'judgment' ? '判断深挖' : '预警深挖'}</span>
             {target?.kind === 'alert' && <SeverityBadge severity={target.alert.severity} />}
             {target?.kind === 'judgment' && <StanceBadge stance={target.judgment.stance} />}
           </div>
-          <SheetTitle className="pr-8 text-base leading-6">{target ? targetTitle(target) : ''}</SheetTitle>
-          <SheetDescription className="line-clamp-2">
+          <SheetTitle className="pr-8 text-[17px] font-semibold leading-6 tracking-tight">{target ? targetTitle(target) : ''}</SheetTitle>
+          <SheetDescription className="line-clamp-2 text-[13px] leading-5">
             {target?.kind === 'alert' ? target.alert.whyNow : target?.judgment.summary}
           </SheetDescription>
         </SheetHeader>
@@ -229,18 +229,18 @@ export function InvestigationSheet({
               )}
 
               {investigation.conclusion && (
-                <div className="markdown-body rounded-lg border bg-muted/30 px-4 py-3 text-sm leading-6">
+                <div className="markdown-body rounded-lg bg-muted/30 px-4 py-3 text-[13px] leading-6">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{investigation.conclusion}</ReactMarkdown>
                 </div>
               )}
 
               {investigation.steps.length > 0 && (
-                <details className="rounded-lg border">
-                  <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                    <ChevronDown className="size-3.5" />
+                <details className="group rounded-lg bg-muted/25">
+                  <summary className="flex cursor-pointer items-center gap-2 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
+                    <ChevronDown className="size-3.5 transition-transform duration-200 group-open:rotate-180" />
                     证据与工具步骤（{investigation.steps.length}）
                   </summary>
-                  <ol className="space-y-2 border-t px-3 py-2">
+                  <ol className="space-y-2 px-3 pb-3">
                     {investigation.steps.map((step) => (
                       <li key={step.stepNo} className="text-xs leading-5">
                         <span className="mr-1 text-muted-foreground">#{step.stepNo}</span>
@@ -261,7 +261,7 @@ export function InvestigationSheet({
               )}
 
               {investigation.status === 'succeeded' && (
-                <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">这条调查有用吗？</span>
                   <Button
                     size="xs"

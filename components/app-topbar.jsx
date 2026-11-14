@@ -11,7 +11,7 @@ import { NotificationBell } from "./cockpit/notification-bell";
  */
 export default function AppTopbar({ title, subtitle = null, actions = null }) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:px-4">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background px-3 sm:px-4">
       {/* 交互色：默认 muted，hover 高亮 + accent 底，与刷新按钮一致 */}
       <SidebarTrigger
         className="-ml-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -19,7 +19,7 @@ export default function AppTopbar({ title, subtitle = null, actions = null }) {
       />
       <div className="flex min-w-0 items-center gap-2">
         {/* 顶栏标题用 p：页面内容区有自己的 h1，避免每页双 h1（SEO/层级） */}
-        <p className="truncate text-sm font-medium text-foreground">{title}</p>
+        <p className="truncate text-[15px] font-semibold leading-5 tracking-tight text-foreground">{title}</p>
         {subtitle && (
           <>
             <Separator

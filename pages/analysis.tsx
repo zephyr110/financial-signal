@@ -351,7 +351,7 @@ export default function Analysis({
   return (
     <>
       <Head>
-        <title>信号分析 · 收盘手记</title>
+        <title>信号分析 · 财经信号</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="description" content="基于已入库新闻与数据的信号强度、行业与事件线索分析" />
       </Head>

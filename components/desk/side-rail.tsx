@@ -168,16 +168,16 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
 
   return (
     <Card className="flex min-h-[360px] flex-col gap-0 overflow-hidden py-0 xl:min-h-0">
-      <CardHeader className="flex shrink-0 flex-row items-center gap-2 border-b px-4 py-2.5">
+      <CardHeader className="relative flex shrink-0 flex-row items-center gap-2 px-4 py-2.5 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
         <ShieldCheck className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">研究台</h2>
-        <span className="text-xs text-muted-foreground">动作 / 项目 / 记忆</span>
+        <h2 className="text-[13px] font-semibold tracking-tight">研究台</h2>
+        <span className="truncate text-[11px] text-muted-foreground">动作 / 项目 / 记忆</span>
       </CardHeader>
       <CardContent className="min-h-0 p-0 xl:flex-1">
         <Tabs value={tab} onValueChange={(value) => setTab(String(value))} className="h-full gap-0">
-          <div className="border-b px-3 py-2">
+          <div className="px-3 py-2.5">
             <TabsList className="w-full">
-              <TabsTrigger value="actions" className="flex-1">行动·{actions.length}</TabsTrigger>
+              <TabsTrigger value="actions" className="flex-1">动作·{actions.length}</TabsTrigger>
               <TabsTrigger value="projects" className="flex-1">项目·{projects.length}</TabsTrigger>
               <TabsTrigger value="memory" className="flex-1">记忆·{memories.length}</TabsTrigger>
             </TabsList>
@@ -198,7 +198,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                 <EmptyHint>没有待确认动作。研究助手提议的关注、任务、记忆会先出现在这里，确认后才执行。</EmptyHint>
               )}
               {actions.map((action) => (
-                <div key={action.id} className="border-b px-4 py-3 last:border-0">
+                <div key={action.id} className="relative px-4 py-3 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
                   <div className="flex items-center justify-between gap-2">
                     <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{ACTION_LABEL[action.type]}</Badge>
                     <span className="text-[10px] text-muted-foreground">{action.createdAt.slice(5, 16).replace('T', ' ')}</span>
@@ -218,7 +218,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
             </TabsContent>
 
             <TabsContent value="projects" className="p-0">
-              <div className="space-y-2 border-b px-4 py-3">
+              <div className="space-y-2 bg-muted/20 px-4 py-3">
                 <Input
                   value={projectName}
                   onChange={(event) => setProjectName(event.target.value)}
@@ -238,10 +238,10 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
               </div>
               {!loading && projects.length === 0 && <EmptyHint>还没有研究项目。把行业、个股和证据放进同一个项目，研究助手会带着这组上下文回答。</EmptyHint>}
               {projects.map((project) => (
-                <div key={project.id} className="group border-b px-4 py-3 last:border-0">
+                <div key={project.id} className="group relative px-4 py-3 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{project.name}</p>
+                      <p className="truncate text-[13px] font-semibold tracking-tight">{project.name}</p>
                       {project.thesis && <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{project.thesis}</p>}
                     </div>
                     <Button
@@ -268,7 +268,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
             </TabsContent>
 
             <TabsContent value="memory" className="p-0">
-              <div className="space-y-2 border-b px-4 py-3">
+              <div className="space-y-2 bg-muted/20 px-4 py-3">
                 <div className="flex gap-2">
                   <select
                     value={memoryScope}
@@ -303,7 +303,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
               </div>
               {!loading && memories.length === 0 && <EmptyHint>还没有长期记忆。研究助手会在后续对话中带上这些偏好与结论。</EmptyHint>}
               {memories.map((memory) => (
-                <div key={memory.id} className="group flex items-start gap-2 border-b px-4 py-2.5 last:border-0">
+                <div key={memory.id} className="group relative flex items-start gap-2 px-4 py-2.5 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{SCOPE_LABEL[memory.scope]}</Badge>

@@ -151,7 +151,7 @@ export function NotificationBell() {
       id: 'permission-test',
       kind: 'system',
       severity: 'info',
-      title: '收盘手记通知已开启',
+      title: '财经信号通知已开启',
       body: '任务完成或简报生成后，即使页面在后台也会提醒。',
       deepLink: '/tasks',
       createdAt: new Date().toISOString(),

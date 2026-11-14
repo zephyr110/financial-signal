@@ -23,11 +23,11 @@ export function DeskPanel({
 }) {
   return (
     <Card className={cn('flex min-h-[300px] flex-col gap-0 overflow-hidden py-0 xl:min-h-0', className)}>
-      <CardHeader className="flex shrink-0 flex-row items-center justify-between gap-2 border-b px-4 py-2.5">
+      <CardHeader className="relative flex shrink-0 flex-row items-center justify-between gap-2 px-4 py-2.5 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>
-          <h2 className="truncate text-sm font-semibold">{title}</h2>
-          {meta && <span className="truncate text-xs text-muted-foreground">{meta}</span>}
+          <h2 className="truncate text-[13px] font-semibold tracking-tight">{title}</h2>
+          {meta && <span className="truncate text-[11px] text-muted-foreground">{meta}</span>}
         </div>
         {action}
       </CardHeader>
@@ -89,17 +89,25 @@ export function JudgmentRow({ judgment, onSelect }: { judgment: JudgmentView; on
     <button
       type="button"
       onClick={onSelect}
-      className="flex w-full items-start gap-3 border-b px-4 py-3 text-left transition-colors last:border-0 hover:bg-muted/50 focus-visible:bg-muted/60 focus-visible:outline-none"
+      className="relative flex w-full items-start gap-3 px-4 py-3 text-left transition-colors duration-150 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden hover:bg-muted/50 focus-visible:bg-muted/60 focus-visible:outline-none"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium">{judgment.industry || '市场'}</span>
+          <span className="truncate text-[13px] font-semibold tracking-tight">{judgment.industry || '市场'}</span>
+          {judgment.relation && (
+            <Badge
+              variant={judgment.relation === 'holding' ? 'secondary' : 'outline'}
+              className="h-5 shrink-0 px-1.5 text-[10px]"
+            >
+              {judgment.relation === 'holding' ? '持仓' : '自选'}
+            </Badge>
+          )}
           <StanceBadge stance={judgment.stance} />
           <ConfidenceBadge confidence={judgment.confidence} />
         </div>
         <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{judgment.headline}</p>
       </div>
-      <span className="shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">{judgment.score.toFixed(1)}</span>
+      <span className="shrink-0 pt-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">{judgment.score.toFixed(1)}</span>
     </button>
   )
 }
@@ -116,11 +124,11 @@ export function AlertRow({
   busy?: boolean
 }) {
   return (
-    <div className="border-b px-4 py-3 last:border-0">
+    <div className="relative px-4 py-3 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
       <div className="flex min-w-0 items-start gap-2">
         <SeverityBadge severity={alert.severity} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium leading-5">{alert.title}</p>
+          <p className="text-[13px] font-semibold leading-5 tracking-tight">{alert.title}</p>
           <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{alert.whyNow}</p>
         </div>
       </div>
@@ -131,7 +139,7 @@ export function AlertRow({
         <div className="flex shrink-0 gap-1">
           <button
             type="button"
-            className="rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             onClick={onDeepDive}
           >
             深挖
@@ -139,7 +147,7 @@ export function AlertRow({
           <button
             type="button"
             disabled={busy}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
+            className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
             onClick={onAcknowledge}
           >
             已读

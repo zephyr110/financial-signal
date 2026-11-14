@@ -68,6 +68,8 @@ export interface JudgmentView {
   evaluations: JudgmentEvaluation[]
   computedAt: string
   isDemo: boolean
+  /** 与个人的关联：持仓优先于自选 */
+  relation?: 'holding' | 'watch'
 }
 
 export interface AlertView {

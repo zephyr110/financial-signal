@@ -8,7 +8,7 @@ import BrandLogo from "../components/BrandLogo";
 
 /**
  * 登录页（shadcn 风格：居中卡片 + 品牌 + 账号密码）。
- * 背景：项目主题——「收盘手记」：细网格 + 品牌色光晕 + 抽象趋势线（明暗自适应）。
+ * 背景：项目主题——「财经信号」：细网格 + 品牌色光晕 + 抽象趋势线（明暗自适应）。
  * 登录成功后跳回 next 参数指定的页面（默认首页）。
  *
  * 桌面端首启（auth.db 无账号，/api/auth/me 返回 setupRequired）时切换为
@@ -93,7 +93,7 @@ export default function LoginPage() {
   return (
     <>
       <Head>
-        <title>{setupRequired ? "设置密码 · 收盘手记" : "登录 · 收盘手记"}</title>
+        <title>{setupRequired ? "设置密码 · 财经信号" : "登录 · 财经信号"}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="robots" content="noindex" />
       </Head>
@@ -112,7 +112,7 @@ export default function LoginPage() {
           <div className="flex flex-col items-center gap-3">
             <div className="flex items-center gap-2.5">
               <BrandLogo className="size-9" />
-              <span className="text-xl font-semibold tracking-tight">收盘手记</span>
+              <span className="text-xl font-semibold tracking-tight">财经信号</span>
             </div>
             <p className="text-center text-sm text-muted-foreground">
               个人收盘研究记录 · 数据先于判断，不构成投资建议

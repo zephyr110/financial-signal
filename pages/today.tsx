@@ -50,7 +50,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
     return (
       <>
         <Head>
-          <title>今日 · 收盘手记</title>
+          <title>今日 · 财经信号</title>
           <meta name="description" content="个人收盘研究简报" />
         </Head>
         <CockpitShell
@@ -87,7 +87,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
   return (
     <>
       <Head>
-        <title>今日 · 收盘手记</title>
+        <title>今日 · 财经信号</title>
         <meta name="description" content={`${payload.tradeDate} 收盘简报，个人研究用途，不构成投资建议`} />
       </Head>
       <CockpitShell

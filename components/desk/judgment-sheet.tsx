@@ -24,20 +24,20 @@ export function JudgmentSheet({
       <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
         {judgment && (
           <>
-            <SheetHeader className="shrink-0 border-b px-5 py-4">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>{judgment.kind === 'market' ? '市场判断' : judgment.industry || '行业判断'}</span>
+            <SheetHeader className="relative shrink-0 px-5 py-4 after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                <span className="tracking-wide">{judgment.kind === 'market' ? '市场判断' : judgment.industry || '行业判断'}</span>
                 <StanceBadge stance={judgment.stance} />
                 <ConfidenceBadge confidence={judgment.confidence} />
                 <span className="tabular-nums">评分 {judgment.score.toFixed(1)}</span>
               </div>
-              <SheetTitle className="pr-8 text-base leading-6">{judgment.headline}</SheetTitle>
-              <SheetDescription className="line-clamp-3">{judgment.summary}</SheetDescription>
+              <SheetTitle className="pr-8 text-[17px] font-semibold leading-6 tracking-tight">{judgment.headline}</SheetTitle>
+              <SheetDescription className="line-clamp-3 text-[13px] leading-5">{judgment.summary}</SheetDescription>
             </SheetHeader>
 
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
               <section className="space-y-2">
-                <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <h3 className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground">
                   <TrendingUp className="size-3.5" />核心驱动
                 </h3>
                 {judgment.drivers.length ? (
@@ -53,7 +53,7 @@ export function JudgmentSheet({
               </section>
 
               <section className="space-y-2">
-                <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <h3 className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground">
                   <AlertTriangle className="size-3.5" />主要风险
                 </h3>
                 {judgment.risks.length ? (
@@ -69,11 +69,11 @@ export function JudgmentSheet({
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-xs font-medium text-muted-foreground">证据（{judgment.evidence.length}）</h3>
+                <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground">证据（{judgment.evidence.length}）</h3>
                 {judgment.evidence.length ? (
-                  <ul className="divide-y rounded-lg border">
+                  <ul className="rounded-lg bg-muted/25">
                     {judgment.evidence.map((item) => (
-                      <li key={item.id} className="flex items-start justify-between gap-3 px-3 py-2 text-xs leading-5">
+                      <li key={item.id} className="relative flex items-start justify-between gap-3 px-3 py-2 text-xs leading-5 after:pointer-events-none after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
                         <div className="min-w-0">
                           <p className="truncate font-medium">{item.label}</p>
                           {item.value && <p className="line-clamp-2 text-muted-foreground">{item.value}</p>}
@@ -88,26 +88,26 @@ export function JudgmentSheet({
 
               {judgment.evaluations.length > 0 && (
                 <section className="space-y-2">
-                  <h3 className="text-xs font-medium text-muted-foreground">事后验证</h3>
-                  <div className="overflow-hidden rounded-lg border">
+                  <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground">事后验证</h3>
+                  <div className="overflow-hidden rounded-lg bg-muted/25">
                     <table className="w-full text-xs">
-                      <thead className="bg-muted/50 text-muted-foreground">
+                      <thead className="text-[11px] text-muted-foreground">
                         <tr>
-                          <th className="px-3 py-1.5 text-left font-medium">窗口</th>
-                          <th className="px-3 py-1.5 text-right font-medium">相对收益</th>
-                          <th className="px-3 py-1.5 text-right font-medium">基准</th>
-                          <th className="px-3 py-1.5 text-right font-medium">方向</th>
+                          <th className="px-3 py-2 text-left font-medium">窗口</th>
+                          <th className="px-3 py-2 text-right font-medium">相对收益</th>
+                          <th className="px-3 py-2 text-right font-medium">基准</th>
+                          <th className="px-3 py-2 text-right font-medium">方向</th>
                         </tr>
                       </thead>
                       <tbody>
                         {judgment.evaluations.map((evaluation) => (
-                          <tr key={`${evaluation.horizonDays}-${evaluation.evalDate}`} className="border-t">
-                            <td className="px-3 py-1.5">{evaluation.horizonDays} 日</td>
-                            <td className={`px-3 py-1.5 text-right tabular-nums ${(evaluation.returnPct ?? 0) >= 0 ? 'text-chart-3' : 'text-chart-2'}`}>
+                          <tr key={`${evaluation.horizonDays}-${evaluation.evalDate}`} className="border-t border-border/50">
+                            <td className="px-3 py-2">{evaluation.horizonDays} 日</td>
+                            <td className={`px-3 py-2 text-right tabular-nums ${(evaluation.returnPct ?? 0) >= 0 ? 'text-chart-3' : 'text-chart-2'}`}>
                               {pct(evaluation.returnPct)}
                             </td>
-                            <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{pct(evaluation.benchmarkPct)}</td>
-                            <td className="px-3 py-1.5 text-right">{evaluation.hit ? '命中' : '未中'}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{pct(evaluation.benchmarkPct)}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">{evaluation.hit ? '命中' : '未中'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -116,7 +116,7 @@ export function JudgmentSheet({
                 </section>
               )}
 
-              <div className="flex flex-wrap items-center gap-2 border-t pt-3 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                 <span>交易日 {judgment.tradeDate}</span>
                 <span>版本 v{judgment.version}</span>
                 <span>{judgment.status === 'open' ? '有效' : judgment.status === 'expired' ? '已过期' : '已被替代'}</span>
@@ -124,7 +124,7 @@ export function JudgmentSheet({
               </div>
             </div>
 
-            <div className="shrink-0 border-t px-5 py-3">
+            <div className="relative shrink-0 px-5 py-3 before:pointer-events-none before:absolute before:inset-x-5 before:top-0 before:h-px before:bg-border/60 before:content-['']">
               <Button size="sm" onClick={() => onDeepDive(judgment)}>
                 <FileSearch className="size-4" />深挖该判断
               </Button>

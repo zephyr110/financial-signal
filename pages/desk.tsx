@@ -87,7 +87,7 @@ function changeClass(value?: number | null) {
 
 function OverseasRow({ quote }: { quote: OverseasQuoteView }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-xs last:border-0">
+    <div className="relative flex items-center justify-between gap-2 px-4 py-2 text-xs after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
       <div className="min-w-0">
         <p className="truncate font-medium">{OVERSEAS_NAME[quote.symbol] || quote.symbol}</p>
         {/* 相对时间随渲染时刻变化，SSR 与 hydration 必然不同 */}
@@ -200,7 +200,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
   return (
     <>
       <Head>
-        <title>投研驾驶舱 · 收盘手记</title>
+        <title>投研驾驶舱 · 财经信号</title>
         <meta name="description" content="市场判断、行业台账、风险预警与深挖结论，一屏完成盘前决策" />
       </Head>
       <AppShell
@@ -263,14 +263,14 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                     <button
                       type="button"
                       onClick={() => setJudgmentTarget(snapshot.market)}
-                      className="w-full border-b px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/60 focus-visible:outline-none"
+                      className="w-full px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/60 focus-visible:outline-none"
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <StanceBadge stance={snapshot.market.stance} />
                         <ConfidenceBadge confidence={snapshot.market.confidence} />
                         <span className="text-xs tabular-nums text-muted-foreground">评分 {snapshot.market.score.toFixed(1)}</span>
                       </div>
-                      <p className="mt-2 text-sm font-medium leading-5">{snapshot.market.headline}</p>
+                      <p className="mt-2 text-[13px] font-semibold leading-5 tracking-tight">{snapshot.market.headline}</p>
                       <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">{snapshot.market.summary}</p>
                       {snapshot.market.drivers.length > 0 && (
                         <ul className="mt-2 space-y-0.5">

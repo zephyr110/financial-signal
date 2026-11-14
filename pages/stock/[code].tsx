@@ -51,7 +51,7 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
     return (
       <>
         <Head>
-          <title>个股证据 · 收盘手记</title>
+          <title>个股证据 · 财经信号</title>
         </Head>
         <CockpitShell
           title="个股证据"
@@ -87,7 +87,7 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
   return (
     <>
       <Head>
-        <title>{detail.name} · 收盘手记</title>
+        <title>{detail.name} · 财经信号</title>
         <meta name="description" content={`${detail.name} ${detail.code} 个股证据与研究论点`} />
       </Head>
       <CockpitShell

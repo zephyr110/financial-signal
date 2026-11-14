@@ -42,8 +42,8 @@ export default function TasksPage({ tasks, latest, sourceHealth, loadError }: Ta
   return (
     <>
       <Head>
-        <title>任务中心 · 收盘手记</title>
-        <meta name="description" content="收盘手记的后台任务队列" />
+        <title>任务中心 · 财经信号</title>
+        <meta name="description" content="财经信号的后台任务队列" />
       </Head>
       <CockpitShell
         title="任务中心"

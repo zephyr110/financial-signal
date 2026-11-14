@@ -50,7 +50,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
   return (
     <>
       <Head>
-        <title>持仓 · 收盘手记</title>
+        <title>持仓 · 财经信号</title>
         <meta name="description" content="个人持仓市值、暴露与风险约束" />
       </Head>
       <CockpitShell

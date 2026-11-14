@@ -1,5 +1,6 @@
 import { getDb } from '../db'
 import { getSourceHealth } from '../cockpit/repo'
+import { personalIndustrySets } from './personal'
 import type {
   AlertView,
   DeskEvidence,
@@ -174,13 +175,13 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
     }
   }
 
-  const [marketRes, industryRes, alertRes] = await Promise.all([
+  const [marketRes, industryRes, alertRes, personal] = await Promise.all([
     db.execute({
       sql: "SELECT * FROM judgments WHERE trade_date = ? AND kind = 'market' AND status = 'open' ORDER BY version DESC LIMIT 1",
       args: [date],
     }),
     db.execute({
-      sql: "SELECT * FROM judgments WHERE trade_date = ? AND kind = 'industry' AND status = 'open' ORDER BY ABS(score) DESC LIMIT 3",
+      sql: "SELECT * FROM judgments WHERE trade_date = ? AND kind = 'industry' AND status = 'open' ORDER BY ABS(score) DESC LIMIT 80",
       args: [date],
     }),
     db.execute({
@@ -190,6 +191,7 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
             LIMIT 6`,
       args: [date],
     }),
+    personalIndustrySets(),
   ])
   const judgmentRows = [
     ...(marketRes.rows as unknown as Row[]),
@@ -197,7 +199,23 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
   ]
   const judgments = await withEvidence(judgmentRows)
   const market = judgments.find((judgment) => judgment.kind === 'market') || null
-  const industries = judgments.filter((judgment) => judgment.kind === 'industry')
+  // 持仓行业置顶、其次自选，其余按判断强度排序
+  const relationRank = (judgment: JudgmentView): number => {
+    if (judgment.industry && personal.holdings.has(judgment.industry)) return 0
+    if (judgment.industry && personal.watchlist.has(judgment.industry)) return 1
+    return 2
+  }
+  const industries = judgments
+    .filter((judgment) => judgment.kind === 'industry')
+    .map((judgment) => ({
+      ...judgment,
+      relation: judgment.industry && personal.holdings.has(judgment.industry)
+        ? 'holding' as const
+        : judgment.industry && personal.watchlist.has(judgment.industry)
+          ? 'watch' as const
+          : undefined,
+    }))
+    .sort((a, b) => relationRank(a) - relationRank(b) || Math.abs(b.score) - Math.abs(a.score))
   const alerts = (alertRes.rows as unknown as Row[]).map(alertFromRow)
   const generatedAt = judgments.reduce((latest, judgment) => judgment.computedAt > latest ? judgment.computedAt : latest, '')
   return {

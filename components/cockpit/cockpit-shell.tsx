@@ -8,7 +8,7 @@ import { BriefQualityList, DemoBanner, Disclosure, SourceHealthRail } from './bi
 
 
 /**
- * 收盘手记页面容器：共用 AppShell / 侧栏 / 顶栏 / 移动底栏，
+ * 财经信号页面容器：共用 AppShell / 侧栏 / 顶栏 / 移动底栏，
  * 这里只保留驾驶舱的页头、来源状态与页脚。
  */
 export function CockpitShell({
@@ -82,7 +82,7 @@ export function CockpitShell({
                 </Link>
               </Disclosure>
               <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
-                <span>收盘手记 · 个人研究记录，不构成投资建议。</span>
+                <span>财经信号 · 个人研究记录，不构成投资建议。</span>
                 <span>数据先于判断。</span>
               </div>
             </footer>

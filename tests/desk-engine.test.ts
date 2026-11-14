@@ -29,27 +29,30 @@ describe('desk deterministic engine', () => {
     await demo.ensureCockpitDemoSeed()
   })
 
-  it('从示例行情生成 3 条行业判断与市场判断', async () => {
+  it('从示例行情生成全部行业判断与市场判断', async () => {
     const result = await engine.refreshDesk({
       tradeDate: demo.DEMO_TRADE_DATE,
       fetchImpl: failingFetch,
     })
     expect(result.tradeDate).toBe(demo.DEMO_TRADE_DATE)
-    expect(result.industries).toBeGreaterThanOrEqual(3)
-    expect(result.judgments).toBe(4)
+    expect(result.industries).toBe(4)
+    expect(result.judgments).toBe(5)
     expect(result.isDemo).toBe(true)
 
     const snapshot = await repo.getDeskSnapshot(demo.DEMO_TRADE_DATE)
     expect(snapshot.market?.kind).toBe('market')
-    expect(snapshot.industries).toHaveLength(3)
+    expect(snapshot.industries).toHaveLength(4)
     expect(snapshot.industries.every((judgment) => judgment.industry !== '指数')).toBe(true)
+    // 持仓相关行业置顶，其余行业按判断强度排列
+    expect(snapshot.industries.slice(0, 2).every((judgment) => judgment.relation === 'holding')).toBe(true)
+    expect(snapshot.industries.every((judgment) => judgment.relation != null)).toBe(true)
     expect(snapshot.market?.evidence.length).toBeGreaterThan(0)
     expect(snapshot.industries.every((judgment) => judgment.drivers.length > 0)).toBe(true)
     expect(snapshot.overseas).toEqual([])
     expect(snapshot.dataQuality.length).toBeGreaterThan(0)
   })
 
-  it('重复刷新不重复堆预警，判断仍为同一天 4 条', async () => {
+  it('重复刷新不重复堆预警，判断仍为同一天 5 条', async () => {
     const first = await repo.listAlerts({ limit: 100 })
     const result = await engine.refreshDesk({
       tradeDate: demo.DEMO_TRADE_DATE,
@@ -59,14 +62,14 @@ describe('desk deterministic engine', () => {
     const second = await repo.listAlerts({ limit: 100 })
     expect(second.length).toBe(first.length)
     const snapshot = await repo.getDeskSnapshot(demo.DEMO_TRADE_DATE)
-    expect(snapshot.industries).toHaveLength(3)
+    expect(snapshot.industries).toHaveLength(4)
 
     const db = await dbModule.getDb()
     const rows = await db.execute({
       sql: "SELECT COUNT(*) AS n FROM judgments WHERE trade_date = ? AND status = 'open'",
       args: [demo.DEMO_TRADE_DATE],
     })
-    expect(Number(rows.rows[0]?.n)).toBe(4)
+    expect(Number(rows.rows[0]?.n)).toBe(5)
   })
 
   it('预警可确认，状态与台账可读', async () => {
@@ -76,14 +79,14 @@ describe('desk deterministic engine', () => {
     expect(acknowledged?.status).toBe('acknowledged')
 
     const ledger = await repo.listJudgments({ limit: 10 })
-    expect(ledger.total).toBe(4)
+    expect(ledger.total).toBe(5)
     expect(ledger.items.every((judgment) => judgment.tradeDate === demo.DEMO_TRADE_DATE)).toBe(true)
     expect(ledger.items.some((judgment) => judgment.kind === 'market')).toBe(true)
 
     const status = await repo.getDeskStatus()
     expect(status.hasSnapshot).toBe(true)
     expect(status.tradeDate).toBe(demo.DEMO_TRADE_DATE)
-    expect(status.judgments).toBe(4)
+    expect(status.judgments).toBe(5)
     expect(status.isDemo).toBe(true)
   })
 
