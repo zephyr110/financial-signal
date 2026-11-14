@@ -107,6 +107,20 @@ describe('desk investigation', () => {
     expect(items.filter((item) => item.alertId === alertId && item.status === 'succeeded')).toHaveLength(1)
   })
 
+  it('自动深挖按刷新交易日去重，服务端按 alertId 精确查找', async () => {
+    const first = await inv.createInvestigation({ alertId, manual: false, dedupeDate: '2026-01-05' })
+    expect(first.created).toBe(true)
+    const sameDay = await inv.createInvestigation({ alertId, manual: false, dedupeDate: '2026-01-05' })
+    expect(sameDay.created).toBe(false)
+    expect(sameDay.investigation.id).toBe(first.investigation.id)
+    const nextDay = await inv.createInvestigation({ alertId, manual: false, dedupeDate: '2026-01-06' })
+    expect(nextDay.created).toBe(true)
+
+    const found = await inv.listInvestigations({ alertId, limit: 1 })
+    expect(found).toHaveLength(1)
+    expect(found[0].alertId).toBe(alertId)
+  })
+
   it('有 LLM 时按预算调用只读工具，工具引用进入结论', async () => {
     mock.state.apiKey = 'test-key'
     mock.state.replies = [

@@ -5,7 +5,7 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
 import { createNotification } from '../cockpit/notifications'
-import { enqueueTask, scheduleTaskDrain } from '../cockpit/tasks'
+import { enqueueTask, scheduleTaskDrain, TASK_TYPES } from '../cockpit/tasks'
 import type { TaskType } from '../cockpit/types'
 import { upsertAgentMemory, type MemoryScope } from './memory'
 import { addProjectItem, type ProjectItemKind } from './projects'
@@ -30,15 +30,6 @@ export interface AgentActionView {
 type Row = Record<string, unknown>
 
 const ACTION_TYPES: AgentActionType[] = ['watch_event', 'create_task', 'pin_project', 'save_memory']
-const TASK_TYPES: TaskType[] = [
-  'daily_brief',
-  'thesis_review',
-  'weekly_review',
-  'symbol_deep_dive',
-  'market_ingest',
-  'desk_tick',
-  'desk_investigation',
-]
 const MEMORY_SCOPES: MemoryScope[] = ['user', 'project', 'industry', 'symbol']
 const PROJECT_KINDS: ProjectItemKind[] = ['note', 'evidence', 'judgment', 'document', 'symbol']
 const ACTION_TTL_HOURS = 24

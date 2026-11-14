@@ -9,7 +9,7 @@ import { ingestTushare } from './sources/tushare'
 import { ingestAkshare } from './sources/akshare'
 import { ingestOfficialDocuments } from './sources/official'
 import { refreshDesk } from '../desk/engine'
-import { queueAutoInvestigations, runInvestigation } from '../desk/investigation'
+import { listInvestigations, queueAutoInvestigations, runInvestigation } from '../desk/investigation'
 import type { TaskEvent, TaskLane, TaskRecord, TaskStatus, TaskType } from './types'
 
 export const TASK_TYPES: TaskType[] = [
@@ -171,11 +171,8 @@ export async function enqueueTask(input: {
 }): Promise<TaskRecord> {
   if (!TASK_TYPES.includes(input.type)) throw new Error(`未知任务类型: ${input.type}`)
   const params = input.params && typeof input.params === 'object' ? input.params : {}
-  const lane: TaskLane = params.lane === 'core'
-    ? 'core'
-    : params.lane === 'interactive'
-      ? 'interactive'
-      : INTERACTIVE_TYPES.has(input.type) ? 'interactive' : 'core'
+  // lane 只由任务类型决定；即使调用方透传 params.lane 也不能改变调度通道。
+  const lane: TaskLane = INTERACTIVE_TYPES.has(input.type) ? 'interactive' : 'core'
   const force = params.force === true
   const paramDate = typeof params.tradeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.tradeDate)
     ? params.tradeDate
@@ -494,7 +491,13 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       for (const investigationId of autoIds) {
         await enqueueTask({ type: 'desk_investigation', params: { investigationId } })
       }
-      if (autoIds.length) scheduleTaskDrain()
+      // 入队失败或进程中断会让调查停在 queued，刷新时补建任务（幂等键保证不重复）。
+      const pending = await listInvestigations({ status: 'queued', limit: 50 })
+      for (const item of pending) {
+        if (autoIds.includes(item.id)) continue
+        await enqueueTask({ type: 'desk_investigation', params: { investigationId: item.id } })
+      }
+      if (autoIds.length || pending.length) scheduleTaskDrain()
       return { ...result, autoInvestigations: autoIds.length }
     }
     case 'desk_investigation': {

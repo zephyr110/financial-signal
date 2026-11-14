@@ -15,7 +15,10 @@ const notifyMock = vi.hoisted(() => ({
   createNotification: vi.fn(async () => ({ id: 'notice-1' })),
 }))
 
-vi.mock('../lib/cockpit/tasks', () => tasksMock)
+vi.mock('../lib/cockpit/tasks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/cockpit/tasks')>()
+  return { ...actual, enqueueTask: tasksMock.enqueueTask, scheduleTaskDrain: tasksMock.scheduleTaskDrain }
+})
 vi.mock('../lib/cockpit/notifications', () => notifyMock)
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-memory-projects-test-'))
@@ -166,6 +169,10 @@ describe('agent memory & projects & safe actions', () => {
 
     expect(() => actions.validateActionPayload('create_task', { type: 'rm -rf /' })).toThrow('白名单')
     expect(() => actions.validateActionPayload('pin_project', { projectId: 'p1', kind: 'note' })).toThrow('refId')
+    const ask = actions.validateActionPayload('create_task', { type: 'ask', params: { question: '今日主线是什么' } })
+    expect(ask.type).toBe('ask')
+    expect(() => actions.validateActionPayload('create_task', { type: 'ask', params: {} })).toThrow('question')
+    expect(() => actions.validateActionPayload('create_task', { type: 'desk_investigation', params: {} })).toThrow('investigationId')
   })
 
   it('确认任务调度、关注通知与项目条目动作', async () => {

@@ -4,6 +4,7 @@ import { dateShanghai, formatTime } from '../cockpit/format'
 import type { IndustryDailyView, DeskEvidence, DeskRefreshResult, DeskSeverity } from './types'
 import { personalIndustrySet } from './personal'
 import { refreshOverseasQuotes } from './overseas'
+import { getOverseasQuotes } from './repo'
 
 type Row = Record<string, unknown>
 
@@ -444,7 +445,7 @@ interface MarketInputs {
 
 async function loadMarketInputs(tradeDate: string): Promise<MarketInputs> {
   const db = await getDb()
-  const [overviewRes, indexRes, overseasRes] = await Promise.all([
+  const [overviewRes, indexRes, overseas] = await Promise.all([
     db.execute({ sql: 'SELECT * FROM market_overview WHERE trade_date = ?', args: [tradeDate] }),
     db.execute({
       sql: `SELECT code, trade_date, close FROM market_bars
@@ -453,14 +454,7 @@ async function loadMarketInputs(tradeDate: string): Promise<MarketInputs> {
             ORDER BY code, trade_date DESC`,
       args: [...INDEX_CODES, tradeDate, tradeDate],
     }),
-    db.execute({
-      // 每个 symbol 先取最新一行再截断；先 LIMIT 会让历史累积后排在末尾的指数整段消失。
-      sql: `SELECT * FROM (
-              SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_time DESC) AS rn
-              FROM overseas_quotes
-            ) WHERE rn = 1`,
-      args: [],
-    }),
+    getOverseasQuotes(),
   ])
 
   const row = overviewRes.rows[0] as unknown as Row | undefined
@@ -488,24 +482,6 @@ async function loadMarketInputs(tradeDate: string): Promise<MarketInputs> {
     const close = num(list[0].close)
     const prev = num(list[1].close)
     if (prev > 0) indexChanges.push(((close - prev) / prev) * 100)
-  }
-
-  const seen = new Set<string>()
-  const overseas = []
-  for (const quoteRow of overseasRes.rows as unknown as Row[]) {
-    const symbol = str(quoteRow.symbol)
-    if (!symbol || seen.has(symbol)) continue
-    seen.add(symbol)
-    overseas.push({
-      symbol,
-      price: num(quoteRow.price),
-      previousClose: quoteRow.previous_close == null ? undefined : num(quoteRow.previous_close),
-      changePct: quoteRow.change_pct == null ? undefined : num(quoteRow.change_pct),
-      tradeTime: str(quoteRow.trade_time),
-      sourceId: str(quoteRow.source_id),
-      delayMinutes: quoteRow.delay_minutes == null ? undefined : num(quoteRow.delay_minutes),
-      fetchedAt: str(quoteRow.fetched_at),
-    })
   }
 
   return {
