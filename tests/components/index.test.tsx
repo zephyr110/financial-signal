@@ -64,7 +64,7 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
   it('getInfo imported=false 时渲染欢迎页(导入入口)', async () => {
     desktopMock.getInfo.mockResolvedValue({ imported: false })
     render(<Home {...baseProps} />)
-    expect(await screen.findByText(/欢迎使用收盘手记/)).toBeTruthy()
+    expect(await screen.findByText(/欢迎使用财经信号/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /导入已有数据库/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /全新开始/i })).toBeTruthy()
   })
@@ -73,7 +73,7 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
     desktopMock.getInfo.mockResolvedValue({ imported: true })
     render(<Home {...baseProps} />)
     await waitFor(() => expect(desktopMock.getInfo).toHaveBeenCalled())
-    expect(screen.queryByText(/欢迎使用收盘手记/)).toBeNull()
+    expect(screen.queryByText(/欢迎使用财经信号/)).toBeNull()
     expect(screen.getByText(/7×24 全球快讯/)).toBeTruthy()
   })
 
@@ -82,13 +82,13 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
     render(<Home {...baseProps} />)
     // 等自动刷新 effect 跑完,确认没有误依赖 getInfo 渲染欢迎页
     await waitFor(() => expect(global.fetch).toHaveBeenCalled())
-    expect(screen.queryByText(/欢迎使用收盘手记/)).toBeNull()
+    expect(screen.queryByText(/欢迎使用财经信号/)).toBeNull()
   })
 
   it('imported=false 时挂载期不拉取 /api/news(防服务端 getDb 抢先建库)', async () => {
     desktopMock.getInfo.mockResolvedValue({ imported: false })
     render(<Home {...baseProps} />)
-    await screen.findByText(/欢迎使用收盘手记/)
+    await screen.findByText(/欢迎使用财经信号/)
     // 欢迎页展示全程不应请求 /api/news(AppShell 的 /api/auth/me 属布局,与数据
     // 拉取无关):getInfo 判定完成前不发请求,判定 imported=false 后自动刷新
     // effect 直接 return——杜绝 server 侧 getDb() 抢先建库
@@ -100,31 +100,31 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
     desktopMock.getInfo.mockResolvedValue({ imported: false })
     desktopMock.createFreshDb.mockResolvedValue({ ok: true })
     render(<Home {...baseProps} />)
-    await screen.findByText(/欢迎使用收盘手记/)
+    await screen.findByText(/欢迎使用财经信号/)
     fireEvent.click(screen.getByRole('button', { name: /全新开始/i }))
     await waitFor(() => expect(desktopMock.createFreshDb).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(screen.queryByText(/欢迎使用收盘手记/)).toBeNull())
+    await waitFor(() => expect(screen.queryByText(/欢迎使用财经信号/)).toBeNull())
   })
 
   it('导入取消({ok:false, canceled:true})不显示错误、欢迎页保留', async () => {
     desktopMock.getInfo.mockResolvedValue({ imported: false })
     desktopMock.selectAndImportDb.mockResolvedValue({ ok: false, canceled: true })
     render(<Home {...baseProps} />)
-    await screen.findByText(/欢迎使用收盘手记/)
+    await screen.findByText(/欢迎使用财经信号/)
     fireEvent.click(screen.getByRole('button', { name: /导入已有数据库/i }))
     await waitFor(() => expect(desktopMock.selectAndImportDb).toHaveBeenCalledTimes(1))
     expect(screen.queryByText(/导入失败/)).toBeNull()
-    expect(screen.getByText(/欢迎使用收盘手记/)).toBeTruthy()
+    expect(screen.getByText(/欢迎使用财经信号/)).toBeTruthy()
   })
 
   it('导入失败时显示错误信息、欢迎页保留', async () => {
     desktopMock.getInfo.mockResolvedValue({ imported: false })
     desktopMock.selectAndImportDb.mockResolvedValue({ ok: false, error: '文件格式不正确' })
     render(<Home {...baseProps} />)
-    await screen.findByText(/欢迎使用收盘手记/)
+    await screen.findByText(/欢迎使用财经信号/)
     fireEvent.click(screen.getByRole('button', { name: /导入已有数据库/i }))
     expect(await screen.findByText(/文件格式不正确/)).toBeTruthy()
-    expect(screen.getByText(/欢迎使用收盘手记/)).toBeTruthy()
+    expect(screen.getByText(/欢迎使用财经信号/)).toBeTruthy()
   })
 
   it('getInfo 失败(IPC 异常)→ 按未导入处理渲染欢迎页,不拉取数据', async () => {
@@ -132,7 +132,7 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
     render(<Home {...baseProps} />)
     // 判定失败不能放行自动刷新:/api/news 会触发 server 侧 getDb() 抢先建出空库,
     // 下次启动 imported 恒 true → 欢迎页永远不再出现
-    expect(await screen.findByText(/欢迎使用收盘手记/)).toBeTruthy()
+    expect(await screen.findByText(/欢迎使用财经信号/)).toBeTruthy()
     expect(global.fetch).not.toHaveBeenCalledWith('/api/news', expect.anything())
   })
 
@@ -140,10 +140,10 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
     desktopMock.getInfo.mockResolvedValue({ imported: false })
     desktopMock.selectAndImportDb.mockRejectedValue(new Error('ipc died'))
     render(<Home {...baseProps} />)
-    await screen.findByText(/欢迎使用收盘手记/)
+    await screen.findByText(/欢迎使用财经信号/)
     fireEvent.click(screen.getByRole('button', { name: /导入已有数据库/i }))
     expect(await screen.findByText(/导入失败/)).toBeTruthy()
-    expect(screen.getByText(/欢迎使用收盘手记/)).toBeTruthy()
+    expect(screen.getByText(/欢迎使用财经信号/)).toBeTruthy()
     // finally 复位 importing:按钮不再卡在"导入中…"
     expect(screen.getByRole('button', { name: /导入已有数据库/i })).not.toBeDisabled()
   })

@@ -4,7 +4,7 @@ import { getSessionUser, SESSION_COOKIE } from './lib/auth';
 
 /**
  * 登录门卫：除公开路径外一律校验会话 cookie。
- * 公开路径：登录页、认证 API、健康探活、RSS、事件埋点、会话分享（公开只读链接）、
+ * 公开路径：登录页、认证 API、健康探活、RSS、事件埋点、会话分享读取（公开只读链接）、
  * cron 接口（机器调用，以 CRON_SECRET 鉴权，不走浏览器会话）。
  * 页面未登录 → 302 到 /login?next=<原路径>；API 未登录 → 401。
  */
@@ -18,7 +18,7 @@ export const config = {
 const STATIC_EXT_RE = /\.(?:png|svg|jpg|jpeg|gif|webp|ico|css|woff2?|js|json|txt|pdf|mp4|webm)$/i;
 
 const PUBLIC_PAGE = ['/login'];
-const PUBLIC_API = ['/api/auth/', '/api/health', '/api/rss', '/api/events', '/api/agent-share', '/api/cron/'];
+const PUBLIC_API = ['/api/auth/', '/api/health', '/api/rss', '/api/events', '/api/cron/'];
 const PUBLIC_PREFIX = ['/agent/s/'];
 
 export default async function proxy(req: NextRequest) {
@@ -39,6 +39,8 @@ export default async function proxy(req: NextRequest) {
 
   if (STATIC_EXT_RE.test(pathname)) return NextResponse.next();
   if (PUBLIC_PREFIX.some((p) => pathname.startsWith(p))) return NextResponse.next();
+  // 分享链接只读公开；创建/撤销必须登录，否则任何人都能给任意会话生成公开地址。
+  if (pathname === '/api/agent-share' && req.method === 'GET') return NextResponse.next();
   if (PUBLIC_PAGE.includes(pathname) || PUBLIC_API.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;

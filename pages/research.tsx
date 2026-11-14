@@ -88,7 +88,7 @@ export default function ResearchPage({
   return (
     <>
       <Head>
-        <title>研究笔记 · 收盘手记</title>
+        <title>研究笔记 · 财经信号</title>
         <meta name="description" content="投资论点、失效条件与个人研究日志" />
       </Head>
       <CockpitShell

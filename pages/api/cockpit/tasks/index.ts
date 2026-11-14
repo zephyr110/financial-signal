@@ -3,12 +3,14 @@ import {
   buildMeta,
   ensureMethod,
   ensureSameOrigin,
+  queryInt,
   queryString,
   sendData,
   sendError,
 } from '../../../../lib/cockpit/api'
 import {
   enqueueTask,
+  getTask,
   listActiveTasks,
   listTasks,
   scheduleTaskDrain,
@@ -27,6 +29,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!ensureMethod(req, res, ['GET', 'POST'])) return
   try {
     if (req.method === 'GET') {
+      const id = queryString(req.query.id)
+      if (id) {
+        const task = await getTask(id)
+        if (!task) return sendError(req, res, 404, 'TASK_NOT_FOUND', '任务不存在')
+        return sendData(res, task, await buildMeta())
+      }
       // 轮询只需要活跃任务；完整列表留给页面首屏和任务结束时拉取。
       if (queryString(req.query.active) === '1') {
         const active = await listActiveTasks()
@@ -35,8 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (active.some((task) => task.status === 'queued')) scheduleTaskDrain(0)
         return
       }
-      const limit = Number(queryString(req.query.limit) || 50)
-      return sendData(res, await listTasks(Number.isFinite(limit) ? limit : 50), await buildMeta())
+      return sendData(res, await listTasks(queryInt(req.query.limit, 50, 1, 200)), await buildMeta())
     }
 
     if (!ensureSameOrigin(req)) {
@@ -47,9 +54,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!TASK_TYPES.includes(type as TaskType)) {
       return sendError(req, res, 400, 'INVALID_TASK_TYPE', '任务类型无效', { allowed: TASK_TYPES })
     }
+    // lane 由 TASK_TYPES 决定，客户端传什么都不能改变调度通道。
     const params = body.params && typeof body.params === 'object' && !Array.isArray(body.params)
-      ? body.params as Record<string, unknown>
+      ? { ...body.params as Record<string, unknown> }
       : {}
+    delete params.lane
     if (JSON.stringify(params).length > 8192) {
       return sendError(req, res, 400, 'PARAMS_TOO_LARGE', '任务参数超过 8KB')
     }

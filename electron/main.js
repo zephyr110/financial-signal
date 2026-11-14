@@ -73,7 +73,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
-    title: '收盘手记',
+    title: '财经信号',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

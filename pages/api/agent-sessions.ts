@@ -1,4 +1,11 @@
-import { listAgentSessions, getAgentMessages, deleteAgentSession, renameAgentSession, agentSessionExists } from '../../lib/db';
+import {
+  listAgentSessionsPage,
+  getAgentMessages,
+  deleteAgentSession,
+  renameAgentSession,
+  agentSessionExists,
+  listAgentTurns,
+} from '../../lib/db';
 import { isLocalOrigin } from '../../lib/cronAuth';
 
 const SESSION_TITLE_MAX = 120;
@@ -21,8 +28,8 @@ function parseSessionId(id: unknown): number | null {
 /**
  * 研究 Agent — 会话历史 API
  *
- * GET /api/agent-sessions          → 会话列表 [{ id, title, created_at, updated_at }]
- * GET /api/agent-sessions?id=N     → 会话全部消息 [{ id, role, content, meta, created_at }]
+ * GET /api/agent-sessions?q=&limit=&offset= → 会话分页搜索 { sessions, total }
+ * GET /api/agent-sessions?id=N     → 会话全部消息 [{ id, role, content, meta, created_at }] + turns（反馈/成本）
  * PATCH /api/agent-sessions?id=N   → 重命名 { title }
  * DELETE /api/agent-sessions?id=N  → 删除会话及其消息
  *
@@ -80,8 +87,8 @@ export default async function handler(req, res) {
       // 会话不存在返回 404：前端据此清理 localStorage 里残留的失效 sessionId
       const exists = await agentSessionExists(sid);
       if (!exists) return res.status(404).json({ error: '会话不存在', sessionId: sid });
-      const messages = await getAgentMessages(sid);
-      return res.status(200).json({ sessionId: sid, messages });
+      const [messages, turns] = await Promise.all([getAgentMessages(sid), listAgentTurns(sid, 50)]);
+      return res.status(200).json({ sessionId: sid, messages, turns });
     } catch (error) {
       console.error('[api/agent-sessions] GET detail error:', error);
       return res.status(500).json({ error: '会话加载失败，请稍后重试' });
@@ -89,8 +96,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const sessions = await listAgentSessions(50);
-    return res.status(200).json({ sessions });
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
+    const page = await listAgentSessionsPage({ limit, offset, query: q });
+    return res.status(200).json({ ...page, limit, offset, q });
   } catch (error) {
     console.error('[api/agent-sessions] GET list error:', error);
     return res.status(500).json({ error: '会话列表加载失败，请稍后重试' });

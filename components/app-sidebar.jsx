@@ -50,28 +50,35 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader className="group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:py-2">
+      <SidebarHeader className="px-2 pb-1 pt-3 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:py-2">
         <SidebarMenu className={SIDEBAR_ICON_RAIL_MENU}>
           <SidebarMenuItem className={SIDEBAR_FOOTER_ICON_ITEM}>
             <SidebarMenuButton
               size="lg"
-              tooltip="收盘手记"
-              className={SIDEBAR_FOOTER_ICON_BTN}
-              render={<Link href="/today" aria-label="收盘手记" className="no-underline" />}
+              tooltip="财经信号"
+              className="h-auto min-h-12 gap-2.5 rounded-lg px-2 py-1.5 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:items-center"
+              render={<Link href="/today" aria-label="财经信号" className="no-underline" />}
             >
               <BrandLogo className="size-7 group-data-[collapsible=icon]:size-6" />
-              <span className="truncate text-base font-semibold tracking-tight text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-                收盘手记
+              <span className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
+                <span className="truncate text-[15px] font-semibold leading-5 tracking-tight text-sidebar-foreground">
+                  财经信号
+                </span>
+                <span className="truncate text-[10px] font-medium uppercase leading-3 tracking-[0.16em] text-sidebar-foreground/45">
+                  Financial Signal
+                </span>
               </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent className="gap-1">
+      <SidebarContent className="gap-0">
         {SIDEBAR_GROUPS.map((group) => (
-          <SidebarGroup className="gap-1" key={group.label}>
-            <SidebarGroupLabel className="mb-1">{group.label}</SidebarGroupLabel>
+          <SidebarGroup className="gap-1 px-2 pb-1 pt-3 first:pt-1" key={group.label}>
+            <SidebarGroupLabel className="mb-0.5 h-6 px-2 text-[11px] font-medium tracking-wide text-sidebar-foreground/55">
+              {group.label}
+            </SidebarGroupLabel>
             <SidebarMenu className="gap-0.5">
               {group.items.map((item) => {
                 const active = item.match(router.pathname);
@@ -90,7 +97,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
                       isActive={active}
                       tooltip={item.label}
                       onClick={closeOnMobile}
-                      className="py-2.5 data-active:!bg-sidebar-primary/10 data-active:!text-sidebar-primary"
+                      className="h-9 gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-150 hover:bg-sidebar-accent/70 data-active:!bg-sidebar-primary/10 data-active:!text-sidebar-primary"
                     >
                       <item.icon />
                       <span>{item.label}</span>
@@ -106,7 +113,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
       </SidebarContent>
 
       <SidebarFooter className="gap-0 border-t-0 p-0">
-        <SidebarMenu className={cn("gap-1 px-2 py-2", SIDEBAR_ICON_RAIL_MENU, "group-data-[collapsible=icon]:gap-1")}>
+        <SidebarMenu className={cn("gap-1 px-2 pb-3 pt-2", SIDEBAR_ICON_RAIL_MENU, "group-data-[collapsible=icon]:gap-1")}>
           <SidebarMenuItem className={SIDEBAR_FOOTER_ICON_ITEM}>
             {/* 应用级设置常驻入口(头像菜单外的第二入口已在菜单内移除) */}
             <SidebarMenuButton

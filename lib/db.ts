@@ -1,4 +1,5 @@
 import { createClient } from '@libsql/client';
+import type { Client, InStatement, Transaction, TransactionMode } from '@libsql/client';
 import { industryDisplayName } from './constants';
 import { cachedRead, readCacheKey, READ_CACHE_TTL, clearReadCache } from './read-cache';
 import crypto from 'crypto';
@@ -36,12 +37,94 @@ function isTursoConfig(): boolean {
   return !resolveClientConfig().url.startsWith('file:');
 }
 
-let client;
+/**
+ * 本地 SQLite 同一文件不支持并发写事务；任务的两个 lane 会并行执行，
+ * 因此所有 DB 操作按进程串行排队（事务持有到 commit/rollback）。
+ * Turso 走 HTTP，事务彼此独立，不需要这把锁。
+ */
+class DbOperationQueue {
+  private tail: Promise<void> = Promise.resolve();
+
+  async acquire(): Promise<() => void> {
+    const before = this.tail;
+    let release!: () => void;
+    this.tail = new Promise<void>((resolve) => { release = resolve; });
+    await before;
+    return release;
+  }
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    const release = await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+}
+
+function createGuardedClient(raw: Client): Client {
+  const queue = new DbOperationQueue();
+  let closed = false;
+
+  const guarded = {
+    execute: ((stmt: InStatement | string, args?: unknown) => {
+      if (typeof stmt === 'string') {
+        return queue.run(() => raw.execute(stmt, args as Parameters<Client['execute']>[1]));
+      }
+      return queue.run(() => raw.execute(stmt));
+    }) as Client['execute'],
+    batch: ((stmts: Parameters<Client['batch']>[0], mode?: Parameters<Client['batch']>[1]) =>
+      queue.run(() => raw.batch(stmts, mode))) as Client['batch'],
+    executeMultiple: (sql: string) => queue.run(() => raw.executeMultiple(sql)),
+    sync: () => queue.run(() => raw.sync()),
+    async transaction(mode?: TransactionMode): Promise<Transaction> {
+      const release = await queue.acquire();
+      let tx: Transaction;
+      try {
+        tx = await raw.transaction(mode);
+      } catch (err) {
+        release();
+        throw err;
+      }
+      return {
+        execute: (stmt) => tx.execute(stmt),
+        batch: (stmts) => tx.batch(stmts),
+        executeMultiple: (sql) => tx.executeMultiple(sql),
+        commit: async () => {
+          try { await tx.commit(); } finally { release(); }
+        },
+        rollback: async () => {
+          try { await tx.rollback(); } finally { release(); }
+        },
+        close: () => {
+          try { tx.close(); } finally { release(); }
+        },
+        get closed() { return tx.closed; },
+      };
+    },
+    close: () => {
+      closed = true;
+      raw.close();
+    },
+    reconnect: () => {
+      closed = false;
+      raw.reconnect();
+    },
+    get closed() { return closed; },
+  };
+  // Client 接口还声明了 migrate/protocol 等本项目不用的成员
+  return guarded as unknown as Client;
+}
+
+// 保持宽松类型：大量历史调用点把 unknown[] 直接传给 execute，收紧会牵连全库
+let client: any;
 let schemaReady;
 
 export async function getDb() {
   if (!client) {
-    client = createClient(resolveClientConfig());
+    const raw = createClient(resolveClientConfig());
+    client = resolveClientConfig().url.startsWith('file:') ? createGuardedClient(raw) : raw;
   }
   let m = schemaReady;
   if (!m) {
@@ -79,6 +162,11 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 7, name: 'event_log.created_at 索引', up: migrationEventLogCreatedIndex },
   { version: 8, name: '个人投研驾驶舱表结构(来源/行情/简报/持仓/任务)', up: migrationCockpitSchema },
   { version: 9, name: 'AKShare T2 涨停池快照表', up: migrationAkshareLimitPool },
+  { version: 10, name: '投研台行业日聚合/判断/预警/台账', up: migrationDeskSchema },
+  { version: 11, name: '来源能力与时效 SLA 字段', up: migrationSourceCapabilities },
+  { version: 12, name: 'Agent 回合遥测/任务 lane/分享生命周期', up: migrationAgentTelemetrySchema },
+  { version: 13, name: '预警深挖调查与步骤表', up: migrationDeskInvestigationSchema },
+  { version: 14, name: 'Agent 记忆/研究项目/安全动作', up: migrationAgentMemorySchema },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -415,6 +503,317 @@ async function migrationAkshareLimitPool(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_limit_pool_date ON limit_pool(trade_date);
   `);
+}
+
+/** v10：投研台领域表。行业日聚合与判断以 scope_key 唯一（market 或 industry），
+ *  预警按 dedupe_key 幂等，台账用于事后命中率评估。 */
+async function migrationDeskSchema(db) {
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS industry_daily (
+      trade_date TEXT NOT NULL,
+      industry TEXT NOT NULL,
+      members INTEGER NOT NULL DEFAULT 0,
+      up_count INTEGER NOT NULL DEFAULT 0,
+      down_count INTEGER NOT NULL DEFAULT 0,
+      flat_count INTEGER NOT NULL DEFAULT 0,
+      limit_up_count INTEGER NOT NULL DEFAULT 0,
+      limit_down_count INTEGER NOT NULL DEFAULT 0,
+      avg_pct REAL NOT NULL DEFAULT 0,
+      median_pct REAL NOT NULL DEFAULT 0,
+      breadth REAL NOT NULL DEFAULT 0,
+      turnover REAL NOT NULL DEFAULT 0,
+      turnover_change_pct REAL,
+      amount REAL NOT NULL DEFAULT 0,
+      momentum_5d REAL,
+      momentum_20d REAL,
+      leader_code TEXT,
+      leader_name TEXT,
+      leader_pct REAL,
+      source_id TEXT NOT NULL,
+      computed_at TEXT NOT NULL,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (trade_date, industry)
+    );
+    CREATE INDEX IF NOT EXISTS idx_industry_daily_date ON industry_daily(trade_date);
+
+    CREATE TABLE IF NOT EXISTS industry_events (
+      id TEXT PRIMARY KEY,
+      trade_date TEXT NOT NULL,
+      industry TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      source_id TEXT,
+      source_ref TEXT,
+      title TEXT NOT NULL,
+      summary TEXT,
+      impact TEXT NOT NULL DEFAULT 'neutral' CHECK (impact IN ('positive','negative','neutral','mixed')),
+      severity TEXT NOT NULL DEFAULT 'info' CHECK (severity IN ('info','watch','important','critical')),
+      published_at TEXT NOT NULL,
+      metadata_json TEXT,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_industry_event_ref ON industry_events(source_id, source_ref) WHERE source_ref IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_industry_events_date ON industry_events(trade_date, industry);
+
+    CREATE TABLE IF NOT EXISTS judgments (
+      id TEXT PRIMARY KEY,
+      trade_date TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('market','industry')),
+      scope_key TEXT NOT NULL,
+      industry TEXT,
+      stance TEXT NOT NULL CHECK (stance IN ('bullish','neutral','bearish')),
+      confidence TEXT NOT NULL CHECK (confidence IN ('low','medium','high')),
+      score REAL NOT NULL DEFAULT 0,
+      headline TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      drivers_json TEXT NOT NULL,
+      risks_json TEXT NOT NULL,
+      review_at TEXT,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','expired','superseded')),
+      version INTEGER NOT NULL DEFAULT 1,
+      source_id TEXT,
+      computed_at TEXT NOT NULL,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (trade_date, scope_key, version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_judgments_date ON judgments(trade_date, kind);
+    CREATE INDEX IF NOT EXISTS idx_judgments_scope ON judgments(scope_key, trade_date DESC);
+
+    CREATE TABLE IF NOT EXISTS judgment_evidence (
+      id TEXT PRIMARY KEY,
+      judgment_id TEXT NOT NULL REFERENCES judgments(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      value TEXT,
+      source_id TEXT,
+      source_ref TEXT,
+      document_id TEXT,
+      as_of TEXT,
+      freshness_seconds INTEGER,
+      is_citation INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_judgment_evidence_judgment ON judgment_evidence(judgment_id);
+
+    CREATE TABLE IF NOT EXISTS alerts (
+      id TEXT PRIMARY KEY,
+      trade_date TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      severity TEXT NOT NULL CHECK (severity IN ('info','watch','important','critical')),
+      category TEXT NOT NULL,
+      industry TEXT,
+      symbol_code TEXT,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      why_now TEXT NOT NULL,
+      evidence_json TEXT NOT NULL,
+      judgment_id TEXT,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','acknowledged','expired')),
+      triggered_at TEXT NOT NULL,
+      expires_at TEXT,
+      acknowledged_at TEXT,
+      is_demo INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status, severity, triggered_at DESC);
+
+    CREATE TABLE IF NOT EXISTS overseas_quotes (
+      symbol TEXT NOT NULL,
+      trade_time TEXT NOT NULL,
+      price REAL NOT NULL,
+      previous_close REAL,
+      change_pct REAL,
+      source_id TEXT NOT NULL,
+      delay_minutes INTEGER,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      fetched_at TEXT NOT NULL,
+      PRIMARY KEY (symbol, trade_time)
+    );
+    CREATE INDEX IF NOT EXISTS idx_overseas_quotes_time ON overseas_quotes(symbol, trade_time DESC);
+
+    CREATE TABLE IF NOT EXISTS judgment_evaluations (
+      judgment_id TEXT NOT NULL REFERENCES judgments(id) ON DELETE CASCADE,
+      eval_date TEXT NOT NULL,
+      horizon_days INTEGER NOT NULL,
+      hit INTEGER NOT NULL CHECK (hit IN (0, 1)),
+      return_pct REAL,
+      benchmark_pct REAL,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (judgment_id, eval_date, horizon_days)
+    );
+  `);
+}
+
+/** v11：来源能力声明与时效 SLA。缺失字段视为旧来源，不做能力推断。 */
+async function migrationSourceCapabilities(db) {
+  await addColumnIfMissing(db, 'source_registry', 'capabilities_json', 'TEXT');
+  await addColumnIfMissing(db, 'source_registry', 'freshness_sla_seconds', 'INTEGER');
+}
+
+/** v12：agent 回合表、任务分 lane、分享过期/撤销。lane 默认 core，存量任务不受影响。 */
+async function migrationAgentTelemetrySchema(db) {
+  await addColumnIfMissing(db, 'tasks', 'lane', "TEXT NOT NULL DEFAULT 'core'");
+  await db.executeMultiple(`
+    CREATE INDEX IF NOT EXISTS idx_tasks_lane_status ON tasks(lane, status, created_at);
+    CREATE TABLE IF NOT EXISTS agent_turn (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','succeeded','failed','canceled')),
+      model TEXT,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_micros INTEGER NOT NULL DEFAULT 0,
+      context_tokens INTEGER NOT NULL DEFAULT 0,
+      compacted INTEGER NOT NULL DEFAULT 0,
+      tool_calls INTEGER NOT NULL DEFAULT 0,
+      steps INTEGER NOT NULL DEFAULT 0,
+      feedback TEXT CHECK (feedback IN ('up','down')),
+      feedback_note TEXT,
+      error_message TEXT,
+      started_at TEXT NOT NULL,
+      finished_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_turn_session ON agent_turn(session_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_turn_started ON agent_turn(started_at);
+  `);
+  if (await tableExists(db, 'agent_share')) {
+    await addColumnIfMissing(db, 'agent_share', 'expires_at', 'TEXT');
+    await addColumnIfMissing(db, 'agent_share', 'revoked_at', 'TEXT');
+    await db.execute({
+      sql: "UPDATE agent_share SET expires_at = datetime(created_at, '+7 days') WHERE expires_at IS NULL",
+      args: [],
+    });
+  }
+  await addColumnIfMissing(db, 'llm_usage', 'agent_turn_id', 'TEXT');
+  await db.execute({
+    sql: 'CREATE INDEX IF NOT EXISTS idx_llm_usage_turn ON llm_usage(agent_turn_id)',
+    args: [],
+  });
+}
+
+/** v13：预警深挖调查。调查只读证据、不修改判断；步骤表保留工具调用摘要供复盘。 */
+async function migrationDeskInvestigationSchema(db) {
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS desk_investigations (
+      id TEXT PRIMARY KEY,
+      alert_id TEXT,
+      judgment_id TEXT,
+      session_id TEXT,
+      lane TEXT NOT NULL DEFAULT 'interactive' CHECK (lane IN ('core','interactive')),
+      status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','succeeded','failed','canceled')),
+      trigger_reason TEXT NOT NULL,
+      question TEXT NOT NULL,
+      budget_json TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
+      steps_used INTEGER NOT NULL DEFAULT 0,
+      tokens_used INTEGER NOT NULL DEFAULT 0,
+      cost_micros INTEGER NOT NULL DEFAULT 0,
+      conclusion TEXT,
+      confidence TEXT CHECK (confidence IN ('low','medium','high')),
+      evidence_strength TEXT CHECK (evidence_strength IN ('thin','moderate','strong')),
+      feedback TEXT CHECK (feedback IN ('useful','wrong','incomplete')),
+      error_message TEXT,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      heartbeat_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_investigations_status ON desk_investigations(status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_investigations_alert ON desk_investigations(alert_id);
+
+    CREATE TABLE IF NOT EXISTS desk_investigation_steps (
+      investigation_id TEXT NOT NULL REFERENCES desk_investigations(id) ON DELETE CASCADE,
+      step_no INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      tool TEXT,
+      args_json TEXT,
+      digest TEXT,
+      refs_json TEXT,
+      ok INTEGER NOT NULL DEFAULT 1,
+      duration_ms INTEGER,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (investigation_id, step_no)
+    );
+  `);
+}
+
+/** v14：agent 长期记忆、研究项目与待确认的安全动作。动作只记录提案，执行仍需用户确认。 */
+async function migrationAgentMemorySchema(db) {
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS agent_memory (
+      id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL CHECK (scope IN ('user','project','industry','symbol')),
+      project_id TEXT,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      source_session_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','decayed','deleted')),
+      expires_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (scope, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_scope ON agent_memory(scope, status, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS agent_project (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      thesis TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+      industries_json TEXT,
+      symbols_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_project_item (
+      project_id TEXT NOT NULL REFERENCES agent_project(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('note','evidence','judgment','document','symbol')),
+      ref_id TEXT NOT NULL,
+      title TEXT,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, kind, ref_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_action (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      turn_id TEXT,
+      type TEXT NOT NULL CHECK (type IN ('watch_event','create_task','pin_project','save_memory')),
+      payload_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','confirmed','rejected','expired','failed')),
+      result_json TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      expires_at TEXT,
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_action_status ON agent_action(status, created_at DESC);
+  `);
+}
+
+/** 表是否存在：迁移需兼容 PRAGMA 时代跳过了 v1 的库。 */
+async function tableExists(db, table: string): Promise<boolean> {
+  const r = await db.execute({
+    sql: "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+    args: [table],
+  });
+  return r.rows.length > 0;
+}
+
+/** 幂等补列：v11/v12 用于既有表升级。 */
+async function addColumnIfMissing(db, table: string, column: string, ddl: string) {
+  const cols = await db.execute({ sql: `PRAGMA table_info(${table})`, args: [] });
+  if (!cols.rows.some((c) => c.name === column)) {
+    try {
+      await db.execute({ sql: `ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`, args: [] });
+    } catch { /* 并发实例已先补列 */ }
+  }
 }
 
 async function migrate(db) {
@@ -1440,13 +1839,157 @@ export async function createAgentSession(title = '新会话') {
 }
 
 /** 列出研究会话（倒序）。 */
-export async function listAgentSessions(limit = 20) {
+export async function listAgentSessions(limit = 20, opts: { offset?: number; query?: string } = {}) {
+  const page = await listAgentSessionsPage({ ...opts, limit });
+  return page.sessions;
+}
+
+/** 会话分页搜索：标题或消息正文命中即返回。q 为空时退化为普通分页。 */
+export async function listAgentSessionsPage(opts: {
+  limit?: number;
+  offset?: number;
+  query?: string;
+} = {}) {
   const db = await getDb();
-  const result = await db.execute({
-    sql: 'SELECT id, title, created_at, updated_at FROM agent_session ORDER BY updated_at DESC LIMIT ?',
-    args: [limit],
+  const limit = Math.max(1, Math.min(100, Math.floor(opts.limit ?? 20)));
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+  const query = (opts.query || '').trim();
+  const where = query
+    ? `WHERE s.title LIKE ? OR EXISTS (
+         SELECT 1 FROM agent_message m WHERE m.session_id = s.id AND m.content LIKE ?
+       )`
+    : '';
+  const args = query ? [`%${query}%`, `%${query}%`] : [];
+  const totalRes = await db.execute({
+    sql: `SELECT COUNT(*) AS n FROM agent_session s ${where}`,
+    args,
   });
-  return result.rows;
+  const rows = await db.execute({
+    sql: `SELECT s.id, s.title, s.created_at, s.updated_at
+          FROM agent_session s ${where}
+          ORDER BY s.updated_at DESC LIMIT ? OFFSET ?`,
+    args: [...args, limit, offset],
+  });
+  return { sessions: rows.rows, total: Number(totalRes.rows[0]?.n || 0) };
+}
+
+// ── Agent 回合遥测 ──
+
+export async function startAgentTurn(sessionId: number, model: string | null): Promise<string> {
+  const db = await getDb();
+  const id = crypto.randomUUID();
+  await db.execute({
+    sql: `INSERT INTO agent_turn (id, session_id, status, model, started_at)
+          VALUES (?, ?, 'running', ?, ?)`,
+    args: [id, sessionId, model ?? null, new Date().toISOString()],
+  });
+  return id;
+}
+
+/** 每次 LLM 调用记一条 usage；agent_turn_id 让单轮成本可归集。 */
+export async function recordAgentTurnUsage(input: {
+  turnId: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  costMicros: number;
+  latencyMs?: number | null;
+}): Promise<void> {
+  const db = await getDb();
+  await db.execute({
+    sql: `INSERT INTO llm_usage
+            (id, task_id, model, prompt_tokens, completion_tokens, cost_micros, latency_ms, created_at, agent_turn_id)
+          VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      crypto.randomUUID(),
+      input.model,
+      Math.max(0, Math.floor(input.promptTokens)),
+      Math.max(0, Math.floor(input.completionTokens)),
+      Math.max(0, Math.round(input.costMicros)),
+      input.latencyMs ?? null,
+      new Date().toISOString(),
+      input.turnId,
+    ],
+  });
+}
+
+export async function finishAgentTurn(turnId: string, patch: {
+  status: 'succeeded' | 'failed' | 'canceled';
+  model?: string | null;
+  promptTokens?: number;
+  completionTokens?: number;
+  cachedTokens?: number;
+  costMicros?: number;
+  contextTokens?: number;
+  compacted?: boolean;
+  toolCalls?: number;
+  steps?: number;
+  errorMessage?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  await db.execute({
+    sql: `UPDATE agent_turn SET
+            status = ?, model = COALESCE(?, model),
+            prompt_tokens = ?, completion_tokens = ?, cached_tokens = ?, cost_micros = ?,
+            context_tokens = ?, compacted = ?, tool_calls = ?, steps = ?,
+            error_message = ?, finished_at = ?
+          WHERE id = ?`,
+    args: [
+      patch.status,
+      patch.model ?? null,
+      Math.max(0, Math.floor(patch.promptTokens ?? 0)),
+      Math.max(0, Math.floor(patch.completionTokens ?? 0)),
+      Math.max(0, Math.floor(patch.cachedTokens ?? 0)),
+      Math.max(0, Math.round(patch.costMicros ?? 0)),
+      Math.max(0, Math.floor(patch.contextTokens ?? 0)),
+      patch.compacted ? 1 : 0,
+      Math.max(0, Math.floor(patch.toolCalls ?? 0)),
+      Math.max(0, Math.floor(patch.steps ?? 0)),
+      patch.errorMessage ?? null,
+      new Date().toISOString(),
+      turnId,
+    ],
+  });
+}
+
+export async function setAgentTurnFeedback(
+  turnId: string,
+  feedback: 'up' | 'down' | null,
+  note?: string | null,
+): Promise<boolean> {
+  const db = await getDb();
+  const r = await db.execute({
+    sql: 'UPDATE agent_turn SET feedback = ?, feedback_note = ? WHERE id = ?',
+    args: [feedback, note ?? null, turnId],
+  });
+  return r.rowsAffected > 0;
+}
+
+export async function listAgentTurns(sessionId: number, limit = 50) {
+  const db = await getDb();
+  const res = await db.execute({
+    sql: `SELECT id, status, model, prompt_tokens, completion_tokens, cached_tokens,
+                 cost_micros, context_tokens, compacted, tool_calls, steps, feedback,
+                 started_at, finished_at
+          FROM agent_turn WHERE session_id = ? ORDER BY started_at DESC LIMIT ?`,
+    args: [sessionId, limit],
+  });
+  return res.rows.map((row) => ({
+    id: String(row.id),
+    status: String(row.status),
+    model: row.model ? String(row.model) : null,
+    promptTokens: Number(row.prompt_tokens || 0),
+    completionTokens: Number(row.completion_tokens || 0),
+    cachedTokens: Number(row.cached_tokens || 0),
+    costMicros: Number(row.cost_micros || 0),
+    contextTokens: Number(row.context_tokens || 0),
+    compacted: Number(row.compacted) === 1,
+    toolCalls: Number(row.tool_calls || 0),
+    steps: Number(row.steps || 0),
+    feedback: row.feedback === 'up' || row.feedback === 'down' ? row.feedback : null,
+    startedAt: String(row.started_at),
+    finishedAt: row.finished_at ? String(row.finished_at) : null,
+  }));
 }
 
 /** 删除会话及其全部消息（历史对话删除）；分享链接一并失效。 */
@@ -1572,32 +2115,57 @@ export async function getAgentMessages(sessionId: number) {
  * token 为公开链接凭据（128 位随机串），任何持有者可只读访问该会话。
  * B5 同款加固:固定 randomBytes 熵源,无 Date.now+Math.random 弱熵 fallback。
  */
-export async function createAgentShare(sessionId: number): Promise<string> {
+export async function createAgentShare(sessionId: number): Promise<{ token: string; expiresAt: string }> {
   const db = await getDb();
   const existing = await db.execute({
-    sql: 'SELECT token FROM agent_share WHERE session_id = ? ORDER BY id DESC LIMIT 1',
+    sql: `SELECT token, expires_at FROM agent_share
+          WHERE session_id = ? AND revoked_at IS NULL
+            AND (expires_at IS NULL OR expires_at > datetime('now'))
+          ORDER BY id DESC LIMIT 1`,
     args: [sessionId],
   });
-  if (existing.rows[0]?.token) return String(existing.rows[0].token);
+  if (existing.rows[0]?.token) {
+    return {
+      token: String(existing.rows[0].token),
+      expiresAt: String(existing.rows[0].expires_at || ''),
+    };
+  }
   const token = crypto.randomBytes(16).toString('hex');
   await db.execute({
-    sql: 'INSERT INTO agent_share (token, session_id) VALUES (?, ?)',
+    sql: "INSERT INTO agent_share (token, session_id, expires_at) VALUES (?, ?, datetime('now', '+7 days'))",
     args: [token, sessionId],
   });
-  return token;
+  const created = await db.execute({
+    sql: 'SELECT expires_at FROM agent_share WHERE token = ?',
+    args: [token],
+  });
+  return { token, expiresAt: String(created.rows[0]?.expires_at || '') };
 }
 
-/** 读取分享会话（只读：标题 + 全部消息）；链接无效或会话不存在返回 null。 */
+/** 撤销会话的全部有效分享链接。 */
+export async function revokeAgentShare(sessionId: number): Promise<number> {
+  const db = await getDb();
+  const r = await db.execute({
+    sql: "UPDATE agent_share SET revoked_at = datetime('now') WHERE session_id = ? AND revoked_at IS NULL",
+    args: [sessionId],
+  });
+  return r.rowsAffected;
+}
+
+/** 读取分享会话（只读：标题 + 全部消息）；过期、撤销或不存在返回 null。 */
 export async function getSharedSession(token: string) {
   const db = await getDb();
   const share = await db.execute({
-    sql: 'SELECT s.id, s.title FROM agent_share a JOIN agent_session s ON s.id = a.session_id WHERE a.token = ?',
+    sql: `SELECT s.id, s.title, a.expires_at
+          FROM agent_share a JOIN agent_session s ON s.id = a.session_id
+          WHERE a.token = ? AND a.revoked_at IS NULL
+            AND (a.expires_at IS NULL OR a.expires_at > datetime('now'))`,
     args: [token],
   });
   const row = share.rows[0] as Record<string, unknown> | undefined;
   if (!row) return null;
   const messages = await getAgentMessages(rowId(row.id));
-  return { title: row.title || '未命名会话', messages };
+  return { title: row.title || '未命名会话', messages, expiresAt: row.expires_at ? String(row.expires_at) : null };
 }
 
 /**

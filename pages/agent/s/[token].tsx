@@ -21,7 +21,7 @@ export default function SharedAgentPage({ title, messages, notFound }: any) {
   return (
     <>
       <Head>
-        <title>{notFound ? "分享链接无效 · 收盘手记" : `${title || "会话分享"} · 收盘手记`}</title>
+        <title>{notFound ? "分享链接无效 · 财经信号" : `${title || "会话分享"} · 财经信号`}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="robots" content="noindex" />
       </Head>
@@ -73,7 +73,7 @@ export default function SharedAgentPage({ title, messages, notFound }: any) {
                 )
               )}
               <p className="text-center text-[11px] text-muted-foreground pt-4">
-                由收盘手记 · 研究助手生成 · 信息仅供研究参考
+                由财经信号 · 研究助手生成 · 信息仅供研究参考
               </p>
             </div>
           )}

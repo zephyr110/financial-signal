@@ -116,7 +116,7 @@ function showNotification(critical: any[]) {
   const top = critical.slice(0, 3);
   const body = top.map((i) => `[${i.signal_score}分] ${i.summary}`).join("\n");
   try {
-    new Notification(`收盘手记 · ${critical.length} 条 ≥4 分信号`, {
+    new Notification(`财经信号 · ${critical.length} 条 ≥4 分信号`, {
       body,
       icon: "/favicon-light.png",
       tag: "financial-signals-alert",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, MessageSquarePlus, Trash2, Pencil, MoreHorizontal } from "lucide-react";
+import { Search, MessageSquarePlus, Trash2, Pencil, MoreHorizontal, Link2Off } from "lucide-react";
 import {
   SidebarGroup,
   SidebarGroupLabel,
@@ -54,6 +54,10 @@ export default function SessionSidebarGroup({
   onNew,
   onDelete,
   onRename,
+  onRevokeShare,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }) {
   const { setOpenMobile } = useSidebar();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -67,10 +71,8 @@ export default function SessionSidebarGroup({
 
   const closeOnMobile = () => setOpenMobile(false);
 
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? sessions.filter((s) => (s.title ?? "").toLowerCase().includes(q))
-    : sessions;
+  // 搜索在服务端完成（标题 + 消息正文），列表直接展示返回结果，不再二次按标题过滤
+  const filtered = sessions;
 
   const openSearch = () => setSearchOpen(true);
 
@@ -278,6 +280,17 @@ export default function SessionSidebarGroup({
                           重命名
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          className="cursor-pointer gap-2"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            Promise.resolve(onRevokeShare?.(s.id)).catch(() => {});
+                          }}
+                        >
+                          <Link2Off className="size-4 opacity-60" />
+                          撤销分享
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           variant="destructive"
                           className="cursor-pointer gap-2"
                           onClick={(e) => requestDelete(s, e)}
@@ -290,6 +303,18 @@ export default function SessionSidebarGroup({
                   </SidebarMenuItem>
                 );
               })
+            )}
+            {hasMore && (
+              <SidebarMenuItem>
+                <button
+                  type="button"
+                  onClick={() => onLoadMore?.()}
+                  disabled={loadingMore}
+                  className="w-full rounded-md px-2 py-1.5 text-center text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-50"
+                >
+                  {loadingMore ? "加载中…" : "加载更多"}
+                </button>
+              </SidebarMenuItem>
             )}
           </SidebarMenu>
         </div>

@@ -10,6 +10,7 @@ const SOURCE_SEEDS = [
   { id: 'csrc', name: '中国证监会', tier: 0, kind: 'regulator', base_url: 'https://www.csrc.gov.cn' },
   { id: 'tushare', name: 'Tushare Pro', tier: 1, kind: 'market', base_url: 'https://tushare.pro' },
   { id: 'akshare', name: 'AKShare（东财等公开接口）', tier: 2, kind: 'market', base_url: 'https://akshare.akfamily.xyz' },
+  { id: 'cboe', name: 'CBOE 延迟行情', tier: 1, kind: 'overseas', base_url: 'https://cdn-api.cboe.com' },
 ] as const
 
 export async function ensureCockpitSources(): Promise<void> {

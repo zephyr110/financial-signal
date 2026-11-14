@@ -23,15 +23,15 @@ export function MobileBottomNav() {
               href={item.href}
               aria-current={active ? (current ? 'page' : 'true') : undefined}
               className={cn(
-                'relative flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors',
-                active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+                'relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] transition-colors duration-150',
+                active ? 'font-semibold text-primary' : 'font-medium text-muted-foreground hover:text-foreground',
               )}
             >
               {active && (
-                <span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-primary" aria-hidden="true" />
+                <span className="absolute inset-x-5 top-0 h-0.5 rounded-b-full bg-primary" aria-hidden="true" />
               )}
-              <Icon className={cn('size-5', active && 'stroke-[2.2]')} aria-hidden="true" />
-              <span>{item.label}</span>
+              <Icon className={cn('size-[22px] transition-transform duration-150 active:scale-90', active && 'stroke-[2.1]')} aria-hidden="true" />
+              <span className="tracking-tight">{item.label}</span>
             </Link>
           )
         })}

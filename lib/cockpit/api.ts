@@ -74,3 +74,17 @@ export async function buildMeta(asOf?: string): Promise<ApiMeta> {
 export function queryString(value: string | string[] | undefined): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
+
+/** 分页参数先落到安全整数，避免 Number('abc') = NaN 绑定进 SQL LIMIT。 */
+export function queryInt(
+  value: string | string[] | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const raw = queryString(value)
+  if (!raw?.trim()) return fallback
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(min, Math.min(max, Math.floor(n)))
+}

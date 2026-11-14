@@ -13,8 +13,38 @@ const ADVICE_PATTERNS: Array<{ re: RegExp; message: string }> = [
   { re: /(建议|推荐)(买|卖|持有|加仓|减仓)/, message: '出现直接买卖建议' },
 ]
 
-// 叙述/问答层额外拦截仓位姿态词；用户手写论点仍走 ADVICE_PATTERNS。
-const STRONG_ADVICE = /建议|推荐|操作|买入|卖出|加仓|减仓|清仓|建仓|补仓|离场|入场|持有|观望|抄底|逃顶|止损|止盈|目标价/
+// 硬交易指令：任何场景都不允许（含价格目标与收益承诺）。
+const TRADE_INSTRUCTION =
+  /买入|卖出|加仓|减仓|清仓|建仓|补仓|低吸|高抛|离场|入场|抄底|逃顶|满仓|空仓|止损|止盈|目标价|预期收益|翻倍/
+const DIRECT_TRADE_SUGGESTION = /(建议|推荐)(买|卖|持有|加仓|减仓)/
+// 研究层面的姿态词：叙述层仍拦截，Agent 问答允许（例如“建议关注…、等待验证”）。
+const STANCE_LANGUAGE = /建议|推荐|操作|持有|观望/
+
+/** 发现硬交易指令（买卖动作、仓位、目标价、收益承诺）。 */
+export function findTradeInstruction(text: string): boolean {
+  if (!text) return false
+  return TRADE_INSTRUCTION.test(text) || DIRECT_TRADE_SUGGESTION.test(text)
+}
+
+/** Agent 出口用：先剔除“不构成买入建议”“禁止加仓”等否定句，避免把免责声明当违规。 */
+export function findActionableTradeInstruction(text: string): boolean {
+  if (!text) return false
+  const stripped = text
+    .normalize('NFKC')
+    .replace(/不构成[^。；\n]{0,20}(建议|推荐)/g, '')
+    .replace(/(禁止|不得|切勿|不要|避免|不应|不建议|不推荐|不宜|不必|无需)[^。；\n]{0,12}(买入|卖出|加仓|减仓|清仓|建仓|补仓|止损|止盈)/g, '')
+  return findTradeInstruction(stripped)
+}
+
+/** 发现研究姿态词（建议/推荐/持有/观望）；单独出现不等于交易指令。 */
+export function findStanceLanguage(text: string): boolean {
+  return Boolean(text) && STANCE_LANGUAGE.test(text)
+}
+
+/** 叙述/简报层更严：既有硬指令，也有仓位姿态词。 */
+export function findStrongAdvice(text: string): boolean {
+  return findTradeInstruction(text) || findStanceLanguage(text)
+}
 
 const CHINESE_NUMERAL = '[零〇一二三四五六七八九十百千万亿两]'
 const NUMERIC_CLAIM = new RegExp(
@@ -24,10 +54,6 @@ const NUMERIC_CLAIM = new RegExp(
 /** 全角数字、中文数字与百分比都算数字主张；仅“一定/一致”这类无单位词不误伤。 */
 export function containsNumericClaim(text: string): boolean {
   return NUMERIC_CLAIM.test(text.normalize('NFKC'))
-}
-
-export function findStrongAdvice(text: string): boolean {
-  return STRONG_ADVICE.test(text)
 }
 
 /** 返回命中的违规片段；空数组表示通过。只检查生成内容，不检查页脚免责声明。 */

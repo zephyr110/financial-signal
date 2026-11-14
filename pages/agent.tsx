@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback, isValidElement } from "react"
 import Head from "next/head";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X } from "lucide-react";
+import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X, BookOpen, ThumbsUp, ThumbsDown } from "lucide-react";
+import { getToolLabel } from "@/lib/agent/tool-labels";
 import AppShell from "../components/app-shell";
 import SessionSidebarGroup from "../components/SessionSidebarGroup";
 import AgentCodeBlock from "../components/agent-code-block";
@@ -62,6 +63,8 @@ export default function AgentPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [query, setQuery] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -70,6 +73,8 @@ export default function AgentPage() {
   const [editingDraft, setEditingDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // 会话列表请求序号：快速输入时旧请求晚到，不能覆盖新搜索结果
+  const sessionReqRef = useRef(0);
 
   useAutosizeTextarea(inputRef, input, { maxHeight: 200 });
 
@@ -81,6 +86,23 @@ export default function AgentPage() {
       window.setTimeout(() => setCopiedId(null), 1600);
     } catch {
       // 剪贴板不可用（非安全上下文等）时静默
+    }
+  }, []);
+
+  // 单轮反馈：再次点击同一按钮取消；网络失败时回滚选中态
+  const sendFeedback = useCallback(async (m: ChatItem, value: "up" | "down") => {
+    if (!m.turnId) return;
+    const next = m.feedback === value ? null : value;
+    setMessages((prev) => prev.map((item) => item.id === m.id ? { ...item, feedback: next } : item));
+    try {
+      const res = await fetch("/api/agent-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ turnId: m.turnId, feedback: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch {
+      setMessages((prev) => prev.map((item) => item.id === m.id ? { ...item, feedback: m.feedback ?? null } : item));
     }
   }, []);
 
@@ -98,7 +120,7 @@ export default function AgentPage() {
       const url = `${window.location.origin}${data.path}`;
       if (typeof navigator !== "undefined" && navigator.share) {
         try {
-          await navigator.share({ title: "收盘手记会话分享", url });
+          await navigator.share({ title: "财经信号会话分享", url });
           return;
         } catch {
           // 用户取消分享等，降级为复制链接
@@ -127,17 +149,33 @@ export default function AgentPage() {
     }
   }, []);
 
-  // 会话列表（失败静默：侧栏留空即可，不影响主对话）
-  const refreshSessions = useCallback(async () => {
+  // 会话列表：服务端搜索（标题 + 消息正文）与分页（失败静默，不影响主对话）
+  const refreshSessions = useCallback(async (q = "", offset = 0) => {
+    const reqId = ++sessionReqRef.current;
     try {
-      const res = await fetch("/api/agent-sessions");
+      const params = new URLSearchParams({ limit: "20", offset: String(offset) });
+      if (q.trim()) params.set("q", q.trim());
+      const res = await fetch(`/api/agent-sessions?${params}`);
       if (!res.ok) return;
       const data = await res.json();
-      setSessions(data.sessions || []);
+      if (reqId !== sessionReqRef.current) return;
+      const next = data.sessions || [];
+      setSessions((prev) => (offset === 0 ? next : [...prev, ...next]));
+      setSessionTotal(Number(data.total) || next.length);
     } catch {
       // 静默
     }
   }, []);
+
+  const loadMoreSessions = useCallback(async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    try {
+      await refreshSessions(query, sessions.length);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, query, sessions.length, refreshSessions]);
 
   // 加载某会话的全部消息（不切换会话 id 时用 restore）
   const loadSession = useCallback(
@@ -159,7 +197,7 @@ export default function AgentPage() {
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        setMessages(historyToChatItems(data.messages || []));
+        setMessages(historyToChatItems(data.messages || [], data.turns || []));
         setSessionId(id);
         persistSession(id);
       } catch {
@@ -171,9 +209,14 @@ export default function AgentPage() {
     [persistSession]
   );
 
+  // 搜索词变化：防抖后从服务端重新取第一页（标题与消息正文都可命中）
+  useEffect(() => {
+    const timer = window.setTimeout(() => void refreshSessions(query, 0), 250);
+    return () => window.clearTimeout(timer);
+  }, [query, refreshSessions]);
+
   // 刷新后恢复上次会话：服务端保留完整上下文，续聊不另起孤儿会话
   useEffect(() => {
-    void refreshSessions();
     try {
       const saved = localStorage.getItem(SESSION_STORAGE_KEY);
       if (saved && /^\d+$/.test(saved)) {
@@ -365,6 +408,8 @@ export default function AgentPage() {
                 ...m,
                 content: reply,
                 truncated: Boolean(payload.truncated),
+                ...(payload.turnId ? { turnId: payload.turnId } : {}),
+                ...(payload.stats ? { stats: payload.stats } : {}),
                 processing: hasProcessing
                   ? {
                       tools,
@@ -429,7 +474,7 @@ export default function AgentPage() {
         if (doneSessionId) {
           setSessionId(doneSessionId);
           persistSession(doneSessionId);
-          void refreshSessions();
+          void refreshSessions(query, 0);
         } else {
           updateTurn((m) =>
             m.processing
@@ -448,7 +493,7 @@ export default function AgentPage() {
         inputRef.current?.focus();
       }
     },
-    [input, loading, sessionId, persistSession, refreshSessions]
+    [input, loading, sessionId, persistSession, refreshSessions, query]
   );
 
   // 编辑用户消息重发：本地截断该条之后的全部消息 → 更新内容 → 走编辑重发接口
@@ -497,6 +542,17 @@ export default function AgentPage() {
     [sessionId, newSession]
   );
 
+  // 撤销分享：已发出的旧链接立即失效，之后再次分享会生成新 token
+  const handleRevokeShare = useCallback(async (id: number) => {
+    try {
+      const res = await fetch(`/api/agent-share?sessionId=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch {
+      setError("撤销分享失败，请稍后重试");
+      throw new Error("revoke failed");
+    }
+  }, []);
+
   const handleRenameSession = useCallback(async (id: number, title: string) => {
     try {
       const res = await fetch(`/api/agent-sessions?id=${id}`, {
@@ -534,7 +590,7 @@ export default function AgentPage() {
   return (
     <>
       <Head>
-        <title>研究助手 · 收盘手记</title>
+        <title>研究助手 · 财经信号</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="description" content="AI 研究助手 — 政策、行业、事件线索问答" />
       </Head>
@@ -553,6 +609,10 @@ export default function AgentPage() {
             onNew={newSession}
             onDelete={handleDeleteSession}
             onRename={handleRenameSession}
+            onRevokeShare={handleRevokeShare}
+            hasMore={sessions.length < sessionTotal}
+            loadingMore={loadingMore}
+            onLoadMore={loadMoreSessions}
           />
         }
       >
@@ -663,6 +723,30 @@ export default function AgentPage() {
                                 {m.content}
                               </ReactMarkdown>
                             </div>
+                            {(() => {
+                              const sources = (processing?.tools ?? []).filter(
+                                (tool) => tool.status === "done" || tool.status === "error"
+                              );
+                              if (sources.length === 0) return null;
+                              return (
+                                <details className="group/sources rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+                                  <summary className="flex cursor-pointer list-none items-center gap-1.5 text-muted-foreground">
+                                    <BookOpen className="size-3.5" />
+                                    来源与工具记录（{sources.length}）
+                                  </summary>
+                                  <ul className="mt-2 space-y-1.5">
+                                    {sources.map((tool, index) => (
+                                      <li key={`${tool.name}-${index}`} className="flex gap-2 text-muted-foreground">
+                                        <span className={cn("shrink-0 font-medium", tool.status === "error" ? "text-destructive" : "text-foreground/80")}>
+                                          {getToolLabel(tool.name)}
+                                        </span>
+                                        <span className="min-w-0 break-words">{tool.summary || "已执行"}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </details>
+                              );
+                            })()}
                             {m.truncated && !loading && (
                               <Button
                                 type="button"
@@ -714,6 +798,34 @@ export default function AgentPage() {
                                   </>
                                 )}
                               </Button>
+                              {m.turnId && (
+                                <>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={() => void sendFeedback(m, "up")}
+                                    aria-label="回答有帮助"
+                                    aria-pressed={m.feedback === "up"}
+                                    title="回答有帮助"
+                                    className={cn(m.feedback === "up" && "text-positive")}
+                                  >
+                                    <ThumbsUp />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={() => void sendFeedback(m, "down")}
+                                    aria-label="回答需改进"
+                                    aria-pressed={m.feedback === "down"}
+                                    title="回答需改进"
+                                    className={cn(m.feedback === "down" && "text-destructive")}
+                                  >
+                                    <ThumbsDown />
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </>
                         )}

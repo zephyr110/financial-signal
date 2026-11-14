@@ -1,4 +1,4 @@
-/* 收盘手记 service worker：只缓存离线外壳与静态资源，绝不缓存登录后的页面 HTML 或 /api 数据。 */
+/* 财经信号 service worker：只缓存离线外壳与静态资源，绝不缓存登录后的页面 HTML 或 /api 数据。 */
 const VERSION = 'afterclose-v3'
 const ASSET_CACHE = `${VERSION}-assets`
 const OFFLINE_URL = '/offline.html'

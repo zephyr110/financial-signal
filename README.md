@@ -1,125 +1,112 @@
-# Financial Signal
+# Financial Signal · 财经信号
 
-AI-powered financial news aggregation & policy-industry signal analysis engine.
+[English](README.md) · [中文](README_CN.md)
+
+A personal research cockpit for the A-share market. It turns official disclosures, daily quotes and overnight overseas moves into a daily market judgment, industry-by-industry calls, risk alerts and evidence-backed deep dives. Research only — no broker connection, no order execution, no investment advice.
 
 Repository: [github.com/zephyr110/financial-signal](https://github.com/zephyr110/financial-signal)
 
-**Live Demo:** [https://financial-signal.vercel.app/](https://financial-signal.vercel.app/)
+## What it does
 
-## 收盘手记（个人投研驾驶舱）
+- **Today (`/today`)** — the closing brief: what moved the market, which industries strengthened or weakened, and the news feed that drove it.
+- **Desk (`/desk`)** — the cockpit: market pulse with score / stance / confidence, ranked industry judgments, open risk alerts with one-click deep dive, and overnight overseas quotes. Full-screen, multi-panel, and designed to stay on one screen.
+- **Watchlist & portfolio (`/watchlist`, `/portfolio`)** — codes, industry exposure and your own notes; industry judgments are ordered by what you actually hold.
+- **Research notes (`/research`)** — theses, evidence and a journal of decisions with their outcomes.
+- **Research agent (`/agent`)** — ask questions over the local archive; the agent can save memories, pin evidence to projects, document watch items and queue investigations. Sessions can be shared as read-only links.
+- **Signal analysis (`/analysis`)** — the original news pipeline: LLM scoring, entity mapping, event threads and industry backtests.
+- **Task center (`/tasks`)** — a single worker with `core` / `interactive` lanes; each task shows progress, attempts, cost and live events.
 
-在原有资讯信号能力之上新增的个人收盘研究台：`/today`、`/watchlist`、`/portfolio`、`/research`、`/tasks`，移动端优先、可安装为 PWA。只做研究记录，不接券商、不执行交易。
+Installable as a PWA on mobile, and shipped as an Electron desktop app for fully offline use.
 
-- **来源分层**：T0 官方（上交所、巨潮、证监会）直连原文；T1 行情/日历来自 Tushare Pro；每条展示都带来源与时间。
-- **每日收盘链路**：`daily_close` 任务依次拉行情、抓官方公告、生成并校验收盘简报；Electron 调度器每轮自动追加，路由按交易日/报告/幂等键节流。
-- **示例数据隔离**：示例库拒绝接入真实行情，绝不混写。
-- **叙述层可降级**：未配置 LLM 时使用确定性事实简报，不阻塞收盘链路。
-
-运行与配置见 [docs/cockpit-runbook.md](docs/cockpit-runbook.md)。
-
-## System Architecture
+## Research pipeline
 
 ```
-Sina / 10jqka / Wallstreetcn APIs
+T0 official disclosures ─┐
+Tushare Pro market data ─┼─► industry aggregation ─► market + industry judgments
+news sources ────────────┘                              │
+                                                        ├─► alerts ─► investigations (agent)
+CBOE delayed quotes ─────► overnight context            └─► evaluations (1/5/20 trading days)
         │
         ▼
-  News Archive (Turso/SQLite)
-        │
-        ▼
-  LLM Analysis Pipeline (DeepSeek / OpenAI-compatible)
-  ├─ Step 1: Signal Scoring (1-5)
-  ├─ Step 2: Entity Mapping (industries, companies, tags)
-  └─ Step 3: Event Thread Detection
-        │
-        ▼
-  Next.js 16 (Pages Router) + ISR
-        │
-        ▼
-  Analysis Dashboard (/analysis)
-  ├─ Signal Cards + Charts + Timeline
-  └─ Market Backtest Engine
+   SQLite / libSQL  ─►  Next.js 16 (Pages Router)  ─►  cockpit UI (PWA)
 ```
 
-## Features
+- **Daily close (`daily_close`)** pulls quotes, ingests official announcements and produces the verified closing brief.
+- **Desk tick (`desk_tick`)** aggregates industry breadth, turnover and momentum, writes judgments and evidence in one transaction, then evaluates matured judgments against realized returns.
+- **Investigations (`desk_investigation`)** run on the interactive lane so slow evidence collection never blocks the closing pipeline.
 
-- **Multi-source news aggregation** — Sina, 10jqka, Wallstreetcn 7×24 tickers
-- **AI signal scoring** — LLM evaluates every news item (1–5), classifying by policy, geopolitics, industry, company, macro
-- **Analysis dashboard** — gradient signal cards, industry bar chart, category donut chart, trend line chart, event thread detection
-- **Personalized filtering** — watch specific industries, filter by score/category
-- **Market backtest** — correlate historical signals with sector index returns
-- **Browser notifications** — push alerts for critical signals (≥4)
-- **RSS / JSON Feed** — subscribe via standard feed formats
-- **Dark mode** — system-aware theme with manual toggle
+## Data sources
 
-## Data Sources
+| Source | Tier | Use |
+|--------|------|-----|
+| Shanghai Stock Exchange (SSE) | T0 | Announcements, original links only |
+| CNINFO (巨潮资讯) | T0 | Shenzhen-listed announcements |
+| CSRC (中国证监会) | T0 | Policy interpretations |
+| Tushare Pro | T1 | Daily bars, trading calendar (`TUSHARE_TOKEN`) |
+| AKShare | T2 | Supplementary market data via public endpoints |
+| CBOE delayed quotes | T1 | Overnight S&P 500 / NASDAQ 100 / Dow, 15-minute delay |
+| Sina / 10jqka / Wallstreetcn | news | 7×24 flash news for the signal pipeline |
 
-| Source | Status | Description |
-|--------|--------|-------------|
-| Sina Finance | ✅ Active | 7×24 global financial flash news |
-| 10jqka (同花顺) | ✅ Active | A-stock tagged news, 20 items/batch |
-| Wallstreetcn (华尔街见闻) | ✅ Active | Global macro live news |
-| Eastmoney | ⬜ Degraded | API deprecated (404) |
-| CLS (财联社) | ⬜ Degraded | Requires auth signature |
+- Every displayed judgment carries its evidence, source name and timestamp.
+- **Demo isolation**: a demo database refuses to ingest real market data (`assertNoDemoData`), so sample and real numbers are never mixed.
+- **Graceful degradation**: without an LLM key the brief falls back to deterministic facts and the closing pipeline still completes.
 
-## Scheduled Pipelines (three complementary paths)
-
-1. **GitHub Actions** (`.github/workflows/cron.yml`): daily fallback at 21:17 UTC (05:17 Beijing) running the full pipeline:
-   ```
-   fetch → analyze → deep-analyze → event-threads → fetch-market
-   ```
-   Manual trigger via `workflow_dispatch` is supported.
-2. **Vercel Cron** (`vercel.json`): daily `fetch` + `analyze` (Vercel Cron is limited to two endpoints).
-3. **QStash (optional, production)**: for high-frequency scheduling (e.g. every 30 min), each of the five endpoints runs independently — incremental semantics plus unique constraints make reruns idempotent; `deep-analyze` / `event-threads` / `fetch-market` self-throttle to every 6h.
-
-Manual trigger also available via `workflow_dispatch`.
-
-GitHub Secrets required: `APP_URL`, `CRON_SECRET`.
-
-## Quick Start
+## Quick start
 
 ```bash
 pnpm install
 pnpm dev        # http://localhost:3000
 pnpm build
 pnpm start
-pnpm test       # Vitest（含收盘手记）
+pnpm test       # Vitest, 583 tests
 pnpm typecheck  # tsc --noEmit
 ```
 
-## Desktop App (Electron)
+Copy `.env.example` to `.env.local` and fill in what you need. The app is behind a single-user login gate (`proxy.ts`); the first account is seeded on first run.
 
-离线自给自足的桌面端:内置抓取 + LLM 分析管线、本地 SQLite、托盘通知与自动更新,不依赖远程服务器。
+## Configuration
 
-- **开发**: `pnpm dev:desktop`(next dev + Electron 窗口)
-- **打包(本地 mac)**: `NEWS_DB_PATH=./seed/news_archive.db pnpm dist:dir`
-- **发布**: push `v*` tag,CI 三平台打包上传 GitHub Releases。mac 包当前未签名(CI 无签名证书),首次打开会被 Gatekeeper 拦截:右键应用 → 打开,或 `xattr -cr "/Applications/Financial Signal.app"`;正式分发需配置 Apple Developer 证书 + notarization。注意:mac 包未签名时 electron-updater 自动更新不会生效,升级需手动下载新版本安装
-- **数据目录**: macOS `~/Library/Application Support/financial-signal/`、Windows `%APPDATA%/financial-signal`、Linux `~/.config/financial-signal`
-- **首次启动**: 可导入现有 `news_archive.db` 或全新开始;在设置弹窗配置 LLM key 后分析管线自动启用
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LLM_API_KEY` | LLM API key (brief narration, agent, signal scoring) | — |
+| `LLM_BASE_URL` | Chat completions endpoint | `https://api.deepseek.com/v1` |
+| `LLM_MODEL` | Model name | `deepseek-v4-flash` |
+| `TUSHARE_TOKEN` | Tushare Pro token for quotes and calendar (also settable in-app) | — |
+| `CRON_SECRET` | Protects `/api/cron/*` machine endpoints | — |
+| `COCKPIT_DEMO` | `1` seeds sample data for local demos only | — |
+| `TURSO_DATABASE_URL` | Turso database URL (production) | — |
+| `TURSO_AUTH_TOKEN` | Turso auth token | — |
+| `NEWS_DB_PATH` | Local SQLite path | `news_archive.db` |
+| `AUTH_DB_PATH` | Separate auth database (desktop) | beside `NEWS_DB_PATH` |
 
-桌面端新增代码集中在 `electron/` 与 `scripts/`,Web 侧仅 `proxy.ts`/`cronAuth.ts` 增加 DESKTOP_MODE 放行、`next.config.js` 增加 standalone 输出。
+## Desktop app (Electron)
+
+Fully self-contained: built-in fetch and analysis pipelines, local SQLite, tray notifications and auto-update.
+
+- **Develop**: `pnpm dev:desktop` (Next dev server + Electron window)
+- **Package locally (mac)**: `NEWS_DB_PATH=./seed/news_archive.db pnpm dist:dir`
+- **Release**: push a `v*` tag; CI builds all three platforms and uploads to GitHub Releases. macOS builds are currently unsigned, so Gatekeeper blocks the first launch: right-click → Open, or `xattr -cr "/Applications/Financial Signal.app"`. Unsigned macOS builds cannot auto-update; download the new version manually.
+- **Data directory**: macOS `~/Library/Application Support/financial-signal/`, Windows `%APPDATA%/financial-signal`, Linux `~/.config/financial-signal`
+- **First run**: import an existing `news_archive.db` or start fresh, then set the LLM key in Settings.
 
 ## Deployment
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zephyr110/financial-signal)
 
-1. Create a database on [Turso](https://turso.tech)
-2. Set Vercel env vars: `LLM_API_KEY`, `CRON_SECRET`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`
-3. Configure GitHub Secrets: `APP_URL`, `CRON_SECRET`
-4. Manually trigger fetch + analyze once to seed initial data
+1. Create a database on [Turso](https://turso.tech).
+2. Set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `LLM_API_KEY` and `CRON_SECRET` in Vercel.
+3. Configure GitHub Secrets `APP_URL` and `CRON_SECRET` for the fallback workflow.
+4. Trigger `fetch` and `analyze` once to seed initial data.
 
-## Environment Variables
+Three complementary schedules keep data fresh: GitHub Actions (daily full pipeline at 05:17 Beijing time), Vercel Cron (`fetch` + `analyze`), and optional QStash for high-frequency runs. All endpoints are idempotent and self-throttle.
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `LLM_API_KEY` | LLM API key | — |
-| `LLM_BASE_URL` | Chat completions endpoint | `https://api.deepseek.com/v1` |
-| `LLM_MODEL` | Model name | `deepseek-v4-flash` |
-| `CRON_SECRET` | Protects cron endpoints | — |
-| `TUSHARE_TOKEN` | Tushare Pro token（T1 行情/日历；也可在应用内设置） | — |
-| `COCKPIT_DEMO` | `1` 时播种示例数据，仅本地演示 | — |
-| `TURSO_DATABASE_URL` | Turso DB URL (production) | — |
-| `TURSO_AUTH_TOKEN` | Turso auth token | — |
-| `NEWS_DB_PATH` | Local SQLite path (dev) | `news_archive.db` |
+## Documentation
+
+- [Cockpit runbook](docs/cockpit-runbook.md) — data sources, tasks, operations and troubleshooting.
+
+## Disclaimer
+
+This project is a personal research tool. It does not provide investment advice, does not connect to any broker and does not execute trades. Markets carry risk; decisions are your own.
 
 ## License
 

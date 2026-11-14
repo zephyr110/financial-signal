@@ -8,7 +8,9 @@ import { answerBriefQuestion } from './narrative'
 import { ingestTushare } from './sources/tushare'
 import { ingestAkshare } from './sources/akshare'
 import { ingestOfficialDocuments } from './sources/official'
-import type { TaskEvent, TaskRecord, TaskStatus, TaskType } from './types'
+import { refreshDesk } from '../desk/engine'
+import { queueAutoInvestigations, runInvestigation } from '../desk/investigation'
+import type { TaskEvent, TaskLane, TaskRecord, TaskStatus, TaskType } from './types'
 
 export const TASK_TYPES: TaskType[] = [
   'daily_brief',
@@ -19,7 +21,13 @@ export const TASK_TYPES: TaskType[] = [
   'market_ingest',
   'akshare_ingest',
   'daily_close',
+  'desk_tick',
+  'desk_investigation',
 ]
+
+/** 核心链路与交互研究分 lane：深挖再慢也不阻塞收盘入库。 */
+const INTERACTIVE_TYPES = new Set<TaskType>(['ask', 'symbol_deep_dive', 'desk_investigation'])
+const TASK_LANES: TaskLane[] = ['core', 'interactive']
 const MAX_ATTEMPTS = 2
 const LEASE_MS = 5 * 60 * 1000
 const MODEL = 'deterministic'
@@ -33,6 +41,8 @@ const TASK_LABEL: Record<string, string> = {
   market_ingest: '行情入库',
   akshare_ingest: 'T2 补充入库',
   daily_close: '每日收盘流程',
+  desk_tick: '投研台刷新',
+  desk_investigation: '预警深挖',
 }
 
 type Row = Record<string, unknown>
@@ -72,6 +82,7 @@ function mapTask(row: Row): TaskRecord {
   return {
     id: str(row.id),
     type: str(row.type),
+    lane: (str(row.lane, 'core') === 'interactive' ? 'interactive' : 'core') as TaskLane,
     status: str(row.status) as TaskStatus,
     progress: num(row.progress),
     step: str(row.step) || undefined,
@@ -160,6 +171,11 @@ export async function enqueueTask(input: {
 }): Promise<TaskRecord> {
   if (!TASK_TYPES.includes(input.type)) throw new Error(`未知任务类型: ${input.type}`)
   const params = input.params && typeof input.params === 'object' ? input.params : {}
+  const lane: TaskLane = params.lane === 'core'
+    ? 'core'
+    : params.lane === 'interactive'
+      ? 'interactive'
+      : INTERACTIVE_TYPES.has(input.type) ? 'interactive' : 'core'
   const force = params.force === true
   const paramDate = typeof params.tradeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.tradeDate)
     ? params.tradeDate
@@ -182,12 +198,12 @@ export async function enqueueTask(input: {
       if (existing.status === 'failed' || existing.status === 'canceled') {
         const now = new Date().toISOString()
         await tx.execute({
-          sql: `UPDATE tasks SET status = 'queued', progress = 0, step = '已重新入队',
+          sql: `UPDATE tasks SET status = 'queued', progress = 0, step = '已重新入队', lane = ?,
                 result_json = NULL, error_code = NULL, error_message = NULL,
                 attempts = 0, started_at = NULL, finished_at = NULL, heartbeat_at = NULL,
                 created_at = ?
                 WHERE id = ? AND status IN ('failed', 'canceled')`,
-          args: [now, id],
+          args: [lane, now, id],
         })
         await appendTaskEvent(id, 'queued', { type: input.type, retry: true }, tx)
         const reset = await tx.execute({ sql: 'SELECT * FROM tasks WHERE id = ?', args: [id] })
@@ -202,9 +218,9 @@ export async function enqueueTask(input: {
     const id = crypto.randomUUID()
     await tx.execute({
       sql: `INSERT INTO tasks
-        (id, type, params_json, status, progress, step, idempotency_key, attempts, model, cost_micros, created_at)
-        VALUES (?, ?, ?, 'queued', 0, '已入队', ?, 0, ?, 0, ?)`,
-      args: [id, input.type, JSON.stringify(params), idempotencyKey, MODEL, new Date().toISOString()],
+        (id, type, params_json, status, progress, step, idempotency_key, attempts, model, cost_micros, created_at, lane)
+        VALUES (?, ?, ?, 'queued', 0, '已入队', ?, 0, ?, 0, ?, ?)`,
+      args: [id, input.type, JSON.stringify(params), idempotencyKey, MODEL, new Date().toISOString(), lane],
     })
     await appendTaskEvent(id, 'queued', { type: input.type }, tx)
     const inserted = await tx.execute({ sql: 'SELECT * FROM tasks WHERE id = ?', args: [id] })
@@ -246,8 +262,11 @@ export function startTaskHeartbeat(taskId: string, intervalMs = 10_000): () => v
   return () => clearInterval(timer)
 }
 
-/** 单 worker 认领：写事务内先选再标记，避免两个进程拿到同一行。 */
-export async function claimNextTask(): Promise<TaskRecord | null> {
+/**
+ * 写事务内先选再标记，避免两个进程拿到同一行。指定 lane 时只和同 lane 互斥；
+ * 不指定时保持旧的全局串行语义，供单步调用与测试使用。
+ */
+export async function claimNextTask(lane?: TaskLane): Promise<TaskRecord | null> {
   const db = await getDb()
   const staleBefore = new Date(Date.now() - LEASE_MS).toISOString()
   const tx = await db.transaction('write')
@@ -255,21 +274,23 @@ export async function claimNextTask(): Promise<TaskRecord | null> {
     await tx.execute({
       // heartbeat 为空说明进程在首次心跳前就崩了，同样按租约过期回收。
       sql: `UPDATE tasks SET status = 'queued', step = '租约过期，等待重试', heartbeat_at = NULL
-            WHERE status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at < ?)`,
-      args: [staleBefore],
+            WHERE status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at < ?)
+              ${lane ? 'AND lane = ?' : ''}`,
+      args: lane ? [staleBefore, lane] : [staleBefore],
     })
-    // 单任务串行：已有 worker 在跑时其它进程/请求只排队，不能再并行认领。
+    // 同 lane 串行：核心链路和交互研究可以各跑一个，互不阻塞。
     const running = await tx.execute({
-      sql: "SELECT id FROM tasks WHERE status = 'running' LIMIT 1",
-      args: [],
+      sql: `SELECT id FROM tasks WHERE status = 'running' ${lane ? 'AND lane = ?' : ''} LIMIT 1`,
+      args: lane ? [lane] : [],
     })
     if (running.rows[0]) {
       await tx.rollback()
       return null
     }
     const candidate = await tx.execute({
-      sql: "SELECT id FROM tasks WHERE status = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT 1",
-      args: [],
+      sql: `SELECT id FROM tasks WHERE status = 'queued' ${lane ? 'AND lane = ?' : ''}
+            ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+      args: lane ? [lane] : [],
     })
     if (!candidate.rows[0]) {
       await tx.rollback()
@@ -462,6 +483,36 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         documents: detail.documents.slice(0, 3).map((doc) => ({ id: doc.id, title: doc.title, source: doc.source.id })),
       }
     }
+    case 'desk_tick': {
+      const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
+      const result = await refreshDesk({
+        tradeDate,
+        onProgress: (progress, step) => setProgress(task.id, progress, step),
+      })
+      // 收盘刷新后按触发评分把高优先级预警送进 interactive lane，不阻塞核心链路
+      const autoIds = await queueAutoInvestigations(result.tradeDate)
+      for (const investigationId of autoIds) {
+        await enqueueTask({ type: 'desk_investigation', params: { investigationId } })
+      }
+      if (autoIds.length) scheduleTaskDrain()
+      return { ...result, autoInvestigations: autoIds.length }
+    }
+    case 'desk_investigation': {
+      const investigationId = typeof params.investigationId === 'string' ? params.investigationId : ''
+      if (!investigationId) throw new Error('缺少调查 ID')
+      const result = await runInvestigation(investigationId, {
+        onProgress: (progress, step) => setProgress(task.id, progress, step),
+      })
+      return {
+        investigationId: result.id,
+        alertId: result.alertId,
+        conclusion: result.conclusion,
+        confidence: result.confidence,
+        evidenceStrength: result.evidenceStrength,
+        stepsUsed: result.stepsUsed,
+        tokensUsed: result.tokensUsed,
+      }
+    }
     default:
       throw new Error(`未知任务类型: ${task.type}`)
   }
@@ -543,6 +594,21 @@ function taskNotification(
         deepLink: '/tasks',
         severity: 'info',
       }
+    case 'desk_tick':
+      return {
+        title: '投研台已刷新',
+        body: [data.tradeDate, `${String(data.judgments ?? 0)} 条判断`, `${String(data.alerts ?? 0)} 条预警`]
+          .filter(Boolean).join(' · '),
+        deepLink: '/desk',
+        severity: 'info',
+      }
+    case 'desk_investigation':
+      return {
+        title: '预警深挖已完成',
+        body: String(data.conclusion || data.question || '').slice(0, 300),
+        deepLink: data.alertId ? `/desk?alert=${encodeURIComponent(String(data.alertId))}` : '/desk',
+        severity: 'info',
+      }
     default:
       return { title: `${label}完成`, deepLink: '/tasks', severity: 'info' }
   }
@@ -616,8 +682,8 @@ async function finishTask(
   return row ? mapTask(row) : task
 }
 
-export async function processNextTask(): Promise<TaskRecord | null> {
-  const task = await claimNextTask()
+export async function processNextTask(lane?: TaskLane): Promise<TaskRecord | null> {
+  const task = await claimNextTask(lane)
   if (!task) return null
   const stopHeartbeat = startTaskHeartbeat(task.id)
   try {
@@ -646,15 +712,24 @@ export async function processNextTask(): Promise<TaskRecord | null> {
 }
 
 let drainPromise: Promise<void> | null = null
+let drainQueued = false
 
 /**
- * 持续消化队列直到为空：失败任务 requeue 后立刻再认领一次，重试才真正发生。
- * 同进程只跑一个 drain；跨进程由 claimNextTask 的 running 行互斥。
+ * 两个 lane 各自串行消化：失败任务 requeue 后立刻再认领一次，重试才真正发生。
+ * 运行中又收到 drain 请求时记下标记，本轮结束后再扫一遍，避免吞掉新入队的任务。
  */
 export async function drainTasks(): Promise<void> {
-  if (drainPromise) return drainPromise
+  if (drainPromise) {
+    drainQueued = true
+    return drainPromise
+  }
   drainPromise = (async () => {
-    while (await processNextTask()) { /* 继续下一条 */ }
+    do {
+      drainQueued = false
+      await Promise.all(TASK_LANES.map(async (lane) => {
+        while (await processNextTask(lane)) { /* 继续下一条 */ }
+      }))
+    } while (drainQueued)
   })().finally(() => {
     drainPromise = null
   })

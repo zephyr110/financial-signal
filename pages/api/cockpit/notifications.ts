@@ -3,6 +3,7 @@ import {
   buildMeta,
   ensureMethod,
   ensureSameOrigin,
+  queryInt,
   queryString,
   sendData,
   sendError,
@@ -24,8 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!ensureMethod(req, res, ['GET', 'POST'])) return
   try {
     if (req.method === 'GET') {
-      const limit = Number(queryString(req.query.limit) || 20)
-      return sendData(res, await listNotifications(Number.isFinite(limit) ? limit : 20), await buildMeta())
+      return sendData(res, await listNotifications(queryInt(req.query.limit, 20, 1, 100)), await buildMeta())
     }
 
     if (!ensureSameOrigin(req)) return sendError(req, res, 403, 'ORIGIN_MISMATCH', '拒绝跨站写入')

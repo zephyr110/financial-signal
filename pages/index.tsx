@@ -215,7 +215,7 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
   return (
     <>
       <Head>
-        <title>新闻线索 · 收盘手记</title>
+        <title>新闻线索 · 财经信号</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta
           name="description"

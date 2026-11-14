@@ -47,7 +47,7 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
   return (
     <>
       <Head>
-        <title>自选 · 收盘手记</title>
+        <title>自选 · 财经信号</title>
         <meta name="description" content="个人自选标的与论点状态" />
       </Head>
       <CockpitShell
