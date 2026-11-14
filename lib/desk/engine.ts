@@ -66,17 +66,17 @@ function addDays(date: string, days: number): string {
 
 export async function latestDeskTradeDate(): Promise<string | null> {
   const db = await getDb()
-  const queries = [
-    'SELECT MAX(trade_date) AS d FROM industry_daily',
-    'SELECT MAX(trade_date) AS d FROM market_overview',
-    "SELECT MAX(trade_date) AS d FROM market_bars WHERE adjust_type = 'raw'",
-  ]
-  for (const sql of queries) {
-    const res = await db.execute({ sql, args: [] })
-    const value = res.rows[0]?.d
-    if (value) return String(value)
-  }
-  return null
+  // 取三张表的公共最大值：派生表 industry_daily 停在首次刷新日，不能作为行情最新日的依据。
+  const res = await db.execute({
+    sql: `SELECT MAX(d) AS d FROM (
+            SELECT MAX(trade_date) AS d FROM industry_daily
+            UNION ALL SELECT MAX(trade_date) FROM market_overview
+            UNION ALL SELECT MAX(trade_date) FROM market_bars WHERE adjust_type = 'raw'
+          )`,
+    args: [],
+  })
+  const value = res.rows[0]?.d
+  return value ? String(value) : null
 }
 
 async function resolveTradeDate(requested?: string): Promise<string> {
@@ -355,7 +355,6 @@ function industryJudgment(
   events: IndustryEventInput[],
   sourceMap: Map<string, Row>,
   tradeDate: string,
-  now: string,
 ): {
   id: string
   scopeKey: string
@@ -371,23 +370,24 @@ function industryJudgment(
   const score = judgmentScore(aggregate)
   const stance = stanceOf(score)
   const related = events.filter((event) => event.industry === aggregate.industry)
+  // 证据 id 是全局主键，必须带交易日，否则次日刷新会与旧证据冲突。
   const evidence: DeskEvidence[] = [
     {
-      id: `ie:${aggregate.industry}:breadth`,
+      id: `ie:${tradeDate}:${aggregate.industry}:breadth`,
       kind: 'breadth',
       label: '上涨家数占比',
       value: `${aggregate.breadth}%（${aggregate.upCount}/${aggregate.members}）`,
       ...sourceEvidence(aggregate.sourceId, sourceMap, tradeDate, null),
     },
     {
-      id: `ie:${aggregate.industry}:avg`,
+      id: `ie:${tradeDate}:${aggregate.industry}:avg`,
       kind: 'return',
       label: '成分股平均涨跌',
       value: `${aggregate.avgPct > 0 ? '+' : ''}${aggregate.avgPct}%`,
       ...sourceEvidence(aggregate.sourceId, sourceMap, tradeDate, null),
     },
     {
-      id: `ie:${aggregate.industry}:momentum`,
+      id: `ie:${tradeDate}:${aggregate.industry}:momentum`,
       kind: 'momentum',
       label: '5 日平均动量',
       value: aggregate.momentum5d == null ? '样本不足' : `${aggregate.momentum5d > 0 ? '+' : ''}${aggregate.momentum5d}%`,
@@ -396,7 +396,7 @@ function industryJudgment(
   ]
   for (const event of related.slice(0, 2)) {
     evidence.push({
-      id: `ie:${aggregate.industry}:event:${hash(event.id)}`,
+      id: `ie:${tradeDate}:${aggregate.industry}:event:${hash(event.id)}`,
       kind: 'document',
       label: event.title,
       value: event.impact === 'negative' ? '偏负面' : event.impact === 'positive' ? '偏正面' : '中性',
@@ -449,9 +449,9 @@ async function loadMarketInputs(tradeDate: string): Promise<MarketInputs> {
     db.execute({
       sql: `SELECT code, trade_date, close FROM market_bars
             WHERE adjust_type = 'raw' AND code IN (${INDEX_CODES.map(() => '?').join(',')})
-              AND trade_date <= ?
+              AND trade_date <= ? AND trade_date >= date(?, '-30 days')
             ORDER BY code, trade_date DESC`,
-      args: [...INDEX_CODES, tradeDate],
+      args: [...INDEX_CODES, tradeDate, tradeDate],
     }),
     db.execute({
       sql: 'SELECT * FROM overseas_quotes ORDER BY symbol, trade_time DESC LIMIT 30',
@@ -722,7 +722,7 @@ export async function refreshDesk(options: {
   })
   const alertIndustries = ranked.slice(0, MAX_ALERT_INDUSTRIES).map((row) => row.industry)
   const judgments = ranked.map((aggregate) =>
-    industryJudgment(aggregate, industryData.events, industryData.sourceMap, tradeDate, new Date().toISOString()),
+    industryJudgment(aggregate, industryData.events, industryData.sourceMap, tradeDate),
   )
   const allJudgments = [market, ...judgments]
   const alerts = buildAlerts(tradeDate, industryData.aggregates, judgments, market, industryData.events, alertIndustries)
@@ -878,12 +878,24 @@ async function evaluateJudgments(tradeDate: string): Promise<number> {
   })
   const dates = (datesRes.rows as unknown as Row[]).map((row) => str(row.trade_date)).filter(Boolean)
   const indexByDate = new Map(dates.map((date, index) => [date, index]))
-  const priorRes = await db.execute({
-    sql: `SELECT * FROM judgments
-          WHERE trade_date < ? AND kind = 'industry' AND stance IN ('bullish','bearish','neutral')
-          ORDER BY trade_date ASC`,
-    args: [tradeDate],
-  })
+  // 只回看最近 90 个交易日：更早的判断早已评估完，全历史逐条查询会拖慢每次刷新。
+  const cutoff = dates[Math.max(0, dates.length - 90)] || tradeDate
+  const [priorRes, doneRes] = await Promise.all([
+    db.execute({
+      sql: `SELECT * FROM judgments
+            WHERE trade_date < ? AND trade_date >= ?
+              AND kind = 'industry' AND stance IN ('bullish','bearish','neutral')
+            ORDER BY trade_date ASC`,
+      args: [tradeDate, cutoff],
+    }),
+    db.execute({
+      sql: 'SELECT judgment_id, horizon_days FROM judgment_evaluations',
+      args: [],
+    }),
+  ])
+  const done = new Set(
+    (doneRes.rows as unknown as Row[]).map((row) => `${str(row.judgment_id)}:${num(row.horizon_days)}`),
+  )
   let written = 0
   for (const row of priorRes.rows as unknown as Row[]) {
     const judgmentDate = str(row.trade_date)
@@ -895,6 +907,7 @@ async function evaluateJudgments(tradeDate: string): Promise<number> {
     for (const horizon of [1, 5, 20]) {
       const endIndex = startIndex + horizon
       if (endIndex >= dates.length) break
+      if (done.has(`${judgmentId}:${horizon}`)) continue
       const pathDates = dates.slice(startIndex + 1, endIndex + 1)
       const perDateRes = await db.execute({
         sql: `SELECT trade_date, avg_pct FROM industry_daily

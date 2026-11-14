@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { buildMeta, ensureMethod, ensureSameOrigin, queryString, sendData, sendError } from '../../lib/cockpit/api'
+import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../lib/cockpit/api'
 import {
   listAgentActions,
   proposeAgentAction,
@@ -13,7 +13,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === 'GET') {
       const actions = await listAgentActions({
         status: queryString(req.query.status),
-        limit: Number(queryString(req.query.limit) || 30),
+        limit: queryInt(req.query.limit, 30, 1, 100),
       })
       sendData(res, { actions }, await buildMeta())
       return

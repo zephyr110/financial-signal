@@ -94,8 +94,10 @@ export function JudgmentSheet({
                       <thead className="text-[11px] text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">窗口</th>
-                          <th className="px-3 py-2 text-right font-medium">相对收益</th>
-                          <th className="px-3 py-2 text-right font-medium">基准</th>
+                          <th className="px-3 py-2 text-right font-medium">区间收益</th>
+                          {judgment.evaluations.some((evaluation) => evaluation.benchmarkPct != null) && (
+                            <th className="px-3 py-2 text-right font-medium">基准</th>
+                          )}
                           <th className="px-3 py-2 text-right font-medium">方向</th>
                         </tr>
                       </thead>
@@ -106,7 +108,9 @@ export function JudgmentSheet({
                             <td className={`px-3 py-2 text-right tabular-nums ${(evaluation.returnPct ?? 0) >= 0 ? 'text-chart-3' : 'text-chart-2'}`}>
                               {pct(evaluation.returnPct)}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{pct(evaluation.benchmarkPct)}</td>
+                            {judgment.evaluations.some((item) => item.benchmarkPct != null) && (
+                              <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{pct(evaluation.benchmarkPct)}</td>
+                            )}
                             <td className="px-3 py-2 text-right text-muted-foreground">{evaluation.hit ? '命中' : '未中'}</td>
                           </tr>
                         ))}

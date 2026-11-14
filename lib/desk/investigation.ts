@@ -75,6 +75,16 @@ function strengthOf(refs: EvidenceRef[]): 'thin' | 'moderate' | 'strong' {
   return 'thin'
 }
 
+/** 工具重复返回同一引用时，置信度不能靠重复计数抬高。 */
+function dedupeRefs(refs: EvidenceRef[]): EvidenceRef[] {
+  const seen = new Set<string>()
+  return refs.filter((ref) => {
+    if (seen.has(ref.ref)) return false
+    seen.add(ref.ref)
+    return true
+  })
+}
+
 /** 触发评分：严重度、类别、证据数量与行业覆盖共同决定是否自动深挖。 */
 export function investigationTrigger(alert: {
   severity: string
@@ -86,7 +96,7 @@ export function investigationTrigger(alert: {
   let score = 0
   if (alert.severity === 'critical') { score += 2; reasons.push('关键级预警') }
   else if (alert.severity === 'important') { score += 1; reasons.push('重要预警') }
-  if (['policy', 'announcement', 'market'].includes(alert.category)) {
+  if (['policy', 'announcement', 'market', 'market_breadth', 'industry_move', 'document'].includes(alert.category)) {
     score += 1
     reasons.push('政策/公告/市场级事件')
   }
@@ -144,22 +154,26 @@ export async function collectEvidence(input: {
     }
   }
 
-  const like = input.symbolCode ? `%${input.symbolCode}%` : input.industry ? `%${input.industry}%` : '%'
-  const docs = await db.execute({
-    sql: `SELECT id, title, source_id, published_at, doc_type FROM source_documents
-          WHERE (title LIKE ? OR metadata_json LIKE ?)
-          ORDER BY published_at DESC LIMIT 6`,
-    args: [like, like],
-  })
-  for (const row of docs.rows as unknown as Row[]) {
-    const ref = `doc:${str(row.id)}`
-    refs.push({
-      ref,
-      kind: 'document',
-      label: str(row.title),
-      value: `${str(row.source_id)} ${str(row.published_at)}`,
+  // 没有行业/标的时不做 LIKE '%' 全表扫，否则只会捞到无关的最新文档。
+  const filter = input.symbolCode || input.industry
+  if (filter) {
+    const like = `%${filter}%`
+    const docs = await db.execute({
+      sql: `SELECT id, title, source_id, published_at, doc_type FROM source_documents
+            WHERE (title LIKE ? OR metadata_json LIKE ?)
+            ORDER BY published_at DESC LIMIT 6`,
+      args: [like, like],
     })
-    lines.push(`${ref}｜${str(row.published_at)}｜${str(row.title)}`)
+    for (const row of docs.rows as unknown as Row[]) {
+      const ref = `doc:${str(row.id)}`
+      refs.push({
+        ref,
+        kind: 'document',
+        label: str(row.title),
+        value: `${str(row.source_id)} ${str(row.published_at)}`,
+      })
+      lines.push(`${ref}｜${str(row.published_at)}｜${str(row.title)}`)
+    }
   }
 
   if (refs.some((ref) => ref.kind === 'industry')) {
@@ -304,7 +318,12 @@ export async function runInvestigation(
 
   const budget = parseJson<InvestigationBudget>(row.budget_json, MANUAL_BUDGET)
   const startedAt = new Date().toISOString()
-  let stepNo = 0
+  // 失败重试时步骤已存在，必须从现有最大编号继续，否则主键冲突让调查永远无法恢复。
+  const stepRes = await db.execute({
+    sql: 'SELECT COALESCE(MAX(step_no), 0) AS n FROM desk_investigation_steps WHERE investigation_id = ?',
+    args: [investigationId],
+  })
+  let stepNo = num(stepRes.rows[0]?.n)
   let tokens = 0
   let costMicros = 0
   let refs: EvidenceRef[] = []
@@ -446,6 +465,7 @@ export async function runInvestigation(
     }
     if (!conclusion) conclusion = fallbackConclusion(bundle, str(row.question))
 
+    refs = dedupeRefs(refs)
     const finalConclusion = withCitations(conclusion, refs)
     const confidence = confidenceOf(refs)
     const evidenceStrength = strengthOf(refs)
@@ -496,14 +516,6 @@ export async function createInvestigation(input: {
   const target = input.alertId || input.judgmentId
   const dedupeKey = `${kind}:${target}:${todayShanghai()}`
 
-  const existing = await db.execute({
-    sql: 'SELECT id FROM desk_investigations WHERE dedupe_key = ?',
-    args: [dedupeKey],
-  })
-  if (existing.rows[0]?.id) {
-    return { investigation: (await getInvestigation(String(existing.rows[0].id))) as InvestigationView, created: false }
-  }
-
   let question = (input.question || '').trim()
   if (input.alertId) {
     const alert = await db.execute({ sql: 'SELECT title FROM alerts WHERE id = ?', args: [input.alertId] })
@@ -512,34 +524,58 @@ export async function createInvestigation(input: {
     if (!question) question = `核实预警「${str(row.title)}」：触发原因是否成立，影响路径与验证条件是什么？`
   }
   if (!question) question = '核实该判断的证据强度与失效条件。'
+  const triggerReason = input.triggerReason || (input.manual === false ? '自动触发' : '手动深挖')
 
   const id = crypto.randomUUID()
-  await db.execute({
+  // 去重键唯一：并发创建时只有一条能插入，另一条读取既有记录，避免 select-then-insert 竞争。
+  const inserted = await db.execute({
     sql: `INSERT INTO desk_investigations
             (id, alert_id, judgment_id, lane, status, trigger_reason, question, budget_json, dedupe_key, created_at)
-          VALUES (?, ?, ?, 'interactive', 'queued', ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, 'interactive', 'queued', ?, ?, ?, ?, ?)
+          ON CONFLICT(dedupe_key) DO NOTHING`,
     args: [
       id,
       input.alertId ?? null,
       input.judgmentId ?? null,
-      input.triggerReason || (input.manual === false ? '自动触发' : '手动深挖'),
+      triggerReason,
       question,
       JSON.stringify(budget),
       dedupeKey,
       new Date().toISOString(),
     ],
   })
-  return { investigation: (await getInvestigation(id)) as InvestigationView, created: true }
+  if (Number(inserted.rowsAffected) > 0) {
+    return { investigation: (await getInvestigation(id)) as InvestigationView, created: true }
+  }
+
+  const existing = await db.execute({
+    sql: 'SELECT id, status FROM desk_investigations WHERE dedupe_key = ?',
+    args: [dedupeKey],
+  })
+  const existingRow = existing.rows[0]
+  if (!existingRow) throw new Error('调查入队失败')
+  const existingId = str(existingRow.id)
+  // 手动深挖允许当天重试失败/取消的调查；自动深挖保持一天一次，避免失败循环。
+  if (input.manual !== false && (str(existingRow.status) === 'failed' || str(existingRow.status) === 'canceled')) {
+    await db.execute({
+      sql: `UPDATE desk_investigations SET status = 'queued', progress = 0, error_message = NULL,
+            started_at = NULL, finished_at = NULL, heartbeat_at = NULL, steps_used = 0,
+            trigger_reason = ?, question = ? WHERE id = ?`,
+      args: [triggerReason, question, existingId],
+    })
+    return { investigation: (await getInvestigation(existingId)) as InvestigationView, created: true }
+  }
+  return { investigation: (await getInvestigation(existingId)) as InvestigationView, created: false }
 }
 
-/** 自动深挖：给最高分的几条预警入队，同一天同一预警只做一次。 */
-export async function queueAutoInvestigations(): Promise<string[]> {
+/** 自动深挖：给最高分的几条预警入队，同一交易日同一预警只做一次。 */
+export async function queueAutoInvestigations(tradeDate = todayShanghai()): Promise<string[]> {
   const db = await getDb()
   const res = await db.execute({
     sql: `SELECT * FROM alerts WHERE status = 'open' AND trade_date = ?
           ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'important' THEN 1 ELSE 2 END, triggered_at DESC
           LIMIT 4`,
-    args: [todayShanghai()],
+    args: [tradeDate],
   })
   const ids: string[] = []
   for (const row of res.rows as unknown as Row[]) {

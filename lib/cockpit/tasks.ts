@@ -23,11 +23,10 @@ export const TASK_TYPES: TaskType[] = [
   'daily_close',
   'desk_tick',
   'desk_investigation',
-  'desk_backtest',
 ]
 
 /** 核心链路与交互研究分 lane：深挖再慢也不阻塞收盘入库。 */
-const INTERACTIVE_TYPES = new Set<TaskType>(['ask', 'symbol_deep_dive', 'desk_investigation', 'desk_backtest'])
+const INTERACTIVE_TYPES = new Set<TaskType>(['ask', 'symbol_deep_dive', 'desk_investigation'])
 const TASK_LANES: TaskLane[] = ['core', 'interactive']
 const MAX_ATTEMPTS = 2
 const LEASE_MS = 5 * 60 * 1000
@@ -44,7 +43,6 @@ const TASK_LABEL: Record<string, string> = {
   daily_close: '每日收盘流程',
   desk_tick: '投研台刷新',
   desk_investigation: '预警深挖',
-  desk_backtest: '判断回测',
 }
 
 type Row = Record<string, unknown>
@@ -492,7 +490,7 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         onProgress: (progress, step) => setProgress(task.id, progress, step),
       })
       // 收盘刷新后按触发评分把高优先级预警送进 interactive lane，不阻塞核心链路
-      const autoIds = await queueAutoInvestigations()
+      const autoIds = await queueAutoInvestigations(result.tradeDate)
       for (const investigationId of autoIds) {
         await enqueueTask({ type: 'desk_investigation', params: { investigationId } })
       }
@@ -611,13 +609,6 @@ function taskNotification(
         deepLink: data.alertId ? `/desk?alert=${encodeURIComponent(String(data.alertId))}` : '/desk',
         severity: 'info',
       }
-    case 'desk_backtest':
-      return {
-        title: '判断回测已完成',
-        body: `${String(data.samples ?? 0)} 个样本 · 命中率 ${String(data.hitRate ?? '—')}%`,
-        deepLink: '/desk',
-        severity: 'info',
-      }
     default:
       return { title: `${label}完成`, deepLink: '/tasks', severity: 'info' }
   }
@@ -721,16 +712,25 @@ export async function processNextTask(lane?: TaskLane): Promise<TaskRecord | nul
 }
 
 let drainPromise: Promise<void> | null = null
+let drainQueued = false
 
 /**
  * 两个 lane 各自串行消化：失败任务 requeue 后立刻再认领一次，重试才真正发生。
- * 同进程只跑一个 drain；跨进程由 claimNextTask 的 lane 内 running 行互斥。
+ * 运行中又收到 drain 请求时记下标记，本轮结束后再扫一遍，避免吞掉新入队的任务。
  */
 export async function drainTasks(): Promise<void> {
-  if (drainPromise) return drainPromise
-  drainPromise = Promise.all(TASK_LANES.map(async (lane) => {
-    while (await processNextTask(lane)) { /* 继续下一条 */ }
-  })).then(() => undefined).finally(() => {
+  if (drainPromise) {
+    drainQueued = true
+    return drainPromise
+  }
+  drainPromise = (async () => {
+    do {
+      drainQueued = false
+      await Promise.all(TASK_LANES.map(async (lane) => {
+        while (await processNextTask(lane)) { /* 继续下一条 */ }
+      }))
+    } while (drainQueued)
+  })().finally(() => {
     drainPromise = null
   })
   return drainPromise

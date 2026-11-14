@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { buildMeta, ensureMethod, ensureSameOrigin, queryString, sendData, sendError } from '../../lib/cockpit/api'
+import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../lib/cockpit/api'
 import {
   deleteAgentMemory,
   listAgentMemories,
@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const memories = await listAgentMemories({
         scope: queryString(req.query.scope),
         status: queryString(req.query.status),
-        limit: Number(queryString(req.query.limit) || 30),
+        limit: queryInt(req.query.limit, 30, 1, 100),
       })
       sendData(res, { memories }, await buildMeta())
       return

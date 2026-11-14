@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { buildMeta, ensureMethod, ensureSameOrigin, queryString, sendData, sendError } from '../../../lib/cockpit/api'
+import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../../lib/cockpit/api'
 import { enqueueTask, scheduleTaskDrain } from '../../../lib/cockpit/tasks'
 import {
   createInvestigation,
@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return
       }
       const status = queryString(req.query.status)
-      const items = await listInvestigations({ status, limit: Number(queryString(req.query.limit) || 20) })
+      const items = await listInvestigations({ status, limit: queryInt(req.query.limit, 20, 1, 50) })
       sendData(res, { investigations: items }, await buildMeta())
       return
     }

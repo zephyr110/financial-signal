@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { buildMeta, ensureMethod, queryString, sendData, sendError } from '../../../lib/cockpit/api'
+import { buildMeta, ensureMethod, queryInt, queryString, sendData, sendError } from '../../../lib/cockpit/api'
 import { listJudgmentDates, listJudgments } from '../../../lib/desk/repo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -14,8 +14,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       industry: queryString(req.query.industry),
       from: queryString(req.query.from),
       to: queryString(req.query.to),
-      limit: Number(queryString(req.query.limit) || 30),
-      offset: Number(queryString(req.query.offset) || 0),
+      limit: queryInt(req.query.limit, 30, 1, 100),
+      offset: queryInt(req.query.offset, 0, 0, 1_000_000),
     })
     sendData(res, {
       ...result,

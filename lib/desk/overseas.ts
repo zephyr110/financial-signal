@@ -1,6 +1,6 @@
 import { getDb } from '../db'
 import { fetchWithTimeout } from '../cockpit/sources/http'
-import { ensureCockpitSources, markSourceFailure, markSourceSuccess } from '../cockpit/sources/registry'
+import { assertNoDemoData, ensureCockpitSources, markSourceFailure, markSourceSuccess } from '../cockpit/sources/registry'
 
 const SOURCE_ID = 'cboe'
 const DELAY_MINUTES = 15
@@ -32,6 +32,7 @@ function pick(row: Row, keys: string[]): unknown {
 
 /** CBOE 延迟行情：免费、无需 key，盘中外盘只看隔夜方向，不追实时。 */
 export async function refreshOverseasQuotes(options: { fetchImpl?: typeof fetch } = {}): Promise<OverseasRefreshResult> {
+  await assertNoDemoData()
   await ensureCockpitSources()
   const db = await getDb()
   const fetchImpl = fetchWithTimeout(options.fetchImpl || fetch, 12_000)

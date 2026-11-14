@@ -38,6 +38,7 @@ function evidenceFromRow(row: Row): DeskEvidence {
     label: str(row.label),
     value: str(row.value) || undefined,
     sourceId: str(row.source_id) || undefined,
+    sourceName: str(row.source_name) || undefined,
     documentId: str(row.document_id) || undefined,
     asOf: str(row.as_of) || undefined,
     freshnessSeconds: row.freshness_seconds == null ? undefined : num(row.freshness_seconds),
@@ -107,9 +108,11 @@ async function loadEvidence(judgmentIds: string[]): Promise<Map<string, DeskEvid
   if (!judgmentIds.length) return map
   const db = await getDb()
   const res = await db.execute({
-    sql: `SELECT * FROM judgment_evidence
-          WHERE judgment_id IN (${judgmentIds.map(() => '?').join(',')})
-          ORDER BY rowid ASC`,
+    sql: `SELECT e.*, s.name AS source_name
+          FROM judgment_evidence e
+          LEFT JOIN source_registry s ON s.id = e.source_id
+          WHERE e.judgment_id IN (${judgmentIds.map(() => '?').join(',')})
+          ORDER BY e.rowid ASC`,
     args: judgmentIds,
   })
   for (const row of res.rows as unknown as Row[]) {
@@ -185,7 +188,8 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
       args: [date],
     }),
     db.execute({
-      sql: `SELECT * FROM alerts WHERE trade_date = ? AND status IN ('open','acknowledged')
+      // 快照只展示未处理预警；已确认的由台账/状态计数负责，不能重新弹出。
+      sql: `SELECT * FROM alerts WHERE trade_date = ? AND status = 'open'
             ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'important' THEN 1 WHEN 'watch' THEN 2 ELSE 3 END,
                      triggered_at DESC
             LIMIT 6`,

@@ -16,7 +16,6 @@ export type TaskType =
   | 'daily_close'
   | 'desk_tick'
   | 'desk_investigation'
-  | 'desk_backtest'
 export type ThesisStatus = 'active' | 'strengthened' | 'weakened' | 'broken' | 'review_due'
 export type HealthStatus = 'ok' | 'stale' | 'error' | 'demo' | 'inactive'
 

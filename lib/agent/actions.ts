@@ -38,7 +38,6 @@ const TASK_TYPES: TaskType[] = [
   'market_ingest',
   'desk_tick',
   'desk_investigation',
-  'desk_backtest',
 ]
 const MEMORY_SCOPES: MemoryScope[] = ['user', 'project', 'industry', 'symbol']
 const PROJECT_KINDS: ProjectItemKind[] = ['note', 'evidence', 'judgment', 'document', 'symbol']
@@ -198,7 +197,9 @@ async function executeAction(action: AgentActionView): Promise<Record<string, un
       if (code) {
         const db = await getDb()
         await db.execute({
-          sql: 'INSERT OR IGNORE INTO watchlist_items (code, note, created_at) VALUES (?, ?, ?)',
+          // 已关注的代码也要能用新备注覆盖，空备注则保留原值。
+          sql: `INSERT INTO watchlist_items (code, note, created_at) VALUES (?, ?, ?)
+                ON CONFLICT(code) DO UPDATE SET note = COALESCE(NULLIF(excluded.note, ''), watchlist_items.note)`,
           args: [code, note || `来自研究 Agent：${title}`, new Date().toISOString()],
         })
       }

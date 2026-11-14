@@ -26,6 +26,9 @@ const SCOPE_LABEL: Record<MemoryScope, string> = {
   symbol: '个股',
 }
 
+// 侧栏没有项目选择器，project 记忆必然因缺 projectId 被拒，只提供能直接创建的 scope。
+const CREATABLE_SCOPES: MemoryScope[] = ['user', 'industry', 'symbol']
+
 function actionSummary(action: AgentActionView): string {
   const payload = action.payload
   switch (action.type) {
@@ -275,7 +278,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                     onChange={(event) => setMemoryScope(event.target.value as MemoryScope)}
                     className="h-9 shrink-0 rounded-lg border border-border bg-transparent px-2 text-xs shadow-sm focus-visible:border-ring focus-visible:outline-none"
                   >
-                    {(Object.keys(SCOPE_LABEL) as MemoryScope[]).map((scope) => (
+                    {CREATABLE_SCOPES.map((scope) => (
                       <option key={scope} value={scope}>{SCOPE_LABEL[scope]}</option>
                     ))}
                   </select>

@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { buildMeta, ensureMethod, ensureSameOrigin, queryString, sendData, sendError } from '../../../lib/cockpit/api'
+import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../../lib/cockpit/api'
 import { acknowledgeAlert, listAlerts } from '../../../lib/desk/repo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -10,7 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (status && !['open', 'acknowledged', 'expired'].includes(status)) {
         return sendError(req, res, 400, 'INVALID_STATUS', '预警状态无效')
       }
-      sendData(res, await listAlerts({ status, limit: Number(queryString(req.query.limit) || 50) }), await buildMeta())
+      sendData(res, await listAlerts({ status, limit: queryInt(req.query.limit, 50, 1, 100) }), await buildMeta())
       return
     }
 

@@ -136,34 +136,53 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
     return () => window.clearInterval(timer)
   }, [reload])
 
+  const stopRefreshing = () => {
+    if (refreshTimer.current) window.clearInterval(refreshTimer.current)
+    refreshTimer.current = null
+    refreshingRef.current = false
+    setRefreshing(false)
+  }
+
   const refresh = async () => {
     if (refreshingRef.current) return
     refreshingRef.current = true
     setRefreshing(true)
     setError('')
-    const baseline = status.lastComputedAt || ''
     try {
-      const data = await deskApi<{ task: { status: string } }>('/api/desk/refresh', {
+      const { task } = await deskApi<{ task: { id: string; status: string; error: string | null } }>('/api/desk/refresh', {
         method: 'POST',
         body: JSON.stringify({}),
       })
-      if (data.task.status === 'done' || data.task.status === 'failed') {
+      if (task.status === 'succeeded') {
         await reload()
+        stopRefreshing()
+        return
+      }
+      if (task.status === 'failed' || task.status === 'canceled') {
+        await reload().catch(() => {})
+        setError(task.error || '刷新任务未能完成，请重试。')
+        stopRefreshing()
         return
       }
       const startedAt = Date.now()
       refreshTimer.current = window.setInterval(async () => {
         try {
-          const next = await deskApi<DeskStatus>('/api/desk/status')
-          setStatus(next)
-          const advanced = Boolean(next.lastComputedAt && next.lastComputedAt !== baseline)
-          if (advanced || Date.now() - startedAt > 120_000) {
-            if (refreshTimer.current) window.clearInterval(refreshTimer.current)
-            refreshTimer.current = null
-            refreshingRef.current = false
-            setRefreshing(false)
+          // 按任务 id 轮询，失败/取消能立刻反馈，也不依赖 lastComputedAt 是否变化。
+          const next = await deskApi<{ status: string; error: string | null }>(`/api/cockpit/tasks?id=${encodeURIComponent(task.id)}`)
+          if (next.status === 'succeeded') {
+            stopRefreshing()
+            await reload()
+            return
+          }
+          if (next.status === 'failed' || next.status === 'canceled') {
+            stopRefreshing()
             await reload().catch(() => {})
-            if (!advanced) setError('刷新用时较长，已停止等待；数据可能稍后到达，页面会自动对齐。')
+            setError(next.error || '刷新任务未能完成，请重试。')
+            return
+          }
+          if (Date.now() - startedAt > 120_000) {
+            stopRefreshing()
+            setError('刷新用时较长，已停止等待；数据可能稍后到达，页面会自动对齐。')
           }
         } catch {
           // 轮询抖动忽略，下一轮继续
@@ -171,8 +190,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
       }, 2500)
     } catch (err) {
       setError((err as Error).message)
-      refreshingRef.current = false
-      setRefreshing(false)
+      stopRefreshing()
     }
   }
 
@@ -312,7 +330,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
               <DeskPanel
                 icon={<ShieldAlert />}
                 title="风险预警"
-                meta={`${snapshot.alerts.length} 条未处理`}
+                meta={`${status.openAlerts} 条未处理`}
                 className="xl:h-full"
               >
                 {snapshot.alerts.length

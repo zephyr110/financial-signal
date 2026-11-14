@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { buildMeta, ensureMethod, ensureSameOrigin, queryString, sendData, sendError } from '../../lib/cockpit/api'
+import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../lib/cockpit/api'
 import {
   addProjectItem,
   createProject,
@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       const projects = await listProjects({
         status: queryString(req.query.status) || 'active',
-        limit: Number(queryString(req.query.limit) || 50),
+        limit: queryInt(req.query.limit, 50, 1, 100),
       })
       sendData(res, { projects }, await buildMeta())
       return

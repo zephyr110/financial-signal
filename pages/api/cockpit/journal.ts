@@ -5,6 +5,7 @@ import {
   ensureMethod,
   ensureSameOrigin,
   noStore,
+  queryInt,
   queryString,
   sendData,
   sendError,
@@ -30,8 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (process.env.COCKPIT_DEMO === '1') await ensureCockpitDemoSeed()
 
     if (req.method === 'GET') {
-      const limit = Number(queryString(req.query.limit) || 20)
-      return sendData(res, await getJournal(Number.isFinite(limit) ? limit : 20), await buildMeta())
+      return sendData(res, await getJournal(queryInt(req.query.limit, 20, 1, 100)), await buildMeta())
     }
 
     if (!ensureSameOrigin(req)) {

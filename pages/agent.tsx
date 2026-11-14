@@ -73,6 +73,8 @@ export default function AgentPage() {
   const [editingDraft, setEditingDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // 会话列表请求序号：快速输入时旧请求晚到，不能覆盖新搜索结果
+  const sessionReqRef = useRef(0);
 
   useAutosizeTextarea(inputRef, input, { maxHeight: 200 });
 
@@ -149,12 +151,14 @@ export default function AgentPage() {
 
   // 会话列表：服务端搜索（标题 + 消息正文）与分页（失败静默，不影响主对话）
   const refreshSessions = useCallback(async (q = "", offset = 0) => {
+    const reqId = ++sessionReqRef.current;
     try {
       const params = new URLSearchParams({ limit: "20", offset: String(offset) });
       if (q.trim()) params.set("q", q.trim());
       const res = await fetch(`/api/agent-sessions?${params}`);
       if (!res.ok) return;
       const data = await res.json();
+      if (reqId !== sessionReqRef.current) return;
       const next = data.sessions || [];
       setSessions((prev) => (offset === 0 ? next : [...prev, ...next]));
       setSessionTotal(Number(data.total) || next.length);
