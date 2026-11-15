@@ -7,6 +7,7 @@ import {
   listAgentTurns,
 } from '../../lib/db';
 import { isLocalOrigin } from '../../lib/cronAuth';
+import { requestUserId } from '../../lib/request-user';
 
 const SESSION_TITLE_MAX = 120;
 
@@ -36,6 +37,8 @@ function parseSessionId(id: unknown): number | null {
  * 桌面模式下 DELETE/PATCH 为写操作,校验本机 Origin 防跨站。
  */
 export default async function handler(req, res) {
+  const userId = await requestUserId(req);
+
   if (req.method === 'PATCH') {
     if (!assertDesktopMutationOrigin(req, res)) return;
     const sid = parseSessionId(req.query.id);
@@ -46,7 +49,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `标题不能超过 ${SESSION_TITLE_MAX} 个字符` });
     }
     try {
-      const exists = await agentSessionExists(sid);
+      const exists = await agentSessionExists(sid, userId);
       if (!exists) return res.status(404).json({ error: '会话不存在', sessionId: sid });
       const ok = await renameAgentSession(sid, title);
       if (!ok) return res.status(400).json({ error: '标题无效' });
@@ -64,6 +67,10 @@ export default async function handler(req, res) {
     const sid = parseSessionId(id);
     if (sid == null) return res.status(400).json({ error: 'sessionId 非法' });
     try {
+      // 先按账号校验归属：别人的会话与不存在同样返回 404，不暴露存在性
+      if (!(await agentSessionExists(sid, userId))) {
+        return res.status(404).json({ error: '会话不存在', sessionId: sid });
+      }
       await deleteAgentSession(sid);
       return res.status(200).json({ ok: true, sessionId: sid });
     } catch (error) {
@@ -85,7 +92,7 @@ export default async function handler(req, res) {
     if (sid == null) return res.status(400).json({ error: 'sessionId 非法' });
     try {
       // 会话不存在返回 404：前端据此清理 localStorage 里残留的失效 sessionId
-      const exists = await agentSessionExists(sid);
+      const exists = await agentSessionExists(sid, userId);
       if (!exists) return res.status(404).json({ error: '会话不存在', sessionId: sid });
       const [messages, turns] = await Promise.all([getAgentMessages(sid), listAgentTurns(sid, 50)]);
       return res.status(200).json({ sessionId: sid, messages, turns });
@@ -99,7 +106,7 @@ export default async function handler(req, res) {
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
     const offset = Math.max(0, Number(req.query.offset) || 0);
     const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
-    const page = await listAgentSessionsPage({ limit, offset, query: q });
+    const page = await listAgentSessionsPage({ limit, offset, query: q, userId });
     return res.status(200).json({ ...page, limit, offset, q });
   } catch (error) {
     console.error('[api/agent-sessions] GET list error:', error);

@@ -1,5 +1,6 @@
 import { runAgentTurn } from '../../lib/agent/loop';
 import { isLocalOrigin } from '../../lib/cronAuth';
+import { requestUserId } from '../../lib/request-user';
 
 /**
  * 研究 Agent API（spec §10.3 阶段 B）
@@ -48,6 +49,8 @@ export default async function handler(req, res) {
   }
 
   const wantsStream = stream === true;
+  // 未登录（桌面本地）时为 null，沿用 legacy 全局作用域
+  const userId = await requestUserId(req);
 
   if (!wantsStream) {
     try {
@@ -55,6 +58,7 @@ export default async function handler(req, res) {
         sessionId: sid,
         userMessage: message.trim(),
         editingId: eid,
+        userId,
       });
       return res.status(200).json(result);
     } catch (error) {
@@ -89,6 +93,7 @@ export default async function handler(req, res) {
       sessionId: sid,
       userMessage: message.trim(),
       editingId: eid,
+      userId,
       onEvent: (e) => {
         if (e.type === 'context_compact_start') {
           send('context_compact_start', { messageCount: e.messageCount });

@@ -170,6 +170,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 14, name: 'Agent 记忆/研究项目/安全动作', up: migrationAgentMemorySchema },
   { version: 15, name: 'FTS5 文档与会话消息全文检索', up: migrationFtsSearch },
   { version: 16, name: '可选实时源快照表（必带延迟秒数）', up: migrationRealtimeQuotes },
+  { version: 17, name: 'Agent 个人数据按账号隔离', up: migrationAgentUserScope },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -866,6 +867,23 @@ async function migrationRealtimeQuotes(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_realtime_quotes_time ON realtime_quotes(code, trade_time DESC);
   `);
+}
+
+/** v17：Agent 会话/记忆/项目/动作按账号隔离。历史行 user_id 为 NULL，
+ *  查询时视为 legacy 全局可见，升级后既有数据不消失。 */
+async function migrationAgentUserScope(db) {
+  // 逐表检查：跳过 v1 基线的遗老库可能缺 agent_session，索引不能无条件建
+  const indexes: Array<[string, string]> = [
+    ['agent_session', 'CREATE INDEX IF NOT EXISTS idx_agent_session_user ON agent_session(user_id, updated_at DESC)'],
+    ['agent_memory', 'CREATE INDEX IF NOT EXISTS idx_agent_memory_user ON agent_memory(user_id, scope, status)'],
+    ['agent_project', 'CREATE INDEX IF NOT EXISTS idx_agent_project_user ON agent_project(user_id, status, updated_at DESC)'],
+    ['agent_action', 'CREATE INDEX IF NOT EXISTS idx_agent_action_user ON agent_action(user_id, status, created_at DESC)'],
+  ]
+  for (const [table, indexSql] of indexes) {
+    if (!(await tableExists(db, table))) continue
+    await addColumnIfMissing(db, table, 'user_id', 'INTEGER')
+    await db.execute(indexSql)
+  }
 }
 
 /** 表是否存在：迁移需兼容 PRAGMA 时代跳过了 v1 的库。 */
@@ -1892,25 +1910,30 @@ export async function getEventThreadById(id: number) {
 
 // ── Agent Session CRUD（研究 Agent 持久化） ──
 
-/** 会话是否存在（前端缓存了已删除会话时，发消息前校验防外键错误）。 */
-export async function agentSessionExists(sessionId: number): Promise<boolean> {
+/** 会话是否存在（前端缓存了已删除会话时，发消息前校验防外键错误）。
+ *  传 userId 时一并校验归属；历史 NULL 行视为 legacy，对所有账号可见。 */
+export async function agentSessionExists(sessionId: number, userId?: number | null): Promise<boolean> {
   const db = await getDb();
-  const r = await db.execute({ sql: 'SELECT id FROM agent_session WHERE id = ?', args: [sessionId] });
+  const scoped = userId != null;
+  const r = await db.execute({
+    sql: `SELECT id FROM agent_session WHERE id = ?${scoped ? ' AND (user_id = ? OR user_id IS NULL)' : ''}`,
+    args: scoped ? [sessionId, userId] : [sessionId],
+  });
   return r.rows.length > 0;
 }
 
 /** 创建研究会话，返回 session id。 */
-export async function createAgentSession(title = '新会话') {
+export async function createAgentSession(title = '新会话', userId?: number | null) {
   const db = await getDb();
   const result = await db.execute({
-    sql: 'INSERT INTO agent_session (title) VALUES (?)',
-    args: [title],
+    sql: 'INSERT INTO agent_session (title, user_id) VALUES (?, ?)',
+    args: [title, userId ?? null],
   });
   return rowId(result.lastInsertRowid);
 }
 
 /** 列出研究会话（倒序）。 */
-export async function listAgentSessions(limit = 20, opts: { offset?: number; query?: string } = {}) {
+export async function listAgentSessions(limit = 20, opts: { offset?: number; query?: string; userId?: number | null } = {}) {
   const page = await listAgentSessionsPage({ ...opts, limit });
   return page.sessions;
 }
@@ -1920,6 +1943,7 @@ export async function listAgentSessionsPage(opts: {
   limit?: number;
   offset?: number;
   query?: string;
+  userId?: number | null;
 } = {}) {
   const db = await getDb();
   const limit = Math.max(1, Math.min(100, Math.floor(opts.limit ?? 20)));
@@ -1929,18 +1953,25 @@ export async function listAgentSessionsPage(opts: {
   const useFts = match != null && await hasFtsTable(db, 'messages_fts');
 
   const page = async (fts: boolean) => {
-    const where = !query
-      ? ''
-      : fts
-        ? `WHERE s.title LIKE ? OR EXISTS (
+    const clauses: string[] = [];
+    const args: unknown[] = [];
+    if (opts.userId != null) {
+      clauses.push('(s.user_id = ? OR s.user_id IS NULL)');
+      args.push(opts.userId);
+    }
+    if (query) {
+      clauses.push(fts
+        ? `(s.title LIKE ? OR EXISTS (
              SELECT 1 FROM messages_fts
              JOIN agent_message m ON m.id = messages_fts.message_id
              WHERE messages_fts MATCH ? AND m.session_id = s.id
-           )`
-        : `WHERE s.title LIKE ? OR EXISTS (
+           ))`
+        : `(s.title LIKE ? OR EXISTS (
              SELECT 1 FROM agent_message m WHERE m.session_id = s.id AND m.content LIKE ?
-           )`;
-    const args = query ? [`%${query}%`, fts ? match : `%${query}%`] : [];
+           ))`);
+      args.push(`%${query}%`, fts ? match : `%${query}%`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const totalRes = await db.execute({
       sql: `SELECT COUNT(*) AS n FROM agent_session s ${where}`,
       args,

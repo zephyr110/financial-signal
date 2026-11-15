@@ -17,6 +17,8 @@ export interface AgentActionView {
   id: string
   sessionId?: string
   turnId?: string
+  /** 提案所属账号；历史动作为 undefined（legacy 全局） */
+  userId?: number
   type: AgentActionType
   payload: Record<string, unknown>
   status: AgentActionStatus
@@ -52,6 +54,7 @@ function mapAction(row: Row): AgentActionView {
     id: str(row.id),
     sessionId: str(row.session_id) || undefined,
     turnId: str(row.turn_id) || undefined,
+    userId: row.user_id == null ? undefined : Number(row.user_id),
     type: str(row.type) as AgentActionType,
     payload: parseJson<Record<string, unknown>>(row.payload_json, {}),
     status: str(row.status) as AgentActionStatus,
@@ -141,15 +144,18 @@ export async function proposeAgentAction(input: {
   payload: Record<string, unknown>
   sessionId?: string | null
   turnId?: string | null
+  userId?: number | null
 }): Promise<AgentActionView> {
   const payload = validateActionPayload(input.type, input.payload)
   const db = await getDb()
   const payloadJson = JSON.stringify(payload)
+  const owner = input.userId == null ? 'user_id IS NULL' : 'user_id = ?'
   const existing = await db.execute({
     sql: `SELECT * FROM agent_action WHERE type = ? AND payload_json = ? AND status = 'proposed'
+          AND ${owner}
           AND (expires_at IS NULL OR julianday(expires_at) >= julianday('now'))
           ORDER BY created_at DESC LIMIT 1`,
-    args: [input.type, payloadJson],
+    args: input.userId == null ? [input.type, payloadJson] : [input.type, payloadJson, input.userId],
   })
   if (existing.rows[0]) return mapAction(existing.rows[0] as unknown as Row)
 
@@ -158,8 +164,8 @@ export async function proposeAgentAction(input: {
   const expires = new Date(now.getTime() + ACTION_TTL_HOURS * 3600_000)
   await db.execute({
     sql: `INSERT INTO agent_action
-            (id, session_id, turn_id, type, payload_json, status, created_at, expires_at)
-          VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?)`,
+            (id, session_id, turn_id, type, payload_json, status, created_at, expires_at, user_id)
+          VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?)`,
     args: [
       id,
       input.sessionId ?? null,
@@ -168,18 +174,27 @@ export async function proposeAgentAction(input: {
       payloadJson,
       now.toISOString(),
       expires.toISOString(),
+      input.userId ?? null,
     ],
   })
-  return (await getAgentAction(id)) as AgentActionView
+  return (await getAgentAction(id, input.userId)) as AgentActionView
 }
 
-export async function getAgentAction(id: string): Promise<AgentActionView | null> {
+export async function getAgentAction(id: string, userId?: number | null): Promise<AgentActionView | null> {
   const db = await getDb()
-  const res = await db.execute({ sql: 'SELECT * FROM agent_action WHERE id = ?', args: [id] })
+  const scoped = userId != null
+  const res = await db.execute({
+    sql: `SELECT * FROM agent_action WHERE id = ?${scoped ? ' AND (user_id = ? OR user_id IS NULL)' : ''}`,
+    args: scoped ? [id, userId] : [id],
+  })
   return res.rows[0] ? mapAction(res.rows[0] as unknown as Row) : null
 }
 
-export async function listAgentActions(opts: { status?: string; limit?: number } = {}): Promise<AgentActionView[]> {
+export async function listAgentActions(opts: {
+  status?: string
+  limit?: number
+  userId?: number | null
+} = {}): Promise<AgentActionView[]> {
   const db = await getDb()
   await db.execute({
     sql: `UPDATE agent_action SET status = 'expired', resolved_at = ?
@@ -187,9 +202,22 @@ export async function listAgentActions(opts: { status?: string; limit?: number }
     args: [new Date().toISOString()],
   })
   const limit = Math.max(1, Math.min(100, opts.limit ?? 30))
-  const res = opts.status
-    ? await db.execute({ sql: 'SELECT * FROM agent_action WHERE status = ? ORDER BY created_at DESC LIMIT ?', args: [opts.status, limit] })
-    : await db.execute({ sql: 'SELECT * FROM agent_action ORDER BY created_at DESC LIMIT ?', args: [limit] })
+  const scoped = opts.userId != null
+  const where: string[] = []
+  const args: unknown[] = []
+  if (scoped) {
+    where.push('(user_id = ? OR user_id IS NULL)')
+    args.push(opts.userId)
+  }
+  if (opts.status) {
+    where.push('status = ?')
+    args.push(opts.status)
+  }
+  const res = await db.execute({
+    sql: `SELECT * FROM agent_action ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+          ORDER BY created_at DESC LIMIT ?`,
+    args: [...args, limit],
+  })
   return (res.rows as unknown as Row[]).map(mapAction)
 }
 
@@ -240,6 +268,7 @@ async function executeAction(action: AgentActionView): Promise<Record<string, un
         refId: str(payload.refId),
         title: str(payload.title) || undefined,
         note: str(payload.note) || undefined,
+        userId: action.userId ?? null,
       })
       if (!item) throw new Error('研究项目不存在')
       return { pinned: true, projectId: str(payload.projectId), item }
@@ -252,6 +281,7 @@ async function executeAction(action: AgentActionView): Promise<Record<string, un
         projectId: str(payload.projectId) || null,
         confidence: typeof payload.confidence === 'number' ? payload.confidence : undefined,
         sourceSessionId: action.sessionId ?? null,
+        userId: action.userId ?? null,
       })
       return { memoryId: memory.id, scope: memory.scope, key: memory.key }
     }
@@ -262,9 +292,10 @@ async function executeAction(action: AgentActionView): Promise<Record<string, un
 export async function resolveAgentAction(
   id: string,
   decision: 'confirm' | 'reject',
+  userId?: number | null,
 ): Promise<AgentActionView | null> {
   const db = await getDb()
-  const current = await getAgentAction(id)
+  const current = await getAgentAction(id, userId)
   if (!current) return null
   if (current.status !== 'proposed') return current
 
@@ -274,7 +305,7 @@ export async function resolveAgentAction(
       sql: "UPDATE agent_action SET status = 'rejected', resolved_at = ? WHERE id = ? AND status = 'proposed'",
       args: [now, id],
     })
-    return getAgentAction(id)
+    return getAgentAction(id, userId)
   }
 
   const claimed = await db.execute({
@@ -288,7 +319,7 @@ export async function resolveAgentAction(
       sql: "UPDATE agent_action SET status = 'expired', resolved_at = ? WHERE id = ? AND status = 'proposed'",
       args: [now, id],
     })
-    return getAgentAction(id)
+    return getAgentAction(id, userId)
   }
 
   try {
@@ -297,12 +328,12 @@ export async function resolveAgentAction(
       sql: "UPDATE agent_action SET result_json = ? WHERE id = ?",
       args: [JSON.stringify(result), id],
     })
-    return getAgentAction(id)
+    return getAgentAction(id, userId)
   } catch (err) {
     await db.execute({
       sql: "UPDATE agent_action SET status = 'failed', error_message = ? WHERE id = ?",
       args: [(err as Error).message.slice(0, 500), id],
     })
-    return getAgentAction(id)
+    return getAgentAction(id, userId)
   }
 }

@@ -6,15 +6,18 @@ import {
   upsertAgentMemory,
   type MemoryScope,
 } from '../../lib/agent/memory'
+import { requestUserId } from '../../lib/request-user'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!ensureMethod(req, res, ['GET', 'POST', 'DELETE'])) return
+  const userId = await requestUserId(req)
   try {
     if (req.method === 'GET') {
       const memories = await listAgentMemories({
         scope: queryString(req.query.scope),
         status: queryString(req.query.status),
         limit: queryInt(req.query.limit, 30, 1, 100),
+        userId,
       })
       sendData(res, { memories }, await buildMeta())
       return
@@ -27,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === 'DELETE') {
       const id = queryString(req.query.id)
       if (!id) return sendError(req, res, 400, 'MISSING_ID', '缺少记忆 id')
-      const ok = await deleteAgentMemory(id)
+      const ok = await deleteAgentMemory(id, userId)
       sendData(res, { ok }, await buildMeta())
       return
     }
@@ -43,6 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       projectId: typeof body.projectId === 'string' ? body.projectId : null,
       confidence: typeof body.confidence === 'number' ? body.confidence : undefined,
       expiresAt: typeof body.expiresAt === 'string' ? body.expiresAt : null,
+      userId,
     })
     sendData(res, { memory }, await buildMeta())
   } catch (err) {
