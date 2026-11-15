@@ -169,6 +169,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 13, name: '预警深挖调查与步骤表', up: migrationDeskInvestigationSchema },
   { version: 14, name: 'Agent 记忆/研究项目/安全动作', up: migrationAgentMemorySchema },
   { version: 15, name: 'FTS5 文档与会话消息全文检索', up: migrationFtsSearch },
+  { version: 16, name: '可选实时源快照表（必带延迟秒数）', up: migrationRealtimeQuotes },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -845,6 +846,26 @@ async function migrationFtsSearch(db) {
   } catch (err) {
     console.warn('[db] FTS5 不可用，检索将回退 LIKE:', (err as Error).message)
   }
+}
+
+/** v16：可选付费源的行情快照。delay_seconds 非空，展示层永远带延迟标注。 */
+async function migrationRealtimeQuotes(db) {
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS realtime_quotes (
+      code TEXT NOT NULL,
+      name TEXT,
+      price REAL NOT NULL,
+      previous_close REAL,
+      change_pct REAL,
+      trade_time TEXT NOT NULL,
+      delay_seconds INTEGER NOT NULL,
+      source_id TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (code, trade_time)
+    );
+    CREATE INDEX IF NOT EXISTS idx_realtime_quotes_time ON realtime_quotes(code, trade_time DESC);
+  `);
 }
 
 /** 表是否存在：迁移需兼容 PRAGMA 时代跳过了 v1 的库。 */

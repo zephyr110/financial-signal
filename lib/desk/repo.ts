@@ -9,6 +9,7 @@ import type {
   JudgmentEvaluation,
   JudgmentView,
   OverseasQuoteView,
+  RealtimeQuoteView,
 } from './types'
 
 type Row = Record<string, unknown>
@@ -166,7 +167,11 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
     : await db.execute({ sql: 'SELECT MAX(trade_date) AS d FROM judgments', args: [] })
   if (tradeDate && !dateRes.rows[0]) throw new DeskSnapshotNotFoundError(`${tradeDate} 没有投研台快照`)
   const date = tradeDate || (dateRes.rows[0]?.d ? String(dateRes.rows[0].d) : null)
-  const [sourceHealth, overseas] = await Promise.all([getSourceHealth(), getOverseasQuotes()])
+  const [sourceHealth, overseas, realtime] = await Promise.all([
+    getSourceHealth(),
+    getOverseasQuotes(),
+    getRealtimeQuotes(),
+  ])
   if (!date) {
     return {
       tradeDate: null,
@@ -175,6 +180,7 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
       industries: [],
       alerts: [],
       overseas,
+      realtime,
       dataQuality: sourceHealth,
       isDemo: false,
       generatedAt: new Date().toISOString(),
@@ -233,6 +239,7 @@ export async function getDeskSnapshot(tradeDate?: string): Promise<DeskSnapshot>
     industries,
     alerts,
     overseas,
+    realtime,
     dataQuality: sourceHealth,
     isDemo: judgments.some((judgment) => judgment.isDemo) || alerts.some((alert) => alert.isDemo),
     generatedAt: generatedAt || new Date().toISOString(),
@@ -274,6 +281,28 @@ export async function getDeskStatus(): Promise<DeskStatus> {
       num(countRes.rows[0]?.judgments_demo) === 1 || num(countRes.rows[0]?.alerts_demo) === 1
     ),
   }
+}
+
+export async function getRealtimeQuotes(limit = 12): Promise<RealtimeQuoteView[]> {
+  const db = await getDb()
+  const res = await db.execute({
+    sql: `SELECT * FROM (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_time DESC) AS rn
+            FROM realtime_quotes
+          ) WHERE rn = 1 ORDER BY code LIMIT ?`,
+    args: [Math.max(1, Math.min(50, Math.floor(limit)))],
+  })
+  return (res.rows as unknown as Row[]).map((row) => ({
+    code: str(row.code),
+    name: str(row.name) || undefined,
+    price: num(row.price),
+    previousClose: row.previous_close == null ? undefined : num(row.previous_close),
+    changePct: row.change_pct == null ? undefined : num(row.change_pct),
+    tradeTime: str(row.trade_time),
+    delaySeconds: num(row.delay_seconds),
+    sourceId: str(row.source_id),
+    fetchedAt: str(row.fetched_at),
+  }))
 }
 
 export async function getOverseasQuotes(): Promise<OverseasQuoteView[]> {

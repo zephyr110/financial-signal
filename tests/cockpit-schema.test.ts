@@ -87,7 +87,7 @@ describe('cockpit schema', () => {
       sql: 'SELECT MAX(version) AS v FROM schema_migrations',
       args: [],
     })
-    expect(Number(version.rows[0].v)).toBe(15)
+    expect(Number(version.rows[0].v)).toBe(16)
     const rows = await db2.execute({ sql: 'SELECT COUNT(*) AS n FROM watchlist_items', args: [] })
     expect(Number(rows.rows[0].n)).toBe(1)
   })

@@ -96,7 +96,7 @@ describe('schema migration (schema_migrations 表)', () => {
     const db = await getDb()
 
     const r = await db.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
-    expect(Number(r.rows[0].v)).toBe(15)
+    expect(Number(r.rows[0].v)).toBe(16)
 
     const tables = await db.execute({
       sql: "SELECT name FROM sqlite_master WHERE type='table'",
@@ -130,7 +130,7 @@ describe('schema migration (schema_migrations 表)', () => {
     const db = await getDb()
 
     const r = await db.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
-    expect(Number(r.rows[0].v)).toBe(15)
+    expect(Number(r.rows[0].v)).toBe(16)
 
     const newsCols = await db.execute({ sql: 'PRAGMA table_info(news_archive)', args: [] })
     expect(newsCols.rows.some((c) => c.name === 'docurl')).toBe(true)
@@ -166,7 +166,7 @@ describe('schema migration (schema_migrations 表)', () => {
       sql: 'SELECT version FROM schema_migrations ORDER BY version',
       args: [],
     })
-    expect(versions.rows.map((r) => Number(r.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+    expect(versions.rows.map((r) => Number(r.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
 
     // v2/v3 列保持(不重跑);v4 补 user_id 列
     const newsCols = await db.execute({ sql: 'PRAGMA table_info(news_archive)', args: [] })
@@ -190,7 +190,7 @@ describe('schema migration (schema_migrations 表)', () => {
       sql: 'SELECT version FROM schema_migrations ORDER BY version',
       args: [],
     })
-    expect(versions2.rows.map((r) => Number(r.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+    expect(versions2.rows.map((r) => Number(r.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
   })
 
   it('迁移幂等:已是最新版本时再次加载不报错、不改动数据', async () => {
@@ -207,7 +207,7 @@ describe('schema migration (schema_migrations 表)', () => {
     const mod2 = await import('../lib/db')
     const db2 = await mod2.getDb()
     const r = await db2.execute({ sql: 'SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations', args: [] })
-    expect(Number(r.rows[0].v)).toBe(15)
+    expect(Number(r.rows[0].v)).toBe(16)
 
     const rows = await db2.execute({ sql: 'SELECT COUNT(*) as n FROM event_threads', args: [] })
     expect(Number(rows.rows[0].n)).toBe(1)

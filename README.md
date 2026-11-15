@@ -45,6 +45,7 @@ CBOE delayed quotes ─────► overnight context            └─► ev
 | Tushare Pro | T1 | Daily bars, trading calendar (`TUSHARE_TOKEN`) |
 | AKShare | T2 | Supplementary market data via public endpoints |
 | CBOE delayed quotes | T1 | Overnight S&P 500 / NASDAQ 100 / Dow, 15-minute delay |
+| Optional paid snapshot | T1 | Quotes/news with per-item `delaySeconds` (`REALTIME_SOURCE_URL`); disabled by default, items without a delay label are dropped |
 | Sina / 10jqka / Wallstreetcn | news | 7×24 flash news for the signal pipeline |
 
 - Every displayed judgment carries its evidence, source name and timestamp.
