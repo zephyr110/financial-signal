@@ -88,6 +88,22 @@ function delayLabel(seconds: number) {
   return `延迟 ${Math.round(seconds / 60)} 分钟`
 }
 
+/** 延迟行情独立于当日判断：没有市场判断时也要能看到，且永远标注延迟。 */
+function RealtimeQuotes({ quotes }: { quotes: RealtimeQuoteView[] }) {
+  if (!quotes.length) return null
+  return (
+    <div className="border-t border-border/60">
+      <div className="flex items-center justify-between bg-muted/30 px-4 py-1.5 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1"><Timer className="size-3.5" />行情快照</span>
+        <span>{delayLabel(Math.max(...quotes.map((quote) => quote.delaySeconds)))}</span>
+      </div>
+      {quotes.map((quote) => (
+        <RealtimeRow key={`${quote.code}:${quote.tradeTime}`} quote={quote} />
+      ))}
+    </div>
+  )
+}
+
 function RealtimeRow({ quote }: { quote: RealtimeQuoteView }) {
   return (
     <div className="relative flex items-center justify-between gap-2 px-4 py-2 text-xs after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
@@ -303,6 +319,11 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                 {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                 生成今日快照
               </Button>
+              {snapshot.realtime.length > 0 && (
+                <div className="mt-2 w-full max-w-md">
+                  <RealtimeQuotes quotes={snapshot.realtime} />
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-1 gap-3 overflow-y-auto p-3 md:grid-cols-2 lg:p-4 xl:auto-rows-fr xl:grid-cols-4 xl:overflow-hidden">
@@ -346,20 +367,15 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                       {snapshot.overseas.length
                         ? snapshot.overseas.map((quote) => <OverseasRow key={quote.symbol} quote={quote} />)
                         : <EmptyHint>暂无外盘行情</EmptyHint>}
-                      {snapshot.realtime.length > 0 && (
-                        <div className="border-t border-border/60">
-                          <div className="flex items-center justify-between bg-muted/30 px-4 py-1.5 text-[11px] text-muted-foreground">
-                            <span className="flex items-center gap-1"><Timer className="size-3.5" />行情快照</span>
-                            <span>{delayLabel(Math.max(...snapshot.realtime.map((quote) => quote.delaySeconds)))}</span>
-                          </div>
-                          {snapshot.realtime.map((quote) => (
-                            <RealtimeRow key={`${quote.code}:${quote.tradeTime}`} quote={quote} />
-                          ))}
-                        </div>
-                      )}
+                      <RealtimeQuotes quotes={snapshot.realtime} />
                     </div>
                   </div>
-                ) : <EmptyHint>今天还没有生成市场判断，点右上角刷新。</EmptyHint>}
+                ) : (
+                  <div className="flex min-h-0 flex-col xl:flex-1">
+                    <EmptyHint>今天还没有生成市场判断，点右上角刷新。</EmptyHint>
+                    <RealtimeQuotes quotes={snapshot.realtime} />
+                  </div>
+                )}
               </DeskPanel>
 
               <DeskPanel
