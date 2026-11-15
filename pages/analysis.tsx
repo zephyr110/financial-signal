@@ -368,8 +368,8 @@ export default function Analysis({
             ref={contentScrollRef}
             className="min-h-0 flex-1 overflow-y-auto overscroll-none"
           >
-        {/* 内容列宽度随分辨率阶梯放大，与 agent 一致 */}
-        <div className="mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px] px-4 sm:px-6 pb-8">
+        {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
+        <div className="w-full px-3 pb-8 lg:px-4">
           <div className="pt-8 pb-5 flex items-end justify-between flex-wrap gap-2">
             <p className="text-sm text-muted-foreground font-normal">
               政策 · 行业 · 公司 — AI 智能分析，一目了然
@@ -588,8 +588,8 @@ export default function Analysis({
           </div>
 
           {/* 页脚：固定在视口底部 */}
-          <div className="shrink-0 bg-background px-4 sm:px-6 py-3">
-            <div className="mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px] flex items-center justify-between flex-wrap gap-2">
+          <div className="shrink-0 bg-background px-3 py-3 lg:px-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <p className="text-xs text-muted-foreground">
                 分析仅作为信息准备，不构成投资建议
               </p>

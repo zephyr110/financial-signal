@@ -627,10 +627,10 @@ export default function AgentPage() {
               .agent-scroll::-webkit-scrollbar-track { background: transparent; }
             `}</style>
 
-            {/* 内容列宽度随分辨率阶梯放大；空对话时整列垂直居中提示块 */}
+            {/* 内容区与投研台同宽；空对话时整列垂直居中提示块 */}
             <div
               className={cn(
-                "mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px] px-4 sm:px-6 py-6",
+                "w-full px-3 py-6 lg:px-4",
                 (isEmpty || loadingHistory) && "flex min-h-full flex-col items-center justify-center"
               )}
             >
@@ -950,8 +950,8 @@ export default function AgentPage() {
             </div>{/* agent-scroll 滚动区 */}
 
             {/* 输入区：水平边距与消息流对齐，收紧内层留白 */}
-            <div className="shrink-0 bg-background px-4 pb-4 pt-3 sm:px-6 sm:pb-5">
-              <div className="mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px]">
+            <div className="shrink-0 bg-background px-3 pb-4 pt-3 lg:px-4 sm:pb-5">
+              <div className="w-full">
                 <div className="flex items-end gap-1.5 rounded-2xl border bg-card py-2 pl-3 pr-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                   <Textarea
                     ref={inputRef}
