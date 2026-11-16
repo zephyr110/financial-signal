@@ -54,6 +54,8 @@ export interface RunTurnOptions {
   editingId?: number;
   /** 重新生成：以该助手回复所属的用户消息为源，生成兄弟回复 */
   regenerateFromId?: number;
+  /** 本轮是否启用联网搜索（决定是否向模型暴露 web_search 工具） */
+  webSearch?: boolean;
   /** SSE 流式事件回调（tool_start / tool_end / delta / done） */
   onEvent?: (event: AgentTurnEvent) => void;
 }
@@ -130,6 +132,7 @@ export async function runAgentTurn(
   }
 
   const emit = opts.onEvent ?? (() => {});
+  const toolScope = { webSearch: opts.webSearch === true };
 
   let sessionId: number;
   try {
@@ -242,7 +245,7 @@ export async function runAgentTurn(
     });
     contextTokens = estimateContextTokens(history);
     const memoryPrompt = await loadAgentMemoryPrompt(12, opts.userId);
-    const systemPrompt = buildAgentSystemPrompt(buildToolPrompt(), memoryPrompt);
+    const systemPrompt = buildAgentSystemPrompt(buildToolPrompt(toolScope), memoryPrompt);
 
     while (llmCalls < maxLlmCalls) {
       llmCalls++;
@@ -349,11 +352,11 @@ export async function runAgentTurn(
         return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated, userMessageId, assistantMessageId, stats };
       }
 
-      const tool = getTool(toolCall.tool);
+      const tool = getTool(toolCall.tool, toolScope);
       if (!tool) {
         corrections++;
         if (corrections > MAX_CORRECTION_STEPS) break;
-        const feedback = `【工具不存在】工具 "${toolCall.tool}" 未注册。可用工具：${buildToolPrompt().split('\n').map((l) => l.split(':')[0]).join(', ')}。请重试。`;
+        const feedback = `【工具不存在】工具 "${toolCall.tool}" 未注册。可用工具：${buildToolPrompt(toolScope).split('\n').map((l) => l.split(':')[0]).join(', ')}。请重试。`;
         turnMessages.push({ role: 'user', content: feedback });
         await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
         continue;

@@ -16,6 +16,8 @@ export const SETTING_KEYS = {
   TURSO_AUTH_TOKEN: 'turso_auth_token',
   TUSHARE_TOKEN: 'tushare_token',
   CRON_SECRET: 'cron_secret',
+  WEB_SEARCH_PROVIDER: 'web_search_provider',
+  WEB_SEARCH_API_KEY: 'web_search_api_key',
 } as const;
 
 let cache: { at: number; data: Record<string, string> } | null = null;

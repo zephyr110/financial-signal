@@ -10,6 +10,7 @@ import { fixMarkdown, repairJson } from './format';
 import { getDeskSnapshot, listAlerts, listJudgments } from '../desk/repo';
 import { getInvestigation, listInvestigations } from '../desk/investigation';
 import { proposeAgentAction, type AgentActionType } from './actions';
+import { searchWeb } from './web-search';
 
 /** 简洁化工具输出：限制文本长度，避免撑爆上下文 */
 function summarizeList(rows, fields, limit = 10) {
@@ -330,15 +331,51 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
   },
 ];
 
+/**
+ * 联网搜索按轮次开关：只有用户在本轮打开「联网」时才注入，避免默认消耗
+ * 外部搜索额度，也避免模型在本地信号足够时滥用。
+ */
+export const WEB_SEARCH_TOOL: ToolDefinition = {
+  name: 'web_search',
+  description:
+    '联网搜索最新的财经新闻、股市行情与政策信息（第三方网页）。' +
+    '用于本地信号库尚未覆盖的最新消息；结果需注明来源链接，并区分联网信息与本地信号。',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: '搜索词，如"央行 降准 最新消息"（至少2字）' },
+      freshness: {
+        type: 'string',
+        description: '时间范围：oneDay | oneWeek | oneMonth | noLimit，默认 oneWeek',
+      },
+      count: { type: 'number', description: '返回条数，默认 8，最大 10' },
+    },
+    required: ['query'],
+  },
+  async execute(args) {
+    return searchWeb(String(args.query || ''), {
+      freshness: args.freshness as never,
+      count: args.count as number,
+    });
+  },
+};
+
+export interface ToolScope {
+  /** 本轮是否允许联网搜索 */
+  webSearch?: boolean;
+}
+
 const toolMap = new Map(RESEARCH_TOOLS.map((t) => [t.name, t]));
 
-export function getTool(name: string): ToolDefinition | undefined {
+export function getTool(name: string, scope: ToolScope = {}): ToolDefinition | undefined {
+  if (name === WEB_SEARCH_TOOL.name) return scope.webSearch ? WEB_SEARCH_TOOL : undefined;
   return toolMap.get(name);
 }
 
 /** 生成工具清单文本，注入 system prompt */
-export function buildToolPrompt(): string {
-  return RESEARCH_TOOLS.map((t) =>
+export function buildToolPrompt(scope: ToolScope = {}): string {
+  const tools = scope.webSearch ? [...RESEARCH_TOOLS, WEB_SEARCH_TOOL] : RESEARCH_TOOLS;
+  return tools.map((t) =>
     `- ${t.name}: ${t.description}\n  参数: ${JSON.stringify(t.parameters.properties || {})}`
   ).join('\n');
 }

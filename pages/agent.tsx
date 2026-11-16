@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Head from "next/head";
-import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X, BookOpen, ThumbsUp, ThumbsDown, RefreshCw } from "lucide-react";
+import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X, BookOpen, ThumbsUp, ThumbsDown, RefreshCw, Globe } from "lucide-react";
 import { getToolLabel } from "@/lib/agent/tool-labels";
 import AppShell from "../components/app-shell";
 import SessionSidebarGroup from "../components/SessionSidebarGroup";
@@ -47,6 +47,8 @@ export default function AgentPage() {
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatItem[]>([]);
   const [input, setInput] = useState("");
+  // 联网搜索：只决定本轮是否注入 web_search 工具；本机偏好跨刷新保留
+  const [webSearch, setWebSearch] = useState(false);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +75,26 @@ export default function AgentPage() {
   const sessionReqRef = useRef(0);
 
   useAutosizeTextarea(inputRef, input, { maxHeight: 200 });
+
+  useEffect(() => {
+    try {
+      setWebSearch(localStorage.getItem("agent-web-search") === "1");
+    } catch {
+      // localStorage 不可用时保持默认关闭
+    }
+  }, []);
+
+  const toggleWebSearch = useCallback(() => {
+    setWebSearch((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("agent-web-search", next ? "1" : "0");
+      } catch {
+        // 忽略持久化失败，仅影响下次打开
+      }
+      return next;
+    });
+  }, []);
 
   // 复制回复文本；短时显示"已复制"反馈
   const copyMessage = useCallback(async (id: string, text: string) => {
@@ -290,6 +312,7 @@ export default function AgentPage() {
             sessionId: sessionId ?? undefined,
             message: text,
             stream: true,
+            webSearch,
             editingId: editing ? Number(editing.replace("hist-", "")) : undefined,
             regenerateFromId: regenerating
               ? Number(regenerating.replace("hist-", ""))
@@ -1086,6 +1109,21 @@ export default function AgentPage() {
                   maxLength={2000}
                   className="max-h-[200px] min-h-9 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-1.5 shadow-none focus-visible:ring-0"
                 />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleWebSearch}
+                  aria-pressed={webSearch}
+                  title="开启后本轮可联网检索最新的财经新闻、行情与政策"
+                  className={cn(
+                    "mb-0.5 h-9 shrink-0 gap-1.5 rounded-xl px-2.5 text-xs",
+                    webSearch && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                  )}
+                >
+                  <Globe className="size-4" />
+                  联网
+                </Button>
                 <Button
                   size="icon"
                   className="mb-0.5 h-9 w-9 shrink-0 rounded-xl"
