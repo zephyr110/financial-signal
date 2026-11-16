@@ -67,7 +67,7 @@ export function CockpitShell({
           <div className="ck-root">
             {isDemo && <DemoBanner />}
             {children}
-            <footer className="mt-8 border-t pt-3">
+            <footer className="mt-8 pt-3">
               <Disclosure
                 className="ck-source-status"
                 title={sourceTitle}
