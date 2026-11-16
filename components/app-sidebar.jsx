@@ -29,7 +29,7 @@ import {
 /**
  * 全局侧栏（sidebar-07 折叠分区模式）：
  * Header 品牌 → 导航分组 → 页面专属分组（sidebarExtra）→ Footer
- * （应用操作：设置 gear 行 + 头像菜单：主题/GitHub/退出）。
+ * （应用操作：设置 gear 行 + 头像菜单：GitHub/退出；主题切换只在设置弹窗「外观」）。
  * 用户信息(username)在此统一拉取,设置弹窗与头像菜单共用。
  */
 export default function AppSidebar({ sidebarExtra = null, ...props }) {

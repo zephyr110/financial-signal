@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/track";
 
@@ -140,14 +141,14 @@ export default function SearchBar({
       {/* Search input */}
       <div className="relative flex-1 min-w-0">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        <input
+        <Input
           ref={inputRef}
           type="text"
           value={query}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
           placeholder="搜索行业、公司、关键词…"
-          className="w-full h-9 pl-9 pr-8 rounded-lg border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+          className="pl-9 pr-8"
         />
         {query && (
           <button

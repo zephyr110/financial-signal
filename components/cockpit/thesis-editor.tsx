@@ -5,10 +5,17 @@ import type { ThesisStatus, ThesisView } from '@/lib/cockpit/types'
 import { thesisStatusLabel } from '@/lib/cockpit/format'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { closeDisclosure } from './bits'
 
 const STATUS_OPTIONS: ThesisStatus[] = ['active', 'strengthened', 'weakened', 'broken', 'review_due']
+const STATUS_ITEMS = STATUS_OPTIONS.map((status) => ({ value: status, label: thesisStatusLabel(status) }))
+const CONFIDENCE_ITEMS = [
+  { value: '低', label: '低' },
+  { value: '中', label: '中' },
+  { value: '高', label: '高' },
+]
 
 interface ApiErrorBody {
   error?: {
@@ -139,29 +146,37 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="thesis-status">状态</label>
-          <select
-            className="ck-select"
-            id="thesis-status"
+          <Select
+            items={STATUS_ITEMS}
             value={status}
-            onChange={(event) => setStatus(event.target.value as ThesisStatus)}
+            onValueChange={(value) => setStatus(value as ThesisStatus)}
           >
-            {STATUS_OPTIONS.map((option) => (
-              <option value={option} key={option}>{thesisStatusLabel(option)}</option>
-            ))}
-          </select>
+            <SelectTrigger id="thesis-status" className="text-base md:text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_ITEMS.map((item) => (
+                <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="thesis-confidence">置信度</label>
-          <select
-            className="ck-select"
-            id="thesis-confidence"
+          <Select
+            items={CONFIDENCE_ITEMS}
             value={confidence}
-            onChange={(event) => setConfidence(event.target.value as '低' | '中' | '高')}
+            onValueChange={(value) => setConfidence(value as '低' | '中' | '高')}
           >
-            <option value="低">低</option>
-            <option value="中">中</option>
-            <option value="高">高</option>
-          </select>
+            <SelectTrigger id="thesis-confidence" className="text-base md:text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CONFIDENCE_ITEMS.map((item) => (
+                <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="ck-field ck-field-full">
           <label className="ck-label" htmlFor="thesis-claim">主张</label>

@@ -866,7 +866,7 @@ export default function AgentPage() {
                               rows={Math.max(2, m.content.split("\n").length)}
                               maxLength={2000}
                               autoFocus
-                              className="min-h-0 resize-y border-0 bg-transparent px-0 py-0 text-primary-foreground shadow-none focus-visible:ring-0 placeholder:text-primary-foreground/60"
+                              className="min-h-0 resize-y border-0 bg-transparent px-0 py-0 text-primary-foreground shadow-none focus-visible:ring-0 placeholder:text-primary-foreground/80"
                             />
                             <div className="mt-2 flex items-center justify-end gap-1.5">
                               <button

@@ -66,27 +66,30 @@
   color: var(--ck-ink);
 }
 
-/* 用 :where 降低重置优先级，避免压过组件自身的颜色与间距。 */
-.ck-root :where(a) {
-  color: inherit;
-  text-decoration: none;
-}
+/* 用 :where 降低重置优先级；必须在 base 层，否则未分层规则会压过 text-* / m-* 工具类。
+   （曾经的症状：主色按钮蓝底却继承了正文黑色字。） */
+@layer base {
+  .ck-root :where(a) {
+    color: inherit;
+    text-decoration: none;
+  }
 
-.ck-root :where(button, input, select, textarea) {
-  font: inherit;
-  color: inherit;
-}
+  .ck-root :where(button, input, select, textarea) {
+    font: inherit;
+    color: inherit;
+  }
 
-.ck-root :where(button) {
-  cursor: pointer;
-}
+  .ck-root :where(button) {
+    cursor: pointer;
+  }
 
-.ck-root :where(h1, h2, h3, p, ul, ol, figure) {
-  margin: 0;
-}
+  .ck-root :where(h1, h2, h3, p, ul, ol, figure) {
+    margin: 0;
+  }
 
-.ck-root :where(ul, ol) {
-  padding: 0;
+  .ck-root :where(ul, ol) {
+    padding: 0;
+  }
 }
 
 .ck-root :focus-visible {
@@ -2254,40 +2257,6 @@ a.ck-chip:hover {
   font-weight: 500;
 }
 
-.ck-input,
-.ck-select,
-.ck-textarea {
-  display: block;
-  width: 100%;
-  min-height: 36px;
-  padding: 7px 10px;
-  border: 1px solid var(--ck-line);
-  border-radius: var(--ck-radius-sm);
-  outline: none;
-  background: var(--ck-surface);
-  color: var(--ck-ink);
-  font-size: 15px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.ck-textarea {
-  min-height: 82px;
-  resize: vertical;
-  line-height: 1.65;
-}
-
-.ck-input:focus,
-.ck-select:focus,
-.ck-textarea:focus {
-  border-color: var(--ck-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ck-accent) 18%, transparent);
-}
-
-.ck-input::placeholder,
-.ck-textarea::placeholder {
-  color: var(--ck-faint);
-}
-
 .ck-form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2767,12 +2736,6 @@ a.ck-chip:hover {
 }
 
 @media (max-width: 767px) {
-  .ck-input,
-  .ck-select,
-  .ck-textarea {
-    font-size: 16px;
-  }
-
   /* 窄屏三列指数只留名称，代码留在桌面与详情页。 */
   .ck-index-code,
   .ck-snapshot-name code {

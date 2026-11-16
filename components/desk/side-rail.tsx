@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import type { AgentActionView } from '@/lib/agent/actions'
@@ -29,6 +30,7 @@ const SCOPE_LABEL: Record<MemoryScope, string> = {
 
 // 侧栏没有项目选择器，project 记忆必然因缺 projectId 被拒，只提供能直接创建的 scope。
 const CREATABLE_SCOPES: MemoryScope[] = ['user', 'industry', 'symbol']
+const SCOPE_ITEMS = CREATABLE_SCOPES.map((scope) => ({ value: scope, label: SCOPE_LABEL[scope] }))
 
 function actionSummary(action: AgentActionView): string {
   const payload = action.payload
@@ -280,15 +282,20 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
             <TabsContent value="memory" className="p-0">
               <div className="space-y-2 bg-muted/20 px-4 py-3">
                 <div className="flex gap-2">
-                  <select
+                  <Select
+                    items={SCOPE_ITEMS}
                     value={memoryScope}
-                    onChange={(event) => setMemoryScope(event.target.value as MemoryScope)}
-                    className="h-9 shrink-0 rounded-lg border border-border bg-transparent px-2 text-xs shadow-sm focus-visible:border-ring focus-visible:outline-none"
+                    onValueChange={(value) => setMemoryScope(value as MemoryScope)}
                   >
-                    {CREATABLE_SCOPES.map((scope) => (
-                      <option key={scope} value={scope}>{SCOPE_LABEL[scope]}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="h-9 w-auto shrink-0 px-2 text-xs" aria-label="记忆范围">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SCOPE_ITEMS.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Input
                     value={memoryKey}
                     onChange={(event) => setMemoryKey(event.target.value)}

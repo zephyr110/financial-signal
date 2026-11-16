@@ -9,6 +9,7 @@ import ErrorBanner from "../../components/ErrorBanner";
 import WatchlistButton from "../../components/WatchlistButton";
 import { cn } from "@/lib/utils";
 import { CATEGORY_LABELS, CATEGORY_COLORS, SCORE_LABELS, sourceDisplayName } from "@/lib/constants";
+import { CONTENT_GUTTER } from "@/lib/layout-classes";
 import { getEventThreads, getEventThreadById } from "../../lib/db";
 import { getThreadMarketContext } from "../../lib/market";
 import { getBacktestTier, shouldShowNumbers, TIER_LABELS } from "@/lib/backtest";
@@ -79,7 +80,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
       <>
         <Head><title>加载中… · 财经信号</title></Head>
         <AppShell title="事件线索">
-          <div className="mx-auto flex min-h-full max-w-[720px] lg:max-w-[960px] flex-col px-4 sm:px-6 pb-12 pt-8">
+          <div className={`flex min-h-full w-full flex-col pb-12 pt-8 ${CONTENT_GUTTER}`}>
             <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="text-sm">加载中…</span>
@@ -95,7 +96,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
       <>
         <Head><title>事件线索 · 财经信号</title></Head>
         <AppShell title="事件线索">
-          <div className="mx-auto max-w-[720px] lg:max-w-[960px] px-4 sm:px-6 pb-12 pt-8">
+          <div className={`w-full pb-12 pt-8 ${CONTENT_GUTTER}`}>
             <Link
               href="/analysis"
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mb-6"
@@ -129,7 +130,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
       </Head>
 
       <AppShell title="事件线索">
-        <div className="mx-auto max-w-[720px] lg:max-w-[960px] px-4 sm:px-6 pb-12 pt-8">
+        <div className={`w-full pb-12 pt-8 ${CONTENT_GUTTER}`}>
           <Link
             href="/analysis"
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mb-6"
