@@ -7,30 +7,44 @@ import crypto from 'crypto';
 import path from 'path';
 
 /**
- * Turso when TURSO_DATABASE_URL is set; otherwise local file SQLite for dev.
- * On Vercel, TURSO_DATABASE_URL is required (no ephemeral /tmp fallback).
+ * 默认本地文件 SQLite；显式 DB_BACKEND=turso 才连 Turso。
+ * 环境里遗留的 TURSO_* 不再隐式生效——远程配额耗尽不会把整站拖到不可用。
+ * Vercel 无持久磁盘，未显式指定后端时仍要求 Turso。
  */
-function resolveClientConfig() {
+export function resolveDbTarget(env: Record<string, string | undefined> = process.env): { url: string; authToken?: string } {
   // 测试必须隔离在本地文件库:测试含破坏性操作(改密/清会话/去重 DELETE),
   // 若开发机 shell 导出了 TURSO_DATABASE_URL(生产标配),不经此分支会直连共享库
-  if (process.env.NODE_ENV === 'test') {
-    const filePath = process.env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db');
+  if (env.NODE_ENV === 'test') {
+    const filePath = env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db');
     return { url: `file:${filePath}` };
   }
-  const url = process.env.TURSO_DATABASE_URL;
-  if (url) {
-    return {
-      url,
-      authToken: process.env.TURSO_AUTH_TOKEN,
-    };
+  const backend = (env.DB_BACKEND || '').trim().toLowerCase();
+  if (backend && backend !== 'local' && backend !== 'turso') {
+    throw new Error(`DB_BACKEND 只能是 local 或 turso（当前 "${backend}"）`);
   }
-  if (process.env.VERCEL) {
-    throw new Error(
-      'TURSO_DATABASE_URL is required on Vercel. Create a Turso DB and set TURSO_DATABASE_URL + TURSO_AUTH_TOKEN.'
-    );
+  if (backend === 'turso' || (!backend && env.VERCEL)) {
+    if (!env.TURSO_DATABASE_URL) {
+      throw new Error('DB_BACKEND=turso 需要 TURSO_DATABASE_URL 与 TURSO_AUTH_TOKEN');
+    }
+    return { url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN };
   }
-  const filePath = process.env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db');
+  if (env.VERCEL) {
+    throw new Error('Vercel 无持久磁盘，不能使用本地数据库；请删除 DB_BACKEND=local 并配置 TURSO_DATABASE_URL。');
+  }
+  const filePath = env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db');
   return { url: `file:${filePath}` };
+}
+
+let warnedIgnoredTurso = false;
+
+function resolveClientConfig() {
+  const target = resolveDbTarget(process.env);
+  if (!warnedIgnoredTurso && process.env.NODE_ENV !== 'test'
+    && target.url.startsWith('file:') && process.env.TURSO_DATABASE_URL) {
+    warnedIgnoredTurso = true;
+    console.warn('[db] 检测到 TURSO_DATABASE_URL，但当前使用本地数据库；如需远端库请设置 DB_BACKEND=turso');
+  }
+  return target;
 }
 
 /** 远程 Turso(URL 非 file:)vs 本地文件库——迁移起点/PRAGMA 行为据此分支。 */
