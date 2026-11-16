@@ -12,7 +12,8 @@ import {
   appendAgentMessage,
   createAgentSession,
   touchAgentSession,
-  editAgentMessage,
+  forkAgentUserMessage,
+  getAgentRegenerateSource,
   logEvent,
   agentSessionExists,
   EVENT_TYPES,
@@ -49,8 +50,10 @@ export interface RunTurnOptions {
   /** 当前登录账号；null/未提供时沿用 legacy 全局作用域 */
   userId?: number | null;
   userMessage: string;
-  /** 编辑重发：替换该消息内容并删除其后全部消息，不再追加新用户消息 */
+  /** 编辑重发：在源用户消息下插入兄弟分支，旧分支保留可切回 */
   editingId?: number;
+  /** 重新生成：以该助手回复所属的用户消息为源，生成兄弟回复 */
+  regenerateFromId?: number;
   /** SSE 流式事件回调（tool_start / tool_end / delta / done） */
   onEvent?: (event: AgentTurnEvent) => void;
 }
@@ -70,6 +73,7 @@ export type AgentTurnEvent =
       toolLog: AgentTurnResult['toolLog'];
       truncated: boolean;
       userMessageId: number;
+      assistantMessageId: number;
       stats: AgentTurnStats;
     };
 
@@ -193,14 +197,19 @@ export async function runAgentTurn(
     };
 
     try {
-    // 编辑重发：替换既有用户消息并截断其后内容，供本轮重新生成回复
+    // 先确定本轮的用户消息节点：普通发送追加到可见叶子；编辑插入兄弟分支；
+    // 重新生成复用源用户消息，只截取到该消息的上下文。
+    let userMessage = opts.userMessage;
     let userMessageId: number;
-    if (opts.editingId != null) {
-      const ok = await editAgentMessage(sessionId, opts.editingId, opts.userMessage);
-      if (!ok) {
-        throw new Error('要编辑的消息不存在或不属于当前会话');
-      }
-      userMessageId = opts.editingId;
+    if (opts.regenerateFromId != null) {
+      const source = await getAgentRegenerateSource(sessionId, opts.regenerateFromId);
+      if (!source) throw new Error('要重新生成的回复不存在或不在当前分支上');
+      userMessageId = source.id;
+      userMessage = source.content;
+    } else if (opts.editingId != null) {
+      const forkedId = await forkAgentUserMessage(sessionId, opts.editingId, opts.userMessage);
+      if (forkedId == null) throw new Error('要编辑的消息不存在或不属于当前会话');
+      userMessageId = forkedId;
       await touchAgentSession(sessionId, opts.userMessage.slice(0, 20));
     } else {
       userMessageId = await appendAgentMessage(sessionId, 'user', opts.userMessage);
@@ -208,7 +217,8 @@ export async function runAgentTurn(
         await touchAgentSession(sessionId, opts.userMessage.slice(0, 20));
       }
     }
-    await logEvent(EVENT_TYPES.AGENT_QUERY, { entityId: sessionId, payload: { message: opts.userMessage.slice(0, 100) } });
+    let branchParentId = userMessageId;
+    await logEvent(EVENT_TYPES.AGENT_QUERY, { entityId: sessionId, payload: { message: userMessage.slice(0, 100) } });
     turnId = await startAgentTurn(sessionId, model).catch((err) => {
       console.warn('[agent] turn telemetry start failed:', (err as Error).message);
       return null;
@@ -216,6 +226,7 @@ export async function runAgentTurn(
 
     // history 已包含刚持久化的当前用户消息；压缩过程通过 onCompact 推送 SSE，完成后继续主循环
     const history = await loadAgentContext(sessionId, {
+      upToMessageId: branchParentId,
       onCompact: (e) => {
         if (e.type === 'start') emit({ type: 'context_compact_start', messageCount: e.messageCount });
         else if (e.type === 'end') {
@@ -274,7 +285,7 @@ export async function runAgentTurn(
           if (corrections > MAX_CORRECTION_STEPS) break;
           const feedback = '【格式错误】你的输出是 JSON 形状但无法解析为合法工具调用（可能被截断）。请重新输出严格 JSON：{"tool":"<工具名>","args":{...}}；或改为输出纯文本最终回答。';
           turnMessages.push({ role: 'user', content: feedback });
-          await appendAgentMessage(sessionId, 'system', feedback);
+          await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
           continue;
         }
         // 原生工具标记（如 <| DSLM | calls>）被当正文输出：剥离后无可读内容则回喂纠错，
@@ -284,18 +295,20 @@ export async function runAgentTurn(
           corrections++;
           if (corrections > MAX_CORRECTION_STEPS) {
             reply = '模型这次没有返回可展示的回答，请重试或换个问法。';
-            await appendAgentMessage(sessionId, 'assistant', reply, turnId ? { turnId } : undefined);
+            const assistantMessageId = await appendAgentMessage(
+              sessionId, 'assistant', reply, turnId ? { turnId } : undefined, branchParentId,
+            );
             await touchAgentSession(sessionId);
             turnStatus = 'succeeded';
             stats.contextTokens = contextTokens;
             stats.compacted = compacted;
-            emit({ type: 'done', sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: false, userMessageId, stats });
-            return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: false, userMessageId, stats };
+            emit({ type: 'done', sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: false, userMessageId, assistantMessageId, stats });
+            return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: false, userMessageId, assistantMessageId, stats };
           }
           const feedback =
             '【格式错误】你把工具协议标记（如 <| DSLM | ...>）当作正文输出了，用户看不到这类内容。需要调用工具时只输出严格 JSON：{"tool":"<工具名>","args":{...}}；不再调用工具时，请直接用中文 markdown 总结给用户。';
           turnMessages.push({ role: 'user', content: feedback });
-          await appendAgentMessage(sessionId, 'system', feedback);
+          await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
           continue;
         }
         // 最终回答：剥离误附的工具协议 → 截断检测 → markdown 修复
@@ -307,14 +320,16 @@ export async function runAgentTurn(
           const feedback =
             '【合规】回答中出现了交易动作或仓位指令（如买入/卖出/加仓/目标价）。请改为研究层面表述：趋势阶段、关注方向、验证条件与风险，不要给交易动作。';
           turnMessages.push({ role: 'user', content: feedback });
-          await appendAgentMessage(sessionId, 'system', feedback);
+          await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
           continue;
         }
         reply = violatesTradePolicy
           ? '模型回答包含交易动作指令，已拦截。可以继续询问行业趋势、政策影响或风险验证条件。'
           : formatted.text;
         const truncated = violatesTradePolicy ? false : formatted.truncated;
-        await appendAgentMessage(sessionId, 'assistant', reply, turnId ? { turnId } : undefined);
+        const assistantMessageId = await appendAgentMessage(
+          sessionId, 'assistant', reply, turnId ? { turnId } : undefined, branchParentId,
+        );
         await touchAgentSession(sessionId);
         turnStatus = 'succeeded';
         stats.contextTokens = contextTokens;
@@ -328,9 +343,10 @@ export async function runAgentTurn(
           toolLog,
           truncated,
           userMessageId,
+          assistantMessageId,
           stats,
         });
-        return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated, userMessageId, stats };
+        return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated, userMessageId, assistantMessageId, stats };
       }
 
       const tool = getTool(toolCall.tool);
@@ -339,7 +355,7 @@ export async function runAgentTurn(
         if (corrections > MAX_CORRECTION_STEPS) break;
         const feedback = `【工具不存在】工具 "${toolCall.tool}" 未注册。可用工具：${buildToolPrompt().split('\n').map((l) => l.split(':')[0]).join(', ')}。请重试。`;
         turnMessages.push({ role: 'user', content: feedback });
-        await appendAgentMessage(sessionId, 'system', feedback);
+        await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
         continue;
       }
 
@@ -349,7 +365,7 @@ export async function runAgentTurn(
         if (corrections > MAX_CORRECTION_STEPS) break;
         const feedback = `【参数错误】工具 "${tool.name}" 参数无效：${argError}。请按参数 schema 重新构造：{"tool":"${tool.name}","args":{...}}。`;
         turnMessages.push({ role: 'user', content: feedback });
-        await appendAgentMessage(sessionId, 'system', feedback);
+        await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
         continue;
       }
 
@@ -379,8 +395,17 @@ export async function runAgentTurn(
       emit({ type: 'tool_end', tool: tool.name, ok, summary });
 
       const meta = { toolCall: { name: tool.name, args: toolCall.args || {}, status: ok ? 'done' : 'error' } };
-      await appendAgentMessage(sessionId, 'assistant', contentText, meta);
-      await appendAgentMessage(sessionId, 'user', `【工具 ${tool.name} 结果】\n${resultText}`, { toolResult: { name: tool.name, ok, content: resultText.slice(0, 200) } });
+      const toolCallMessageId = await appendAgentMessage(
+        sessionId, 'assistant', contentText, meta, branchParentId,
+      );
+      const toolResultMessageId = await appendAgentMessage(
+        sessionId,
+        'user',
+        `【工具 ${tool.name} 结果】\n${resultText}`,
+        { toolResult: { name: tool.name, ok, content: resultText.slice(0, 200) } },
+        toolCallMessageId,
+      );
+      branchParentId = toolResultMessageId;
 
       turnMessages.push({ role: 'assistant', content: contentText });
       turnMessages.push({ role: 'user', content: `【工具 ${tool.name} 结果】\n${resultText}` });
@@ -420,13 +445,15 @@ export async function runAgentTurn(
     if (findActionableTradeInstruction(reply)) {
       reply = `已达到单轮工具调用上限（${maxToolSteps} 次工具调用）。模型总结包含交易动作指令，已拦截；请继续追问行业趋势或风险验证条件。`;
     }
-    await appendAgentMessage(sessionId, 'assistant', reply, turnId ? { turnId } : undefined);
+    const assistantMessageId = await appendAgentMessage(
+      sessionId, 'assistant', reply, turnId ? { turnId } : undefined, branchParentId,
+    );
     await touchAgentSession(sessionId);
     turnStatus = 'succeeded';
     stats.contextTokens = contextTokens;
     stats.compacted = compacted;
-    emit({ type: 'done', sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: true, userMessageId, stats });
-    return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: true, userMessageId, stats };
+    emit({ type: 'done', sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: true, userMessageId, assistantMessageId, stats });
+    return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: true, userMessageId, assistantMessageId, stats };
     } catch (err) {
       turnStatus = 'failed';
       turnError = err instanceof Error ? err.message : String(err);

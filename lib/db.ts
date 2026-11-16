@@ -171,6 +171,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 15, name: 'FTS5 文档与会话消息全文检索', up: migrationFtsSearch },
   { version: 16, name: '可选实时源快照表（必带延迟秒数）', up: migrationRealtimeQuotes },
   { version: 17, name: 'Agent 个人数据按账号隔离', up: migrationAgentUserScope },
+  { version: 18, name: 'Agent 消息分支树（parent/selected/root）', up: migrationAgentMessageTree },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -886,6 +887,68 @@ async function migrationAgentUserScope(db) {
   }
 }
 
+/** v18：消息分支树。存量线性会话回填 parent/selected_child；
+ *  旧压缩摘要（落在末尾）重新置为根，保持“摘要 + 最近消息”的既有可见顺序。 */
+async function migrationAgentMessageTree(db) {
+  if (!(await tableExists(db, 'agent_session')) || !(await tableExists(db, 'agent_message'))) return;
+  await addColumnIfMissing(db, 'agent_session', 'root_message_id', 'INTEGER');
+  await addColumnIfMissing(db, 'agent_message', 'parent_id', 'INTEGER');
+  await addColumnIfMissing(db, 'agent_message', 'selected_child_id', 'INTEGER');
+  await db.execute('CREATE INDEX IF NOT EXISTS idx_msg_parent ON agent_message(session_id, parent_id)');
+
+  const sessions = await db.execute({
+    sql: 'SELECT id FROM agent_session WHERE root_message_id IS NULL',
+    args: [],
+  });
+  if (sessions.rows.length === 0) return;
+  const tx = await db.transaction('write');
+  try {
+    for (const s of sessions.rows) {
+      const sid = rowId(s.id);
+      const msgs = await tx.execute({
+        sql: 'SELECT id, role, content, meta, parent_id, selected_child_id FROM agent_message WHERE session_id = ? ORDER BY id ASC',
+        args: [sid],
+      });
+      if (msgs.rows.length === 0) continue;
+      // 已有分支结构（迁移中断后重跑）不要覆盖
+      if (msgs.rows.some((m) => m.parent_id != null || m.selected_child_id != null)) continue;
+
+      const summaries: number[] = [];
+      const chain: number[] = [];
+      for (const m of msgs.rows) {
+        const meta = parseJsonOrNull(m.meta as string) as { contextCompact?: boolean } | null;
+        if (m.role === 'system' && meta?.contextCompact) summaries.push(rowId(m.id));
+        else chain.push(rowId(m.id));
+      }
+
+      const summaryId = summaries.length > 0 ? summaries[summaries.length - 1] : null;
+      const rootId = summaryId ?? chain[0];
+      if (rootId == null) continue;
+      for (let i = 0; i < chain.length; i++) {
+        const parent = summaryId != null && i === 0 ? summaryId : chain[i - 1] ?? null;
+        await tx.execute({
+          sql: 'UPDATE agent_message SET parent_id = ?, selected_child_id = ? WHERE id = ?',
+          args: [parent, chain[i + 1] ?? null, chain[i]],
+        });
+      }
+      if (summaryId != null) {
+        await tx.execute({
+          sql: 'UPDATE agent_message SET parent_id = NULL, selected_child_id = ? WHERE id = ?',
+          args: [chain[0] ?? null, summaryId],
+        });
+      }
+      await tx.execute({
+        sql: 'UPDATE agent_session SET root_message_id = ? WHERE id = ?',
+        args: [rootId, sid],
+      });
+    }
+    await tx.commit();
+  } catch (err) {
+    try { await tx.rollback(); } catch { /* 已失效的事务 */ }
+    throw err;
+  }
+}
+
 /** 表是否存在：迁移需兼容 PRAGMA 时代跳过了 v1 的库。 */
 async function tableExists(db, table: string): Promise<boolean> {
   const r = await db.execute({
@@ -1071,20 +1134,24 @@ async function baselineSchema(db) {
 
     -- 研究 Agent 会话（spec §10.3 阶段 B，Session Note 式持久记忆）
     CREATE TABLE IF NOT EXISTS agent_session (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      title      TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      title           TEXT,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      root_message_id INTEGER           -- 可见分支的起点（压缩后为摘要消息）
     );
     CREATE TABLE IF NOT EXISTS agent_message (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id INTEGER NOT NULL REFERENCES agent_session(id),
-      role       TEXT    NOT NULL,   -- user | assistant | system(摘要)
-      content    TEXT    NOT NULL,
-      meta       TEXT,               -- JSON: {toolCall, toolResult}
-      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id        INTEGER NOT NULL REFERENCES agent_session(id),
+      role              TEXT    NOT NULL,   -- user | assistant | system(摘要)
+      content           TEXT    NOT NULL,
+      meta              TEXT,               -- JSON: {toolCall, toolResult}
+      parent_id         INTEGER,            -- 分叉树父节点；NULL = 根
+      selected_child_id INTEGER,            -- 当前选中的子分支
+      created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_msg_session ON agent_message(session_id, id);
+    CREATE INDEX IF NOT EXISTS idx_msg_parent ON agent_message(session_id, parent_id);
 
     -- 会话分享（公开只读链接）：token 即访问凭据，无需鉴权
     CREATE TABLE IF NOT EXISTS agent_share (
@@ -2152,39 +2219,190 @@ export async function touchAgentSession(sessionId: number, title?: string) {
   });
 }
 
-/** 追加一条会话消息；返回新消息 id。meta 为 {toolCall?, toolResult?} 可 JSON 数据。 */
-export async function appendAgentMessage(sessionId: number, role: string, content: string, meta?: unknown): Promise<number> {
-  const db = await getDb();
-  const r = await db.execute({
-    sql: 'INSERT INTO agent_message (session_id, role, content, meta) VALUES (?, ?, ?, ?)',
-    args: [sessionId, role, content, meta != null ? JSON.stringify(meta) : null],
+type AgentTreeRow = {
+  id: number;
+  role: string;
+  content: string;
+  meta: {
+    toolCall?: { name: string; args: Record<string, unknown>; status?: string };
+    toolResult?: { name: string; ok: boolean; content: string };
+    contextCompact?: boolean;
+    summarizedCount?: number;
+    turnId?: string;
+  } | null;
+  parent_id: number | null;
+  selected_child_id: number | null;
+  created_at?: unknown;
+};
+
+function isToolResultContent(content: string): boolean {
+  return content.startsWith('【工具');
+}
+
+/** 读取会话的完整消息树与当前根。 */
+async function readAgentTree(db, sessionId: number): Promise<{
+  rootId: number | null;
+  rows: AgentTreeRow[];
+  byId: Map<number, AgentTreeRow>;
+}> {
+  const session = await db.execute({
+    sql: 'SELECT root_message_id FROM agent_session WHERE id = ?',
+    args: [sessionId],
   });
-  return Number(r.lastInsertRowid);
+  const result = await db.execute({
+    sql: 'SELECT id, role, content, meta, parent_id, selected_child_id, created_at FROM agent_message WHERE session_id = ? ORDER BY id ASC',
+    args: [sessionId],
+  });
+  const rows: AgentTreeRow[] = result.rows.map((r: Record<string, unknown>) => ({
+    id: rowId(r.id),
+    role: String(r.role),
+    content: String(r.content),
+    meta: parseJsonOrNull(r.meta as string) as AgentTreeRow['meta'],
+    parent_id: r.parent_id == null ? null : Number(r.parent_id),
+    selected_child_id: r.selected_child_id == null ? null : Number(r.selected_child_id),
+    created_at: r.created_at,
+  }));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const rootRaw = session.rows[0]?.root_message_id;
+  return { rootId: rootRaw == null ? null : Number(rootRaw), rows, byId };
+}
+
+/** 沿 selected_child_id 走当前可见分支。 */
+function visibleAgentPath(tree: { rootId: number | null; byId: Map<number, AgentTreeRow> }): AgentTreeRow[] {
+  const out: AgentTreeRow[] = [];
+  const seen = new Set<number>();
+  let cur = tree.rootId;
+  while (cur != null && !seen.has(cur)) {
+    const row = tree.byId.get(cur);
+    if (!row) break;
+    seen.add(cur);
+    out.push(row);
+    cur = row.selected_child_id;
+  }
+  return out;
+}
+
+/** 找到可见分支的叶子；新消息默认挂在这里。 */
+async function findVisibleLeafId(db, sessionId: number): Promise<number | null> {
+  const session = await db.execute({
+    sql: 'SELECT root_message_id FROM agent_session WHERE id = ?',
+    args: [sessionId],
+  });
+  let cur = session.rows[0]?.root_message_id == null ? null : Number(session.rows[0].root_message_id);
+  const seen = new Set<number>();
+  while (cur != null && !seen.has(cur)) {
+    seen.add(cur);
+    const r = await db.execute({
+      sql: 'SELECT selected_child_id FROM agent_message WHERE id = ? AND session_id = ?',
+      args: [cur, sessionId],
+    });
+    if (r.rows.length === 0) break;
+    const next = r.rows[0].selected_child_id;
+    if (next == null) return cur;
+    cur = Number(next);
+  }
+  return cur;
+}
+
+/** 最近的用户消息祖先（跳过工具结果），重新生成与版本分组共用。 */
+function findTurnUser(row: AgentTreeRow, byId: Map<number, AgentTreeRow>): AgentTreeRow | null {
+  let cur = row;
+  const seen = new Set<number>();
+  while (cur.parent_id != null && !seen.has(cur.parent_id)) {
+    seen.add(cur.parent_id);
+    const parent = byId.get(cur.parent_id);
+    if (!parent) return null;
+    if (parent.role === 'user' && !isToolResultContent(parent.content)) return parent;
+    cur = parent;
+  }
+  return null;
+}
+
+/** target 到 turnUser 之间的直接子节点（切换整条分支的入口）。 */
+function directChildUnder(
+  turnUserId: number,
+  target: AgentTreeRow,
+  byId: Map<number, AgentTreeRow>,
+): number | null {
+  let cur = target;
+  const seen = new Set<number>();
+  while (cur.parent_id != null && !seen.has(cur.parent_id)) {
+    if (cur.parent_id === turnUserId) return cur.id;
+    seen.add(cur.parent_id);
+    const parent = byId.get(cur.parent_id);
+    if (!parent) return null;
+    cur = parent;
+  }
+  return null;
+}
+
+/** 追加一条会话消息；不传 parentId 时挂到当前可见分支叶子。
+ *  显式 parentId=null 表示新的根（编辑首条用户消息时使用）。 */
+export async function appendAgentMessage(
+  sessionId: number,
+  role: string,
+  content: string,
+  meta?: unknown,
+  parentId?: number | null,
+): Promise<number> {
+  const db = await getDb();
+  const tx = await db.transaction('write');
+  try {
+    const parent = parentId !== undefined ? parentId : await findVisibleLeafId(tx, sessionId);
+    const ins = await tx.execute({
+      sql: 'INSERT INTO agent_message (session_id, role, content, meta, parent_id) VALUES (?, ?, ?, ?, ?)',
+      args: [sessionId, role, content, meta != null ? JSON.stringify(meta) : null, parent],
+    });
+    const id = Number(ins.lastInsertRowid);
+    if (parent == null) {
+      await tx.execute({
+        sql: 'UPDATE agent_session SET root_message_id = ? WHERE id = ?',
+        args: [id, sessionId],
+      });
+    } else {
+      await tx.execute({
+        sql: 'UPDATE agent_message SET selected_child_id = ? WHERE id = ? AND session_id = ?',
+        args: [id, parent, sessionId],
+      });
+    }
+    await tx.commit();
+    return id;
+  } catch (err) {
+    try { await tx.rollback(); } catch { /* 已失效的事务 */ }
+    throw err;
+  }
 }
 
 /**
- * 上下文压缩的原子落库：在一个事务里追加摘要消息并删除被压缩的旧消息。
- * 避免"摘要已落库但旧消息未删"（下次加载仍超预算、重复付费压缩）或
- * "旧消息已删但摘要未落库"（历史永久丢失）的中间态。
- * 仅删除该会话 id <= upToMessageId 的旧消息；摘要与保留的最近消息 id 更大，不受影响。
+ * 上下文压缩的原子落库：摘要成为新的根，第一层旧消息挂到摘要下。
+ * 旧分支不删除——既保留历史，也让用户切回旧版本；它们只是不在可见路径上。
  */
 export async function compactAgentMessages(
   sessionId: number,
-  upToMessageId: number,
+  firstKeptMessageId: number,
   summaryContent: string,
   meta?: Record<string, unknown>,
 ): Promise<number> {
   const db = await getDb();
   const tx = await db.transaction('write');
   try {
+    const keep = await tx.execute({
+      sql: 'SELECT id FROM agent_message WHERE id = ? AND session_id = ?',
+      args: [firstKeptMessageId, sessionId],
+    });
+    if (keep.rows.length === 0) throw new Error('压缩起点消息不存在');
     const ins = await tx.execute({
-      sql: 'INSERT INTO agent_message (session_id, role, content, meta) VALUES (?, ?, ?, ?)',
-      args: [sessionId, 'system', summaryContent, meta != null ? JSON.stringify(meta) : null],
+      sql: 'INSERT INTO agent_message (session_id, role, content, meta, parent_id, selected_child_id) VALUES (?, ?, ?, ?, NULL, ?)',
+      args: [sessionId, 'system', summaryContent, meta != null ? JSON.stringify(meta) : null, firstKeptMessageId],
     });
     const summaryId = Number(ins.lastInsertRowid);
     await tx.execute({
-      sql: 'DELETE FROM agent_message WHERE session_id = ? AND id <= ?',
-      args: [sessionId, upToMessageId],
+      sql: 'UPDATE agent_message SET parent_id = ? WHERE id = ?',
+      args: [summaryId, firstKeptMessageId],
+    });
+    await tx.execute({
+      sql: 'UPDATE agent_session SET root_message_id = ? WHERE id = ?',
+      args: [summaryId, sessionId],
     });
     await tx.commit();
     return summaryId;
@@ -2194,40 +2412,122 @@ export async function compactAgentMessages(
   }
 }
 
-/**
- * 编辑会话消息（编辑重发语义）：替换内容并删除其后全部消息。
- * 消息不存在或不属于该会话时返回 false。
- */
-export async function editAgentMessage(sessionId: number, messageId: number, newContent: string): Promise<boolean> {
+/** 编辑重发：在源用户消息的父节点下插入兄弟消息（不删旧分支）。 */
+export async function forkAgentUserMessage(
+  sessionId: number,
+  messageId: number,
+  newContent: string,
+): Promise<number | null> {
   const db = await getDb();
-  const row = await db.execute({
-    sql: 'SELECT id FROM agent_message WHERE id = ? AND session_id = ?',
-    args: [messageId, sessionId],
-  });
-  if (row.rows.length === 0) return false;
-  await db.execute({
-    sql: 'UPDATE agent_message SET content = ? WHERE id = ?',
-    args: [newContent, messageId],
-  });
-  await db.execute({
-    sql: 'DELETE FROM agent_message WHERE session_id = ? AND id > ?',
-    args: [sessionId, messageId],
-  });
-  return true;
+  const tree = await readAgentTree(db, sessionId);
+  const source = tree.byId.get(messageId);
+  if (!source || source.role !== 'user' || isToolResultContent(source.content)) return null;
+  if (!visibleAgentPath(tree).some((r) => r.id === messageId)) return null;
+  return appendAgentMessage(sessionId, 'user', newContent, undefined, source.parent_id);
 }
 
-/** 读取会话全部消息（正序）。 */
+/** 重新生成的源用户消息；只接受当前可见的最终助手回复。 */
+export async function getAgentRegenerateSource(
+  sessionId: number,
+  assistantMessageId: number,
+): Promise<{ id: number; content: string } | null> {
+  const db = await getDb();
+  const tree = await readAgentTree(db, sessionId);
+  const target = tree.byId.get(assistantMessageId);
+  if (!target || target.role !== 'assistant' || target.meta?.toolCall) return null;
+  const visible = new Set(visibleAgentPath(tree).map((r) => r.id));
+  if (!visible.has(target.id)) return null;
+  const turn = findTurnUser(target, tree.byId);
+  if (!turn || !visible.has(turn.id)) return null;
+  return { id: turn.id, content: turn.content };
+}
+
+/** 分支版本信息：用户消息按父节点分组，最终回复按所属用户回合分组。 */
+export async function getAgentMessageVersions(
+  sessionId: number,
+): Promise<Record<string, { ids: number[]; index: number }>> {
+  const db = await getDb();
+  const tree = await readAgentTree(db, sessionId);
+  const visible = new Set(visibleAgentPath(tree).map((r) => r.id));
+  const groups = new Map<string, number[]>();
+  const add = (key: string, id: number) => {
+    const list = groups.get(key) ?? [];
+    if (!list.includes(id)) list.push(id);
+    groups.set(key, list);
+  };
+
+  for (const row of tree.rows) {
+    if (row.role === 'user' && !isToolResultContent(row.content)) {
+      add(`p:${row.parent_id ?? 'root'}`, row.id);
+    } else if (row.role === 'assistant' && !row.meta?.toolCall) {
+      const turn = findTurnUser(row, tree.byId);
+      if (turn) add(`t:${turn.id}`, row.id);
+    }
+  }
+
+  const out: Record<string, { ids: number[]; index: number }> = {};
+  for (const ids of groups.values()) {
+    if (ids.length < 2 || !ids.some((id) => visible.has(id))) continue;
+    const sorted = [...ids].sort((a, b) => a - b);
+    sorted.forEach((id, index) => { out[String(id)] = { ids: sorted, index }; });
+  }
+  return out;
+}
+
+/** 切换版本：用户消息切父节点的选中子分支；助手回复切其用户回合的分支入口。 */
+export async function selectAgentMessageVersion(sessionId: number, messageId: number): Promise<boolean> {
+  const db = await getDb();
+  const tree = await readAgentTree(db, sessionId);
+  const target = tree.byId.get(messageId);
+  if (!target) return false;
+  const visibleIds = new Set(visibleAgentPath(tree).map((r) => r.id));
+
+  if (target.role === 'user' && !isToolResultContent(target.content)) {
+    if (target.parent_id != null) {
+      if (!visibleIds.has(target.parent_id)) return false;
+      await db.execute({
+        sql: 'UPDATE agent_message SET selected_child_id = ? WHERE id = ? AND session_id = ?',
+        args: [target.id, target.parent_id, sessionId],
+      });
+      return true;
+    }
+    const root = tree.rootId == null ? null : tree.byId.get(tree.rootId);
+    // 压缩摘要成为根后，旧的根级用户消息不可再被切回
+    if (!root || root.role !== 'user' || isToolResultContent(root.content)) return false;
+    await db.execute({
+      sql: 'UPDATE agent_session SET root_message_id = ? WHERE id = ?',
+      args: [target.id, sessionId],
+    });
+    return true;
+  }
+
+  if (target.role === 'assistant' && !target.meta?.toolCall) {
+    const turn = findTurnUser(target, tree.byId);
+    if (!turn || !visibleIds.has(turn.id)) return false;
+    const child = directChildUnder(turn.id, target, tree.byId);
+    if (child == null) return false;
+    await db.execute({
+      sql: 'UPDATE agent_message SET selected_child_id = ? WHERE id = ? AND session_id = ?',
+      args: [child, turn.id, sessionId],
+    });
+    return true;
+  }
+
+  return false;
+}
+
+/** 读取会话当前可见分支（正序）。旧分支保留在库中但不在返回结果里。 */
 export async function getAgentMessages(sessionId: number) {
   const db = await getDb();
-  const result = await db.execute({
-    sql: 'SELECT id, role, content, meta, created_at FROM agent_message WHERE session_id = ? ORDER BY id ASC',
-    args: [sessionId],
-  });
-  return result.rows.map((r: Record<string, unknown>) => ({
-    id: rowId(r.id),
+  const tree = await readAgentTree(db, sessionId);
+  let rows = visibleAgentPath(tree);
+  // 迁移前异常数据兜底：根未回填时至少不让历史消失
+  if (rows.length === 0 && tree.rows.length > 0) rows = tree.rows;
+  return rows.map((r) => ({
+    id: r.id,
     role: r.role,
     content: r.content,
-    meta: parseJsonOrNull(r.meta as string),
+    meta: r.meta,
     created_at: r.created_at,
   }));
 }

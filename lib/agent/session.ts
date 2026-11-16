@@ -36,6 +36,8 @@ export type ContextCompactEvent =
 
 export interface LoadAgentContextOptions {
   onCompact?: (event: ContextCompactEvent) => void;
+  /** 只加载到该消息（含）：编辑/重新生成时避免把后续分支喂给模型 */
+  upToMessageId?: number;
 }
 
 export function estimateContextTokens(messages: AgentMessage[]): number {
@@ -102,13 +104,20 @@ export async function loadAgentContext(
     ...(r.meta?.toolCall ? { toolCall: r.meta.toolCall } : {}),
     ...(r.meta?.toolResult ? { toolResult: r.meta.toolResult } : {}),
   }));
-  const messages = orderMessagesForContext(rows, mapped);
+  let messages = orderMessagesForContext(rows, mapped);
+
+  if (opts?.upToMessageId != null) {
+    const idx = messages.findIndex((m) => m.id === opts.upToMessageId);
+    if (idx < 0) throw new Error('要重新生成的消息不在当前分支上');
+    messages = messages.slice(0, idx + 1);
+  }
 
   if (estimateContextTokens(messages) <= contextBudgetTokens()) return messages;
 
   const keep = messages.slice(-KEEP_RECENT_MESSAGES);
   const toSummarize = messages.slice(0, -KEEP_RECENT_MESSAGES);
-  if (toSummarize.length === 0) return messages;
+  const firstKept = keep[0];
+  if (toSummarize.length === 0 || !firstKept?.id) return messages;
 
   console.log(`[agent] Context ${messages.length} msgs exceeds budget — summarizing ${toSummarize.length} old messages.`);
   opts?.onCompact?.({ type: 'start', messageCount: toSummarize.length });
@@ -118,7 +127,7 @@ export async function loadAgentContext(
     const summaryContent = `${CONTEXT_COMPACT_PREFIX}${summary}`;
     const summaryId = await compactAgentMessages(
       sessionId,
-      toSummarize[toSummarize.length - 1].id!,
+      firstKept.id,
       summaryContent,
       { contextCompact: true, summarizedCount: toSummarize.length },
     );

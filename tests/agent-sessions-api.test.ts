@@ -4,7 +4,10 @@ import { renameAgentSession, agentSessionExists } from '../lib/db'
 
 vi.mock('../lib/db', () => ({
   listAgentSessions: vi.fn(),
+  listAgentSessionsPage: vi.fn(),
   getAgentMessages: vi.fn(),
+  listAgentTurns: vi.fn(),
+  getAgentMessageVersions: vi.fn(),
   deleteAgentSession: vi.fn(),
   renameAgentSession: vi.fn(),
   agentSessionExists: vi.fn(),
