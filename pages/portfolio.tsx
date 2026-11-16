@@ -10,6 +10,7 @@ import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { PortfolioEditor, PortfolioRemove } from '@/components/cockpit/portfolio-editor'
 import { buttonVariants } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { RiskCard } from '@/components/ui/risk-card'
 import {
   Disclosure,
   EmptyState,
@@ -118,15 +119,15 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                 detail="只描述组合结构，不替你决定买或卖。"
               />
               {portfolio.risks.length > 0 ? (
-                <div className="ck-card ck-risk-list">
+                <div className="space-y-2">
                   {portfolio.risks.map((risk) => (
-                    <div className={`ck-risk ck-risk-${risk.level}`} key={`${risk.level}-${risk.title}`}>
-                      <p className="ck-risk-title">
-                        {risk.level === 'critical' ? '严重 · ' : risk.level === 'warn' ? '注意 · ' : '提示 · '}
-                        {risk.title}
-                      </p>
-                      <p className="ck-risk-detail">{risk.detail}</p>
-                    </div>
+                    <RiskCard
+                      key={`${risk.level}-${risk.title}`}
+                      tone={risk.level}
+                      title={risk.title}
+                    >
+                      {risk.detail}
+                    </RiskCard>
                   ))}
                 </div>
               ) : (

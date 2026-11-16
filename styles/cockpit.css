@@ -783,6 +783,11 @@ a.ck-chip:hover {
   margin-top: 8px;
 }
 
+/* 折叠表单后直接跟空态时补间距，否则两块视觉上粘在一起 */
+.ck-disclosure + .ck-empty {
+  margin-top: 24px;
+}
+
 .ck-disclosure-head {
   position: relative;
   display: flex;
@@ -1602,40 +1607,6 @@ a.ck-chip:hover {
   background: var(--ck-accent);
 }
 
-.ck-risk-list {
-  overflow: hidden;
-}
-
-.ck-risk {
-  padding: 11px 13px;
-  border-top: 1px solid var(--ck-line);
-}
-
-.ck-risk:first-child {
-  border-top: 0;
-}
-
-.ck-risk-warn {
-  background: color-mix(in srgb, var(--ck-warning-soft) 55%, transparent);
-}
-
-.ck-risk-critical {
-  background: color-mix(in srgb, var(--ck-critical-soft) 55%, transparent);
-}
-
-.ck-risk-title {
-  color: var(--ck-ink);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.ck-risk-detail {
-  margin-top: 2px !important;
-  color: var(--ck-muted);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
 .ck-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--ck-line);
@@ -1933,6 +1904,80 @@ a.ck-chip:hover {
   align-items: center;
   gap: 2px 12px;
   min-width: 0;
+  /* 整行是展开按钮，去掉按钮默认外观 */
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ck-watch-chevron {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0 auto;
+  color: var(--ck-faint);
+  transition: transform 180ms ease;
+}
+
+.ck-watch-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+/* 0fr→1fr 让展开高度可过渡；内层 overflow 裁切，收起时不可见于视觉 */
+.ck-watch-expand {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms ease;
+}
+
+.ck-watch-expand.is-open {
+  grid-template-rows: 1fr;
+}
+
+.ck-watch-expand-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ck-watch-detail {
+  display: grid;
+  gap: 16px;
+  padding: 12px 0 4px;
+}
+
+.ck-watch-detail-sec {
+  display: grid;
+  gap: 6px;
+}
+
+.ck-watch-detail-title {
+  margin: 0;
+  color: var(--ck-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.ck-watch-detail-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 0 2px;
+  color: var(--ck-muted);
+  font-size: 12px;
+}
+
+.ck-watch-detail-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 0 4px;
 }
 
 .ck-watch-copy {

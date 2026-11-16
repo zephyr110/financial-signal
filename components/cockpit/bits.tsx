@@ -17,6 +17,7 @@ import {
 } from '@/lib/cockpit/format'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Hint } from '@/components/ui/hint'
 import {
   Collapsible,
   CollapsibleContent,
@@ -67,12 +68,18 @@ export function SourceChip({ source, link = true }: { source?: SourceRef; link?:
   // 列表行本身已是链接，芯片改用 span，避免嵌套 a。
   if (link && source.url && !demo) {
     return (
-      <a className={className} href={source.url} target="_blank" rel="noreferrer" title={title}>
-        {content}
-      </a>
+      <Hint content={title}>
+        <a className={className} href={source.url} target="_blank" rel="noreferrer">
+          {content}
+        </a>
+      </Hint>
     )
   }
-  return <span className={className} title={title}>{content}</span>
+  return (
+    <Hint content={title}>
+      <span className={className}>{content}</span>
+    </Hint>
+  )
 }
 
 export function ConfidencePill({ confidence }: { confidence: Confidence }) {

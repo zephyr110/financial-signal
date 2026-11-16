@@ -26,6 +26,7 @@ import {
 } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /** SQLite datetime('now')（UTC）→ 相对时间 */
@@ -252,25 +253,31 @@ export default function SessionSidebarGroup({
                       </div>
                     </SidebarMenuButton>
                     <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <SidebarMenuAction
-                            showOnHover={!active}
-                            aria-label={`更多操作 ${s.title || "未命名会话"}`}
-                            title="更多"
-                            onClick={(e) => e.stopPropagation()}
-                            className={cn(
-                              "top-2 size-7 text-muted-foreground transition-colors",
-                              "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                              "focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground",
-                              "data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground",
-                              active && "md:opacity-100"
-                            )}
-                          >
-                            <MoreHorizontal className="size-3.5" />
-                          </SidebarMenuAction>
-                        }
-                      />
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <DropdownMenuTrigger
+                              render={
+                                <SidebarMenuAction
+                                  showOnHover={!active}
+                                  aria-label={`更多操作 ${s.title || "未命名会话"}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={cn(
+                                    "top-2 size-7 text-muted-foreground transition-colors",
+                                    "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                                    "focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground",
+                                    "data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground",
+                                    active && "md:opacity-100"
+                                  )}
+                                >
+                                  <MoreHorizontal className="size-3.5" />
+                                </SidebarMenuAction>
+                              }
+                            />
+                          }
+                        />
+                        <TooltipContent side="right">更多操作</TooltipContent>
+                      </Tooltip>
                       <DropdownMenuContent side="bottom" align="end" className="w-36">
                         <DropdownMenuItem
                           className="cursor-pointer gap-2"

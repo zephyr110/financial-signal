@@ -85,6 +85,9 @@ export default function ResearchPage({
   loadError,
 }: ResearchProps) {
   const isDemo = sourceHealth.some((source) => source.status === 'demo')
+  // 空列表时表单已就地展开；这里决定是否再给入口，三处共用同一判定
+  const showJournalForm = journal.length > 0
+  const showThesisForm = theses.length > 0 && !editing
   return (
     <>
       <Head>
@@ -121,9 +124,12 @@ export default function ResearchPage({
             action={<SectionLink href="/tasks">派发复核</SectionLink>}
           />
           {theses.length === 0 ? (
-            <EmptyState title="还没有研究论点">
-              论点不是观点摘录，而是一个可被数据推翻的句子。展开下方“登记研究论点”，先写下主张和失效条件。
-            </EmptyState>
+            <div className="space-y-3">
+              <EmptyState title="还没有研究论点">
+                研究笔记不会自动生成：行情与公告只提供事实，第一条论点需要你亲手写下。填好主张与至少一条失效条件即可开始。
+              </EmptyState>
+              <ThesisComposer />
+            </div>
           ) : (
             <div className="ck-thesis-grid">
               {theses.map((thesis) => (
@@ -144,9 +150,12 @@ export default function ResearchPage({
             detail={`${journal.length} 条 · 按录入时间倒序，只代表当时的判断。`}
           />
           {journal.length === 0 ? (
-            <EmptyState title="还没有研究日志">
-              写下第一条决定，并保留当时看到的反证。之后的复盘从这里开始。
-            </EmptyState>
+            <div className="space-y-3">
+              <EmptyState title="还没有研究日志">
+                研究日志只记录你写下的决定，系统不会代写。写下第一条决定，并保留当时看到的反证。
+              </EmptyState>
+              <JournalComposer today={today} theses={theses} />
+            </div>
           ) : (
             <div className="ck-card ck-journal-list">
               {journal.map((entry) => (
@@ -168,20 +177,25 @@ export default function ResearchPage({
           )}
         </section>
 
-        <section className="ck-section" aria-label="记录与登记">
-          <Disclosure title="记录今天的决定" hint="保留当时的事实与反证" headingLevel={2}>
-            <JournalComposer today={today} theses={theses} />
-          </Disclosure>
-          {!editing && (
-            <Disclosure
-              title="登记研究论点"
-              hint="主张、时限与失效条件缺一不可"
-              headingLevel={2}
-            >
-              <ThesisComposer />
-            </Disclosure>
-          )}
-        </section>
+        {/* 空列表时表单已就地展开，这里不再重复放一份折叠入口。 */}
+        {(showJournalForm || showThesisForm) && (
+          <section className="ck-section" aria-label="记录与登记">
+            {showJournalForm && (
+              <Disclosure title="记录今天的决定" hint="保留当时的事实与反证" headingLevel={2}>
+                <JournalComposer today={today} theses={theses} />
+              </Disclosure>
+            )}
+            {showThesisForm && (
+              <Disclosure
+                title="登记研究论点"
+                hint="主张、时限与失效条件缺一不可"
+                headingLevel={2}
+              >
+                <ThesisComposer />
+              </Disclosure>
+            )}
+          </section>
+        )}
       </CockpitShell>
     </>
   )

@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
+import { Hint } from "./ui/hint";
 import { clearClientCaches, cn } from "@/lib/utils";
 
 /**
@@ -247,6 +248,15 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     </div>
   );
 
+  // 纯图标按钮：tooltip 同时充当无障碍名
+  const clearButton = (key, label = "清除已保存的值") => (
+    <Hint content={label}>
+      <Button type="button" variant="outline" size="icon" aria-label={label} onClick={() => clearKey(key)}>
+        <RotateCcw className="size-4" />
+      </Button>
+    </Hint>
+  );
+
   const accountInitial = (username || accUsername).trim().charAt(0).toUpperCase();
 
   return (
@@ -449,11 +459,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                           className="flex-1 bg-background"
                           disabled={!loaded}
                         />
-                        {apiKeySet && (
-                          <Button type="button" variant="outline" size="icon" onClick={() => clearKey("llmApiKey")} title="清除已保存的 Key">
-                            <RotateCcw className="size-4" />
-                          </Button>
-                        )}
+                        {apiKeySet && clearButton("llmApiKey", "清除已保存的 Key")}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">模型/接口/Key 保存在应用内（app_settings 表），保存后约 30 秒内热生效，无需重启。</p>
@@ -502,11 +508,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                           className="flex-1 bg-background"
                           disabled={!loaded}
                         />
-                        {webSearchKeySet && (
-                          <Button type="button" variant="outline" size="icon" onClick={() => clearKey("webSearchApiKey")} title="清除">
-                            <RotateCcw className="size-4" />
-                          </Button>
-                        )}
+                        {webSearchKeySet && clearButton("webSearchApiKey")}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -533,11 +535,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                           disabled={!loaded}
                           className="flex-1 bg-background"
                         />
-                        {tursoUrlSet && (
-                          <Button type="button" variant="outline" size="icon" onClick={() => clearKey("tursoUrl")} title="清除">
-                            <RotateCcw className="size-4" />
-                          </Button>
-                        )}
+                        {tursoUrlSet && clearButton("tursoUrl")}
                       </div>
                     </div>
                     <div className="space-y-2">
@@ -549,11 +547,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                           className="flex-1 bg-background"
                           disabled={!loaded}
                         />
-                        {tursoTokenSet && (
-                          <Button type="button" variant="outline" size="icon" onClick={() => clearKey("tursoToken")} title="清除">
-                            <RotateCcw className="size-4" />
-                          </Button>
-                        )}
+                        {tursoTokenSet && clearButton("tursoToken")}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">留空时使用本地文件数据库（news.db）；配置 Turso 后数据存远端，改动需重启应用后生效。</p>
@@ -569,11 +563,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                           className="flex-1 bg-background"
                           disabled={!loaded}
                         />
-                        {tushareTokenSet && (
-                          <Button type="button" variant="outline" size="icon" onClick={() => clearKey("tushareToken")} title="清除">
-                            <RotateCcw className="size-4" />
-                          </Button>
-                        )}
+                        {tushareTokenSet && clearButton("tushareToken")}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">Tushare 只提供 T1 行情/交易日历；官方公告与政策直接取交易所、巨潮、证监会页面。Token 保存后约 30 秒热生效。</p>
@@ -594,11 +584,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                           className="flex-1 bg-background"
                           disabled={!loaded}
                         />
-                        {cronSecretSet && (
-                          <Button type="button" variant="outline" size="icon" onClick={() => clearKey("cronSecret")} title="清除">
-                            <RotateCcw className="size-4" />
-                          </Button>
-                        )}
+                        {cronSecretSet && clearButton("cronSecret")}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">用于保护 /api/cron/* 定时任务接口（Bearer 或 ?token=）。保存在应用内，约 30 秒内热生效。</p>

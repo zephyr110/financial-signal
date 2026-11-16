@@ -8,6 +8,7 @@ import FocusStocks from "../../components/FocusStocks";
 import SignalBadge from "../../components/SignalBadge";
 import ErrorBanner from "../../components/ErrorBanner";
 import WatchlistButton from "../../components/WatchlistButton";
+import { Hint } from "../../components/ui/hint";
 import { cn } from "@/lib/utils";
 import { CATEGORY_LABELS, CATEGORY_COLORS, SCORE_LABELS, sourceDisplayName } from "@/lib/constants";
 import { CONTENT_GUTTER } from "@/lib/layout-classes";
@@ -356,12 +357,14 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
                                       </span>
                                     </span>
                                   </td>
-                                  <td className="py-2 px-2 text-right tabular-nums" title={dirCount !== row.samples ? `总事件 ${row.samples}(含中性/混合)` : undefined}>
-                                    {dirCount}
-                                    {!showNumbers && (
-                                      <span className="ml-1 text-xs text-muted-foreground">/10</span>
-                                    )}
-                                  </td>
+                                  <Hint content={dirCount !== row.samples ? `总事件 ${row.samples}(含中性/混合)` : undefined}>
+                                    <td className="py-2 px-2 text-right tabular-nums">
+                                      {dirCount}
+                                      {!showNumbers && (
+                                        <span className="ml-1 text-xs text-muted-foreground">/10</span>
+                                      )}
+                                    </td>
+                                  </Hint>
                                   <td className="py-2 px-2 text-right tabular-nums">
                                     {showNumbers ? <ReturnSpan value={row.avg_d1} tier={tier} /> : <Dash />}
                                   </td>
@@ -390,7 +393,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
                   </>
                 ) : (
                   <p className="text-xs text-muted-foreground text-center py-4">
-                    暂无相关行情数据
+                    还没有取到相关板块行情；行情入库后这里会显示当日涨跌与行业回测。
                   </p>
                 )}
               </div>

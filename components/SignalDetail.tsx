@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { TrendingUp, AlertCircle, Zap, ExternalLink } from "lucide-react";
 import SignalBadge from "./SignalBadge";
+import { Hint } from "./ui/hint";
 import IndustryBacktestInline from "./IndustryBacktestInline";
 import RelatedSignals from "./RelatedSignals";
 import WatchlistButton from "./WatchlistButton";
@@ -8,6 +9,7 @@ import { getBacktestTier, shouldShowNumbers, TIER_LABELS } from "@/lib/backtest"
 import {
   CATEGORY_LABELS,
   CATEGORY_COLORS,
+  SENTIMENT_LABELS,
   sourceDisplayName,
 } from "@/lib/constants";
 
@@ -23,13 +25,6 @@ const STAGE_COLORS: Record<string, string> = {
   brewing: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
   spreading: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
   priced_in: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-};
-
-const SENTIMENT_LABELS: Record<string, string> = {
-  positive: "利好",
-  negative: "利空",
-  neutral: "中性",
-  mixed: "混合",
 };
 
 const IMPACT_LABELS: Record<string, string> = {
@@ -239,14 +234,16 @@ export default function SignalDetail({
                           </span>
                         </span>
                       </td>
-                      <td className="py-2 px-2 text-right tabular-nums" title={dirCount !== row.samples ? `总事件 ${row.samples}(含中性/混合)` : undefined}>
-                        {dirCount}
-                        {!showNumbers && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            /10
-                          </span>
-                        )}
-                      </td>
+                      <Hint content={dirCount !== row.samples ? `总事件 ${row.samples}(含中性/混合)` : undefined}>
+                        <td className="py-2 px-2 text-right tabular-nums">
+                          {dirCount}
+                          {!showNumbers && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              /10
+                            </span>
+                          )}
+                        </td>
+                      </Hint>
                       <td className="py-2 px-2 text-right tabular-nums">
                         {showNumbers ? <ReturnSpan value={row.avg_d1} /> : <span className="text-muted-foreground">—</span>}
                       </td>

@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Button } from "./ui/button";
+import { Hint } from "./ui/hint";
 import { Separator } from "./ui/separator";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "./cockpit/notification-bell";
@@ -42,19 +43,20 @@ export default function AppTopbar({ title, subtitle = null, actions = null }) {
 
 export function TopbarRefreshButton({ onClick, refreshing, label = "刷新数据" }) {
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={onClick}
-      disabled={refreshing}
-      className={cn(
-        "text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-        !refreshing && "active:scale-95"
-      )}
-      title={label}
-      aria-label={label}
-    >
-      <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-    </Button>
+    <Hint content={label}>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onClick}
+        disabled={refreshing}
+        className={cn(
+          "text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+          !refreshing && "active:scale-95"
+        )}
+        aria-label={label}
+      >
+        <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+      </Button>
+    </Hint>
   );
 }

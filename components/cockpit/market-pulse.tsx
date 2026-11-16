@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { Breadth, MarketIndex, Turnover } from '@/lib/cockpit/types'
 import { formatPrice, formatYi } from '@/lib/cockpit/format'
+import { Hint } from '@/components/ui/hint'
 import {
   DeltaValue,
   Disclosure,
@@ -77,16 +78,15 @@ export function MarketSnapshot({
               </b>
             </span>
           </div>
-          <span
-            className="ck-snapshot-breakdown"
-            title={limitsKnown ? undefined : '本次未取到涨跌停统计'}
-          >
-            {/* 拆成两组，窄屏换行时不会把「跌停」单独甩到下一行。 */}
-            <span>平盘 {breadth.flat.toLocaleString('zh-CN')} · 全市场 {total.toLocaleString('zh-CN')} 家</span>
-            <span className="ck-nowrap">
-              涨停 {limitsKnown ? breadth.limitUp : '—'} / 跌停 {limitsKnown ? breadth.limitDown : '—'}
+          <Hint content={limitsKnown ? undefined : '本次未取到涨跌停统计'}>
+            <span className="ck-snapshot-breakdown">
+              {/* 拆成两组，窄屏换行时不会把「跌停」单独甩到下一行。 */}
+              <span>平盘 {breadth.flat.toLocaleString('zh-CN')} · 全市场 {total.toLocaleString('zh-CN')} 家</span>
+              <span className="ck-nowrap">
+                涨停 {limitsKnown ? breadth.limitUp : '—'} / 跌停 {limitsKnown ? breadth.limitDown : '—'}
+              </span>
             </span>
-          </span>
+          </Hint>
         </div>
         <div className="ck-snapshot-turnover">
           <span className="ck-snapshot-label">两市成交</span>
@@ -121,12 +121,12 @@ function BreadthBlock({ breadth }: { breadth: Breadth }) {
         aria-label={`上涨 ${breadth.up} 家，平盘 ${breadth.flat} 家，下跌 ${breadth.down} 家`}
       >
         {segments.map((segment) => (
-          <span
-            className={`ck-breadth-seg ${segment.tone}`}
-            key={segment.key}
-            style={{ flex: `${segment.value} 0 0%` }}
-            title={`${segment.label} ${segment.value} 家`}
-          />
+          <Hint key={segment.key} content={`${segment.label} ${segment.value} 家`}>
+            <span
+              className={`ck-breadth-seg ${segment.tone}`}
+              style={{ flex: `${segment.value} 0 0%` }}
+            />
+          </Hint>
         ))}
       </div>
       <div className="ck-breadth-legend">
@@ -146,15 +146,19 @@ function BreadthBlock({ breadth }: { breadth: Breadth }) {
       <div className="ck-stat-line">
         <div className="ck-stat">
           <span className="ck-stat-label">涨停</span>
-          <span className="ck-stat-value ck-up" title={limitsKnown ? undefined : '本次未取到涨跌停统计'}>
-            {limitsKnown ? breadth.limitUp : '—'}
-          </span>
+          <Hint content={limitsKnown ? undefined : '本次未取到涨跌停统计'}>
+            <span className="ck-stat-value ck-up">
+              {limitsKnown ? breadth.limitUp : '—'}
+            </span>
+          </Hint>
         </div>
         <div className="ck-stat">
           <span className="ck-stat-label">跌停</span>
-          <span className="ck-stat-value ck-down" title={limitsKnown ? undefined : '本次未取到涨跌停统计'}>
-            {limitsKnown ? breadth.limitDown : '—'}
-          </span>
+          <Hint content={limitsKnown ? undefined : '本次未取到涨跌停统计'}>
+            <span className="ck-stat-value ck-down">
+              {limitsKnown ? breadth.limitDown : '—'}
+            </span>
+          </Hint>
         </div>
         <div className="ck-stat">
           <span className="ck-stat-label">平盘</span>

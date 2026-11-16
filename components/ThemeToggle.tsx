@@ -6,7 +6,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./ui/tooltip";
-import { useSidebar } from "./ui/sidebar";
 import { cn } from "@/lib/utils";
 
 const toggleClass =
@@ -18,7 +17,6 @@ interface ThemeToggleProps {
 
 export default function ThemeToggle({ className }: ThemeToggleProps) {
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const { state, isMobile } = useSidebar();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -54,13 +52,8 @@ export default function ThemeToggle({ className }: ThemeToggleProps) {
     disabled: !mounted,
     className: cn(toggleClass, className),
     "aria-label": mounted ? label : "切换主题",
-    title: mounted && (state === "expanded" || isMobile) ? label : undefined,
     children: icon,
   };
-
-  if (!mounted || (state === "expanded" && !isMobile)) {
-    return <button {...buttonProps} />;
-  }
 
   return (
     <Tooltip>

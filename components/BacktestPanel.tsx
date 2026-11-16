@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { TrendingUp, TrendingDown, Loader2, Building2, Hash, ArrowUp, ArrowDown, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Hint } from "@/components/ui/hint";
 import { getBacktestTier, shouldShowNumbers, tierProgress, type BacktestTier } from "@/lib/backtest";
 
 interface BacktestRow {
@@ -165,7 +166,9 @@ export default function BacktestPanel() {
                     onClick={() => toggleSort("winRate")}
                   />
                 ) : (
-                  <span title={WIN_RATE_HINT}>命中率</span>
+                  <Hint content={WIN_RATE_HINT}>
+                    <span>命中率</span>
+                  </Hint>
                 )}
               </div>
           </div>
@@ -263,27 +266,28 @@ function SortableHeader({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={cn(
-        "inline-flex items-center gap-0.5 text-xs transition-colors hover:text-foreground",
-        active && "text-foreground font-medium"
-      )}
-      aria-label={`按${label}${active && dir === "asc" ? "升序" : "降序"}排序`}
-    >
-      {label}
-      {active ? (
-        dir === "desc" ? (
-          <ArrowDown className="h-3 w-3" />
+    <Hint content={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "inline-flex items-center gap-0.5 text-xs transition-colors hover:text-foreground",
+          active && "text-foreground font-medium"
+        )}
+        aria-label={`按${label}${active && dir === "asc" ? "升序" : "降序"}排序`}
+      >
+        {label}
+        {active ? (
+          dir === "desc" ? (
+            <ArrowDown className="h-3 w-3" />
+          ) : (
+            <ArrowUp className="h-3 w-3" />
+          )
         ) : (
-          <ArrowUp className="h-3 w-3" />
-        )
-      ) : (
-        <ChevronsUpDown className="h-3 w-3 opacity-40" />
-      )}
-    </button>
+          <ChevronsUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </button>
+    </Hint>
   );
 }
 
@@ -301,23 +305,24 @@ function SampleCell({
   const note =
     total != null && total !== directional ? `（总事件 ${total},含中性/混合）` : "";
   return (
-    <span
-      className={cn(
-        "hidden sm:inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium tabular-nums",
-        tier === "sufficient" &&
-          "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
-        tier === "reference" &&
-          "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
-        tier === "accumulating" && "bg-muted text-muted-foreground"
-      )}
-      title={note || undefined}
-    >
-      {tier === "accumulating"
-        ? tierProgress(directional)
-        : tier === "reference"
-          ? `~${directional}`
-          : directional}
-    </span>
+    <Hint content={note}>
+      <span
+        className={cn(
+          "hidden sm:inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium tabular-nums",
+          tier === "sufficient" &&
+            "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+          tier === "reference" &&
+            "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+          tier === "accumulating" && "bg-muted text-muted-foreground"
+        )}
+      >
+        {tier === "accumulating"
+          ? tierProgress(directional)
+          : tier === "reference"
+            ? `~${directional}`
+            : directional}
+      </span>
+    </Hint>
   );
 }
 
@@ -389,17 +394,19 @@ function WinRateCell({
         ? `方向命中率(分母=${directionalCount} 个多/空事件;样本列含中性/混合事件)`
         : WIN_RATE_HINT;
   return (
-    <div className="hidden sm:flex items-center gap-1.5" title={hint}>
-      <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
-        <div
-          className={cn("h-full rounded-full transition-all", hasRate ? "bg-primary" : "bg-border")}
-          style={{ width: hasRate ? `${rate}%` : "100%" }}
-        />
+    <Hint content={hint}>
+      <div className="hidden sm:flex items-center gap-1.5">
+        <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+          <div
+            className={cn("h-full rounded-full transition-all", hasRate ? "bg-primary" : "bg-border")}
+            style={{ width: hasRate ? `${rate}%` : "100%" }}
+          />
+        </div>
+        <span className="text-xs font-medium tabular-nums w-9 text-right">
+          {hasRate ? `${tier === "reference" ? "~" : ""}${rate}%` : "—"}
+        </span>
       </div>
-      <span className="text-xs font-medium tabular-nums w-9 text-right">
-        {hasRate ? `${tier === "reference" ? "~" : ""}${rate}%` : "—"}
-      </span>
-    </div>
+    </Hint>
   );
 }
 

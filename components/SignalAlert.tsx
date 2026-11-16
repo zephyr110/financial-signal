@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Bell, BellOff, ShieldAlert } from "lucide-react";
+import { Hint } from "./ui/hint";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "signal-alert-enabled";
@@ -91,22 +92,23 @@ export default function SignalAlert({ items }: { items: any[] }) {
           浏览器已阻止通知权限，请在站点设置中允许后重试
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={handleToggle}
-          aria-pressed={active}
-          title={active ? "点击关闭高分信号提醒" : "开启后，关注行业 ≥4 分（重要/重大）信号将通过浏览器通知提醒"}
-          className={cn(
-            // 与 IndustrySelector 同款胶囊按钮
-            "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors",
-            active
-              ? "border-primary/40 bg-primary/10 text-primary"
-              : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
-          )}
-        >
-          {active ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
-          {active ? "高分信号提醒已开启" : "开启高分信号提醒"}
-        </button>
+        <Hint content={active ? "点击关闭高分信号提醒" : "开启后，关注行业 ≥4 分（重要/重大）信号将通过浏览器通知提醒"}>
+          <button
+            type="button"
+            onClick={handleToggle}
+            aria-pressed={active}
+            className={cn(
+              // 与 IndustrySelector 同款胶囊按钮
+              "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors",
+              active
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
+            )}
+          >
+            {active ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
+            {active ? "高分信号提醒已开启" : "开启高分信号提醒"}
+          </button>
+        </Hint>
       )}
     </>
   );

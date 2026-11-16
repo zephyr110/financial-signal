@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowUpRight, FileSearch, TrendingUp } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { RiskCard } from '@/components/ui/risk-card'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { formatSignedPct } from '@/lib/cockpit/format'
 import type { JudgmentView } from '@/lib/desk/types'
@@ -55,9 +56,10 @@ export function JudgmentSheet({
                 {judgment.risks.length ? (
                   <ul className="space-y-1.5">
                     {judgment.risks.map((risk) => (
-                      <li key={risk} className="flex gap-2 text-sm leading-6">
-                        <AlertTriangle className="mt-1 size-3.5 shrink-0 text-chart-5" />
-                        <span>{risk}</span>
+                      <li key={risk}>
+                        <RiskCard tone="warn" showLevel={false}>
+                          <span className="text-sm leading-6 text-foreground">{risk}</span>
+                        </RiskCard>
                       </li>
                     ))}
                   </ul>

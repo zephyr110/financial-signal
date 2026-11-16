@@ -13,6 +13,14 @@ export const CATEGORY_LABELS = {
   market_rumor: '传闻',
 };
 
+/** 单条信号的多空标签；图表里的「看多/看空」是统计口径，勿混用。 */
+export const SENTIMENT_LABELS: Record<string, string> = {
+  positive: '利好',
+  negative: '利空',
+  neutral: '中性',
+  mixed: '混合',
+};
+
 export const CATEGORY_COLORS = {
   policy: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
   geopolitics: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
