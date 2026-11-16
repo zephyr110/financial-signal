@@ -1,4 +1,5 @@
 import { getDb } from '../../db'
+import { researchCodes } from '../universe'
 import { fetchWithTimeout, type FetchLike } from './http'
 import {
   assertNoDemoData,
@@ -16,7 +17,6 @@ import {
 const HISTORY_DAYS = 45
 const CALENDAR_WINDOW_DAYS = 30
 const LATEST_WINDOW_DAYS = 14
-const MAX_UNIVERSE_CODES = 60
 const TIMEOUT_MS = 20_000
 const SNAPSHOT_PAGE_SIZE = 100
 const SNAPSHOT_MAX_PAGES = 80
@@ -790,20 +790,6 @@ async function upsertSymbols(
     try { await tx.rollback() } catch { /* tx 已关闭 */ }
     throw err
   }
-}
-
-async function researchCodes(): Promise<string[]> {
-  const db = await getDb()
-  const res = await db.execute({
-    sql: `SELECT DISTINCT code FROM (
-            SELECT code FROM watchlist_items
-            UNION
-            SELECT code FROM positions
-            WHERE account_id <> 'demo-account' AND shares > 0
-          ) ORDER BY code LIMIT ?`,
-    args: [MAX_UNIVERSE_CODES],
-  })
-  return res.rows.map((row) => str(row.code)).filter(Boolean)
 }
 
 async function previousOpenDate(tradeDate: string): Promise<string | null> {

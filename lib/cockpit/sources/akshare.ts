@@ -1,5 +1,6 @@
 import { getDb } from '../../db'
 import { todayShanghai } from '../format'
+import { researchCodes } from '../universe'
 import { fetchWithTimeout, type FetchLike } from './http'
 import {
   assertNoDemoData,
@@ -195,20 +196,6 @@ function toLimitPoolItem(raw: unknown): LimitPoolInput | null {
   }
 }
 
-async function researchCodes(): Promise<string[]> {
-  const db = await getDb()
-  const res = await db.execute({
-    sql: `SELECT DISTINCT code FROM (
-            SELECT code FROM watchlist_items
-            UNION
-            SELECT code FROM positions
-            WHERE account_id <> 'demo-account' AND shares > 0
-          ) ORDER BY code LIMIT ?`,
-    args: [MAX_CODES],
-  })
-  return res.rows.map((row) => str(row.code)).filter(Boolean)
-}
-
 async function writeBars(bars: BarInput[], fetchedAt: string): Promise<number> {
   if (bars.length === 0) return 0
   const db = await getDb()
@@ -298,7 +285,7 @@ export async function ingestAkshare(options: {
   }
 
   await assertNoDemoData()
-  const codes = await researchCodes()
+  const codes = await researchCodes(MAX_CODES)
   if (codes.length === 0) {
     warnings.push('自选与持仓为空，只尝试拉取涨停池')
   }

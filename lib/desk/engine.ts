@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
 import { dateShanghai, formatTime } from '../cockpit/format'
+import { researchCodes } from '../cockpit/universe'
 import type { IndustryDailyView, DeskEvidence, DeskRefreshResult, DeskSeverity } from './types'
 import { personalIndustrySet } from './personal'
 import { refreshOverseasQuotes } from './overseas'
@@ -668,6 +669,20 @@ function buildAlerts(
   return alerts.slice(0, MAX_ALERTS)
 }
 
+/** 研究池中能进入行业聚合的标的数：有行业归属（非「指数」）的个股。 */
+async function aggregatablePoolSize(): Promise<number> {
+  const codes = await researchCodes()
+  if (codes.length === 0) return 0
+  const db = await getDb()
+  const res = await db.execute({
+    sql: `SELECT COUNT(*) AS n FROM symbols
+          WHERE code IN (${codes.map(() => '?').join(',')})
+            AND industry_l1 IS NOT NULL AND industry_l1 <> '' AND industry_l1 <> '指数'`,
+    args: codes,
+  })
+  return num(res.rows[0]?.n)
+}
+
 export async function refreshDesk(options: {
   tradeDate?: string
   onProgress?: (progress: number, step: string) => Promise<void> | void
@@ -679,7 +694,13 @@ export async function refreshDesk(options: {
   const tradeDate = await resolveTradeDate(options.tradeDate)
   const industryData = await buildIndustryData(tradeDate)
   if (industryData.aggregates.length === 0) {
-    throw new Error(`${tradeDate} 没有可聚合的行业行情；先确认 symbols.industry_l1 与日线已入库`)
+    // 新装或清空自选/持仓后，行情任务只会入库指数，行业聚合必然为空。
+    // 这是可解释的空状态：继续写市场判断，把原因放进 warnings；池里明明有
+    // 带行业归属的个股却聚合不出行情，才是需要暴露的数据故障。
+    if ((await aggregatablePoolSize()) > 0) {
+      throw new Error(`${tradeDate} 没有可聚合的行业行情；先确认 symbols.industry_l1 与日线已入库`)
+    }
+    warnings.push('研究池（自选/持仓）为空或没有带行业归属的标的，本轮只生成市场判断；添加个股或补全 symbols.industry_l1 后重试')
   }
 
   await options.onProgress?.(25, '拉取外盘延迟行情')
