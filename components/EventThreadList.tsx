@@ -31,10 +31,12 @@ export default function EventThreadList({ threads }) {
           暂无事件线索，数据分析完成后自动生成
         </p>
       ) : (
-        <div className="space-y-3">
-          {threads.map((thread) => (
-            <EventThreadCard key={thread.id} thread={thread} />
-          ))}
+        <div className="max-h-80 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
+          <div className="space-y-3">
+            {threads.map((thread) => (
+              <EventThreadCard key={thread.id} thread={thread} />
+            ))}
+          </div>
         </div>
       )}
     </div>
