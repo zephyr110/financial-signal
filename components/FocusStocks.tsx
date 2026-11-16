@@ -34,6 +34,19 @@ const TONE = {
   },
 };
 
+function StockLabel({ stock }: { stock: FocusStock }) {
+  return (
+    <>
+      <span>{stock.name}</span>
+      {stock.code && (
+        <span className="ml-1 text-[10px] font-normal tabular-nums opacity-70">
+          {stock.code}
+        </span>
+      )}
+    </>
+  );
+}
+
 function StockRow({
   tone,
   stocks,
@@ -56,18 +69,18 @@ function StockRow({
               key={stock.code}
               href={`/stock/${encodeURIComponent(stock.code)}`}
               className={cn(
-                "inline-flex items-center rounded px-1.5 py-0.5 text-xs transition-colors",
+                "inline-flex items-center rounded px-1.5 py-0.5 text-xs transition-colors whitespace-nowrap",
                 style.chipClass
               )}
             >
-              {stock.name}
+              <StockLabel stock={stock} />
             </Link>
           ) : (
             <span
               key={stock.name}
-              className="inline-flex items-center rounded bg-accent px-1.5 py-0.5 text-xs text-accent-foreground"
+              className="inline-flex items-center rounded bg-accent px-1.5 py-0.5 text-xs text-accent-foreground whitespace-nowrap"
             >
-              {stock.name}
+              <StockLabel stock={stock} />
             </span>
           )
         )

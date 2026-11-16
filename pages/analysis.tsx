@@ -619,8 +619,8 @@ export async function getStaticProps() {
       getTodayMarketData(8),
     ]);
     const items = news.map((item) => {
-      // Strip heavy text fields not needed for timeline rendering
-      const { content, deep_analysis, ...light } = item;
+      // 时间线要显示一行原文摘要，保留 content；只剥掉详情页才用的深度分析
+      const { deep_analysis, ...light } = item;
       return {
         ...light,
         industries: light.industries ? safeParse(light.industries) : [],

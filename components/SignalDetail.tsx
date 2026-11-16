@@ -8,6 +8,7 @@ import { getBacktestTier, shouldShowNumbers, TIER_LABELS } from "@/lib/backtest"
 import {
   CATEGORY_LABELS,
   CATEGORY_COLORS,
+  SENTIMENT_LABELS,
   sourceDisplayName,
 } from "@/lib/constants";
 
@@ -23,13 +24,6 @@ const STAGE_COLORS: Record<string, string> = {
   brewing: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
   spreading: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
   priced_in: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-};
-
-const SENTIMENT_LABELS: Record<string, string> = {
-  positive: "利好",
-  negative: "利空",
-  neutral: "中性",
-  mixed: "混合",
 };
 
 const IMPACT_LABELS: Record<string, string> = {
