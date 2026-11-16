@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/router";
-import { useTheme } from "next-themes";
-import { ChevronRight, GitBranch, LogOut, Monitor, Moon, Sun } from "lucide-react";
+import { ChevronRight, GitBranch, LogOut } from "lucide-react";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import {
   DropdownMenu,
@@ -19,22 +18,16 @@ import {
   SIDEBAR_FOOTER_ICON_ITEM,
 } from "@/lib/sidebar-footer-classes";
 
-const THEME_MODES = [
-  ["light", Sun, "浅色"],
-  ["dark", Moon, "深色"],
-  ["system", Monitor, "系统"],
-];
-
 /**
  * 侧栏底部头像菜单（参考 zlog admin-sidebar）：
- * 用户信息卡 + 主题切换（segmented 按钮组）+ GitHub / 退出登录。
+ * 用户信息卡 + GitHub / 退出登录。
+ * 主题切换归设置弹窗「外观」面板所有，这里不再放第二入口。
  * 折叠为 icon rail 时仅显示头像。
  * username 由 AppSidebar 统一拉取后传入(设置弹窗与头像共用一份用户信息)。
  */
 export default function AvatarMenu({ username = "" }) {
   const router = useRouter();
   const { isMobile } = useSidebar();
-  const { theme, setTheme } = useTheme();
   const displayName = username;
   const avatarInitial = displayName ? displayName.charAt(0).toUpperCase() : "";
   const [loggingOut, setLoggingOut] = useState(false);
@@ -92,34 +85,6 @@ export default function AvatarMenu({ username = "" }) {
                 </AvatarFallback>
               </Avatar>
               <p className="min-w-0 flex-1 truncate text-sm font-medium">{displayName || "…"}</p>
-            </div>
-
-            <DropdownMenuSeparator className="mx-0 my-2" />
-
-            {/* 主题切换：segmented 按钮组（与 zlog 一致，非子菜单） */}
-            <div className="flex flex-col gap-1.5 px-0.5">
-              <p className="px-1.5 text-xs font-medium text-muted-foreground">
-                主题
-              </p>
-              <div className="inline-flex w-full rounded-lg bg-muted p-1">
-                {THEME_MODES.map(([mode, Icon, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setTheme(mode)}
-                    aria-label={label}
-                    className={cn(
-                      "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-all duration-200",
-                      theme === mode
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                  >
-                    <Icon size={14} />
-                    <span className="hidden sm:inline">{label}</span>
-                  </button>
-                ))}
-              </div>
             </div>
 
             <DropdownMenuSeparator className="mx-0 my-2" />

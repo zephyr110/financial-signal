@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import type { ThesisView } from '@/lib/cockpit/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 
 const ACTION_OPTIONS = [
@@ -88,16 +89,20 @@ export function JournalComposer({
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="journal-action">动作</label>
-          <select
-            className="ck-select"
-            id="journal-action"
+          <Select
+            items={ACTION_OPTIONS}
             value={action}
-            onChange={(event) => setAction(event.target.value)}
+            onValueChange={(value) => setAction(value)}
           >
-            {ACTION_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
+            <SelectTrigger id="journal-action" className="text-base md:text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ACTION_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="journal-code">标的代码（可选）</label>
@@ -112,19 +117,26 @@ export function JournalComposer({
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="journal-thesis">关联论点（可选）</label>
-          <select
-            className="ck-select"
-            id="journal-thesis"
+          <Select
+            items={[
+              { value: '', label: '不关联' },
+              ...theses.map((thesis) => ({ value: thesis.id, label: `${thesis.code} · ${thesis.title}` })),
+            ]}
             value={thesisId}
-            onChange={(event) => setThesisId(event.target.value)}
+            onValueChange={(value) => setThesisId(value)}
           >
-            <option value="">不关联</option>
-            {theses.map((thesis) => (
-              <option key={thesis.id} value={thesis.id}>
-                {thesis.code} · {thesis.title}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="journal-thesis" className="text-base md:text-sm">
+              <SelectValue placeholder="不关联" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">不关联</SelectItem>
+              {theses.map((thesis) => (
+                <SelectItem key={thesis.id} value={thesis.id}>
+                  {thesis.code} · {thesis.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="ck-field ck-field-full">
           <label className="ck-label" htmlFor="journal-reason">理由与当时看到的事实</label>
