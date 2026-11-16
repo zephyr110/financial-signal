@@ -75,7 +75,8 @@ Copy `.env.example` to `.env.local` and fill in what you need. The app is behind
 | `TUSHARE_TOKEN` | Tushare Pro token for quotes and calendar (also settable in-app) | — |
 | `CRON_SECRET` | Protects `/api/cron/*` machine endpoints | — |
 | `COCKPIT_DEMO` | `1` seeds sample data for local demos only | — |
-| `TURSO_DATABASE_URL` | Turso database URL (production) | — |
+| `DB_BACKEND` | `local` (default) or `turso`; remote DB only with `turso` | `local` (`turso` on Vercel) |
+| `TURSO_DATABASE_URL` | Turso database URL (used when `DB_BACKEND=turso`) | — |
 | `TURSO_AUTH_TOKEN` | Turso auth token | — |
 | `NEWS_DB_PATH` | Local SQLite path | `news_archive.db` |
 | `AUTH_DB_PATH` | Separate auth database (desktop) | beside `NEWS_DB_PATH` |
@@ -93,6 +94,8 @@ Fully self-contained: built-in fetch and analysis pipelines, local SQLite, tray 
 ## Deployment
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zephyr110/financial-signal)
+
+Self-hosted runs default to a local SQLite file. Turso is only used with `DB_BACKEND=turso`; on Vercel it remains the default because the filesystem is ephemeral.
 
 1. Create a database on [Turso](https://turso.tech).
 2. Set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `LLM_API_KEY` and `CRON_SECRET` in Vercel.

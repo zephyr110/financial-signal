@@ -61,6 +61,7 @@ function buildServerEnv({ port, dbPath, extra = {} }) {
     PORT: String(port),
     HOSTNAME: '127.0.0.1',
     DESKTOP_MODE: '1',
+    DB_BACKEND: 'local',
     NODE_ENV: 'production',
     ...(dbPath
       ? {

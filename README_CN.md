@@ -75,7 +75,8 @@ pnpm typecheck  # tsc --noEmit
 | `TUSHARE_TOKEN` | Tushare Pro 行情/日历凭证（也可在应用内设置） | — |
 | `CRON_SECRET` | 保护 `/api/cron/*` 机器端点 | — |
 | `COCKPIT_DEMO` | `1` 时播种示例数据，仅本地演示 | — |
-| `TURSO_DATABASE_URL` | Turso 数据库地址（生产） | — |
+| `DB_BACKEND` | `local`（默认）或 `turso`；仅 `turso` 才连接远端库 | `local`（Vercel 默认 `turso`） |
+| `TURSO_DATABASE_URL` | Turso 数据库地址（`DB_BACKEND=turso` 时使用） | — |
 | `TURSO_AUTH_TOKEN` | Turso 鉴权 token | — |
 | `NEWS_DB_PATH` | 本地 SQLite 路径 | `news_archive.db` |
 | `AUTH_DB_PATH` | 独立认证库（桌面端） | 与 `NEWS_DB_PATH` 同目录 |
@@ -93,6 +94,8 @@ pnpm typecheck  # tsc --noEmit
 ## 部署
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zephyr110/financial-signal)
+
+自托管默认使用本地 SQLite；只有 `DB_BACKEND=turso` 才连接 Turso。Vercel 因文件系统非持久，未显式指定时仍默认使用 Turso。
 
 1. 在 [Turso](https://turso.tech) 创建数据库。
 2. Vercel 配置 `TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`、`LLM_API_KEY`、`CRON_SECRET`。
