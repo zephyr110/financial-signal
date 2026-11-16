@@ -122,11 +122,14 @@ export function Sparkline({
   label,
   className = '',
   strokeWidth = 1.6,
+  changePct,
 }: {
   values: number[]
   label: string
   className?: string
   strokeWidth?: number
+  /** 与走势图并列展示的当日涨跌幅；给了就按它定色，避免「当日跌、区间涨」时颜色打架。 */
+  changePct?: number | null
 }) {
   const clean = values.filter((v) => Number.isFinite(v))
   if (clean.length < 2) {
@@ -143,7 +146,9 @@ export function Sparkline({
   })
   const line = `M ${points.join(' L ')}`
   const area = `${line} L 100,${h} L 0,${h} Z`
-  const dir = clean[clean.length - 1] - clean[0]
+  const dir = changePct != null && Number.isFinite(changePct)
+    ? changePct
+    : clean[clean.length - 1] - clean[0]
   const tone = dir > 0.00001 ? 'ck-up' : dir < -0.00001 ? 'ck-down' : 'ck-flat'
   return (
     <svg

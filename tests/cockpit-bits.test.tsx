@@ -12,6 +12,7 @@ import {
   DeltaValue,
   Disclosure,
   SourceHealthRail,
+  Sparkline,
 } from '@/components/cockpit/bits'
 import { briefQualityHint, sourceHealthHint } from '@/lib/cockpit/format'
 import { MarketSnapshot } from '@/components/cockpit/market-pulse'
@@ -71,6 +72,20 @@ describe('DeltaValue', () => {
     render(<DeltaValue value={1.23} />)
     expect(screen.getByText('涨跌幅：')).toBeInTheDocument()
     expect(screen.getByText('+1.23%')).toBeInTheDocument()
+  })
+})
+
+describe('Sparkline', () => {
+  it('颜色跟随当日涨跌幅，区间整体上涨也按当日下跌显示绿色', () => {
+    const { container } = render(
+      <Sparkline values={[10, 11, 12, 13]} changePct={-12.39} label="近 4 个交易日走势" />,
+    )
+    expect(container.querySelector('.ck-spark')).toHaveClass('ck-down')
+  })
+
+  it('没有当日涨跌幅时回退到区间首尾方向', () => {
+    const { container } = render(<Sparkline values={[10, 11, 12]} label="近 3 个交易日走势" />)
+    expect(container.querySelector('.ck-spark')).toHaveClass('ck-up')
   })
 })
 

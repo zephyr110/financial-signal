@@ -144,6 +144,7 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
                           <div className="ck-watch-spark">
                             <Sparkline
                               values={item.sparkline}
+                              changePct={item.changePct}
                               label={`${item.name}近 ${item.sparkline.length} 个交易日走势`}
                             />
                           </div>

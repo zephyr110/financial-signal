@@ -126,6 +126,7 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
               <>
                 <Sparkline
                   values={closes}
+                  changePct={detail.changePct}
                   label={`${detail.name}近 ${closes.length} 个交易日收盘价，区间 ${formatPrice(low)} 至 ${formatPrice(high)}`}
                   strokeWidth={1.8}
                 />
