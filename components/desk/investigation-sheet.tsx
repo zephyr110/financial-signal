@@ -163,7 +163,7 @@ export function InvestigationSheet({
   const open = Boolean(target)
   return (
     <Sheet open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[clamp(42rem,42vw,60rem)]">
         <SheetHeader className="relative shrink-0 px-5 py-4 after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
           <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
             <ShieldQuestion className="size-3.5" />
