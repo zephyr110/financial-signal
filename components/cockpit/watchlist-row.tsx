@@ -5,6 +5,7 @@ import type { StockDetail, WatchlistItem } from '@/lib/cockpit/types'
 import { formatPrice } from '@/lib/cockpit/format'
 import { watchAnchorId } from '@/lib/cockpit/anchor'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { Hint } from '@/components/ui/hint'
 import { DeltaValue, SourceChip, Sparkline, ThesisTag } from './bits'
 import { DocumentList } from './document-list'
 import { EvidenceSpine } from './evidence-spine'
@@ -98,9 +99,22 @@ export function WatchlistRow({ item }: { item: WatchlistItem }) {
         </div>
       </button>
 
-      {/* 折叠指示与移除按钮同列，默认隐藏，悬停整行时才浮现 */}
+      {/* 折叠与移除按钮同排同尺寸，默认隐藏，悬停整行时才浮现 */}
       <div className="ck-watch-action">
-        <ChevronDown className={`ck-watch-chevron${open ? ' is-open' : ''}`} aria-hidden="true" />
+        <Hint content={open ? '收起详情' : '展开详情'}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ck-watch-toggle"
+            type="button"
+            aria-expanded={open}
+            aria-controls={panelId}
+            aria-label={`${open ? '收起' : '展开'}${item.name}个股详情`}
+            onClick={toggle}
+          >
+            <ChevronDown className={`ck-watch-chevron${open ? ' is-open' : ''}`} aria-hidden="true" />
+          </Button>
+        </Hint>
         <WatchlistRemove code={item.code} name={item.name} />
       </div>
 

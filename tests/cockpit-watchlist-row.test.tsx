@@ -73,6 +73,29 @@ describe('自选行内展开', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('折叠按钮与移除按钮同排，点击可独立展开与收起', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: detail }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<WatchlistRow item={item} />)
+    const toggle = screen.getByRole('button', { name: '展开贵州茅台个股详情' })
+    // 与移除按钮同在右侧操作区，尺寸与显隐规则一致
+    expect(toggle.closest('.ck-watch-action')?.querySelector('.ck-row-action')).not.toBeNull()
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: '收起贵州茅台个股详情' })).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: '展开贵州茅台个股详情' })).toBeInTheDocument()
+  })
+
   it('详情接口失败时仍保留进入个股页的出口', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,

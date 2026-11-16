@@ -1923,15 +1923,29 @@ a.ck-chip:hover {
 
 .ck-watch-chevron {
   display: block;
-  flex: none;
   width: 14px;
   height: 14px;
-  color: var(--ck-faint);
   transition: transform 180ms ease;
 }
 
 .ck-watch-chevron.is-open {
   transform: rotate(180deg);
+}
+
+/* 折叠按钮与移除按钮同尺寸同显隐规则，点击直接展开/收起 */
+.ck-watch-toggle {
+  flex: none;
+  color: var(--ck-faint);
+}
+
+.ck-watch-toggle:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ck-surface-2) 70%, transparent);
+  color: var(--ck-ink);
+}
+
+.ck-watch-toggle svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* 0fr→1fr 让展开高度可过渡；内层 overflow 裁切，收起时不可见于视觉 */
@@ -2030,7 +2044,8 @@ a.ck-chip:hover {
 .ck-watch-side {
   display: block;
   min-width: 0;
-  text-align: right;
+  /* 数字与走势图在列内居中，并借加宽的折线图把整块往行中间推 */
+  text-align: center;
 }
 
 .ck-watch-price {
@@ -2050,8 +2065,8 @@ a.ck-chip:hover {
 }
 
 .ck-watch-spark {
-  width: 64px;
-  margin-top: 0;
+  width: 96px;
+  margin: 0 auto;
 }
 
 .ck-watch-spark .ck-spark {
@@ -2735,13 +2750,18 @@ a.ck-chip:hover {
     display: block;
   }
 
-  /* 桌面把移除按钮收成最右一列，行高由价格与文案决定。 */
+  /* 桌面把操作按钮收成最右一列，行高由价格与文案决定。 */
   .ck-watch-main {
     grid-column: 1;
   }
 
   .ck-watch-action {
     grid-column: 2;
+  }
+
+  /* 宽屏折线图再加宽，数字与走势占据行中间，减少大片留白 */
+  .ck-watch-spark {
+    width: 128px;
   }
 
   .ck-impact {
