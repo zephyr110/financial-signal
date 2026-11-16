@@ -65,6 +65,33 @@ const SECTOR_CODES = [
   'BK0614', // 食品安全
 ];
 
+// 搜索接口把行业名解析成东方财富板块代码；静态表覆盖不到的行业靠它补齐
+const EM_SUGGEST_URL = 'https://searchapi.eastmoney.com/api/suggest/get';
+const EM_SUGGEST_TOKEN = 'D43BF722C8E33BDC906FB84D85E326E8';
+const RESOLVED_SECTORS_KEY = 'market_sector_codes_v1';
+const SECTOR_MISSES_KEY = 'market_sector_misses_v1';
+/** 每轮最多解析的新行业数，避免一次 cron 打爆搜索接口 */
+const RESOLVE_LIMIT = 40;
+/** 解析失败后的冷却期；否则永不命中的行业名会占满每轮名额，后面的新行业永远轮不到 */
+const MISS_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+// 行业名与板块名不同名时先换成可搜索的词，再走解析（结果仍按原行业名缓存）
+const SECTOR_SEARCH_ALIASES: Record<string, string> = {
+  新能源汽车: '新能源车',
+  风电: '风电设备',
+  化工: '化工原料',
+  软件服务: '软件开发',
+  资本市场服务: '证券',
+};
+
+interface SectorBoard {
+  code: string;
+  name: string;
+}
+
+type ResolvedSectorMap = Record<string, SectorBoard>;
+type SectorMissMap = Record<string, string>;
+
 /**
  * Fetch a single sector index quote. Never throws; returns [] on failure.
  */
@@ -115,18 +142,263 @@ async function fetchSectorQuote(code: string) {
   }
 }
 
+/** 从搜索建议里挑板块：同名优先，其次名称互相包含且最短（最接近），其余不猜。 */
+export function pickSectorBoard(
+  name: string,
+  rows: Array<{ Classify?: string; Code?: string; Name?: string }>,
+): SectorBoard | null {
+  const boards = rows.filter(
+    (row) => row?.Classify === 'BK' && typeof row.Code === 'string' && typeof row.Name === 'string',
+  ) as Array<{ Code: string; Name: string }>;
+  if (boards.length === 0) return null;
+  const exact = boards.find((row) => row.Name === name);
+  // 取最短包含名：suggest 的前序结果常是概念板块，「锂电」应落到「锂电池」而非「锂电池概念」
+  const contains = boards
+    .filter((row) => row.Name.includes(name) || name.includes(row.Name))
+    .sort((a, b) => a.Name.length - b.Name.length)[0];
+  const pick = exact || contains;
+  return pick ? { code: pick.Code, name: pick.Name } : null;
+}
+
+/** 行业名与板块名是否指同一板块；申万二级名常带 Ⅱ/Ⅲ 后缀，双向包含即可。 */
+export function industryMatches(name: string, industries: string[]): boolean {
+  const board = name.trim();
+  if (!board) return false;
+  return industries.some((raw) => {
+    const ind = String(raw || '').trim();
+    return !!ind && (board.includes(ind) || ind.includes(board));
+  });
+}
+
+/**
+ * 挑出线索涉及行业的当日行情。
+ * 能解析到板块代码的行业只认代码（软件服务→软件开发 这类不同名映射），
+ * 否则名称包含会把「新能源」顺带匹配成「新能源车」，多出无关板块。
+ */
+export function selectThreadMarket<T extends { code?: unknown; name?: unknown }>(
+  rows: T[],
+  industries: string[],
+  resolved: Record<string, { code: string; name?: string }>,
+): T[] {
+  const inds = industries.map((ind) => String(ind || '').trim()).filter(Boolean);
+  if (inds.length === 0) return [];
+  const matchedCodes = new Set(
+    inds.map((ind) => resolved[ind]?.code).filter((code): code is string => !!code),
+  );
+  const presentCodes = new Set(rows.map((m) => String(m.code ?? '')));
+  // 已解析板块当天缺行情时，只按该板块自己的名字兜底；退回双向包含会带出兄弟板块
+  const missingBoards = inds
+    .map((ind) => resolved[ind])
+    .filter((board): board is { code: string; name?: string } => !!board && !presentCodes.has(board.code));
+  const unresolved = inds.filter((ind) => !resolved[ind]);
+  const bare = (name: string) => name.replace(/[ⅡⅢ]+$/, '').trim();
+  return rows.filter((m) => {
+    if (matchedCodes.has(String(m.code ?? ''))) return true;
+    const name = String(m.name ?? '');
+    if (missingBoards.some((board) => board.name && bare(name) === bare(board.name))) return true;
+    return industryMatches(name, unresolved);
+  });
+}
+
+/** null = 搜索成功但无匹配板块；undefined = 请求失败（不能当作「无此板块」写负缓存）。 */
+async function resolveSectorBoard(name: string): Promise<SectorBoard | null | undefined> {
+  try {
+    const query = SECTOR_SEARCH_ALIASES[name] || name;
+    const params = new URLSearchParams({
+      input: query,
+      type: '14',
+      token: EM_SUGGEST_TOKEN,
+      count: '5',
+    });
+    const res = await fetch(`${EM_SUGGEST_URL}?${params}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return pickSectorBoard(query, json?.QuotationCodeTable?.Data || []);
+  } catch (err) {
+    console.warn(`[market] 解析行业板块失败 ${name}:`, err instanceof Error ? err.message : err);
+    return undefined;
+  }
+}
+
+/**
+ * 已解析的行业→板块映射；读失败时抛错而不是返回空表：
+ * 空表会被缓存、还会被 fetchMarketData 当作底稿覆盖掉持久映射。
+ */
+async function loadResolvedSectors(): Promise<ResolvedSectorMap> {
+  return cachedRead(readCacheKey(['marketSectorMap']), READ_CACHE_TTL.analysisAgg, async () => {
+    const db = await getDb();
+    const res = await db.execute({
+      sql: 'SELECT value FROM app_settings WHERE key = ?',
+      args: [RESOLVED_SECTORS_KEY],
+    });
+    const raw = res.rows[0]?.value;
+    if (typeof raw !== 'string' || !raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: ResolvedSectorMap = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const board = value as Partial<SectorBoard> | null;
+      if (board && typeof board.code === 'string' && typeof board.name === 'string') {
+        out[key] = { code: board.code, name: board.name };
+      }
+    }
+    return out;
+  });
+}
+
+async function saveResolvedSectors(map: ResolvedSectorMap): Promise<void> {
+  try {
+    const db = await getDb();
+    await db.execute({
+      sql: 'INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)',
+      args: [RESOLVED_SECTORS_KEY, JSON.stringify(map), new Date().toISOString()],
+    });
+    clearReadCache('marketSectorMap');
+  } catch (err) {
+    console.warn('[market] 保存行业板块映射失败:', err instanceof Error ? err.message : err);
+  }
+}
+
+/** 解析失败的行业 → 首次失败时间；冷却期内跳过，避免每轮重复打搜索接口。 */
+async function loadSectorMisses(): Promise<SectorMissMap> {
+  try {
+    const db = await getDb();
+    const res = await db.execute({
+      sql: 'SELECT value FROM app_settings WHERE key = ?',
+      args: [SECTOR_MISSES_KEY],
+    });
+    const raw = res.rows[0]?.value;
+    if (typeof raw !== 'string' || !raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: SectorMissMap = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'string' && Number.isFinite(Date.parse(value))) out[key] = value;
+    }
+    return out;
+  } catch (err) {
+    console.warn('[market] 读取行业解析 misses 失败:', err instanceof Error ? err.message : err);
+    return {};
+  }
+}
+
+async function saveSectorMisses(map: SectorMissMap): Promise<void> {
+  try {
+    const db = await getDb();
+    await db.execute({
+      sql: 'INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)',
+      args: [SECTOR_MISSES_KEY, JSON.stringify(map), new Date().toISOString()],
+    });
+  } catch (err) {
+    console.warn('[market] 保存行业解析 misses 失败:', err instanceof Error ? err.message : err);
+  }
+}
+
+/** 线索与信号里出现过的行业名；市场反应面板需要它们对应的板块行情。 */
+async function collectIndustryNames(): Promise<string[]> {
+  try {
+    const db = await getDb();
+    const res = await db.execute({
+      sql: `SELECT DISTINCT value AS name FROM event_threads, json_each(event_threads.industries)
+            WHERE event_threads.industries IS NOT NULL AND json_valid(event_threads.industries)
+            UNION
+            SELECT DISTINCT value AS name FROM analysis_result, json_each(analysis_result.industries)
+            WHERE analysis_result.industries IS NOT NULL AND json_valid(analysis_result.industries)`,
+      args: [],
+    });
+    return res.rows
+      .map((row) => String(row.name ?? '').trim())
+      .filter((name) => name.length >= 2 && name.length <= 20);
+  } catch (err) {
+    console.warn('[market] 读取行业名失败:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
 /**
  * Fetch daily sector index quote data.
  * Uses secid=90.{code} to get the sector index itself (not constituent stocks).
- * 分片并发（每片 5 个）抓取 29 个板块：串行 30-60s → 并行 ~10s。
+ * 静态表覆盖 29 个常用板块；其余行业按需解析成板块代码后一并抓取，
+ * 否则线索页「市场反应」只对少数板块有数据。
  */
 export async function fetchMarketData() {
-  const allRows = [];
+  const allRows: Array<Record<string, unknown>> = [];
 
+  let staticCount = 0;
   for (let i = 0; i < SECTOR_CODES.length; i += 5) {
     const chunk = SECTOR_CODES.slice(i, i + 5);
-    const rows = await Promise.all(chunk.map(fetchSectorQuote));
-    allRows.push(...rows.flat());
+    const rows = (await Promise.all(chunk.map(fetchSectorQuote))).flat();
+    staticCount += rows.length;
+    allRows.push(...rows);
+  }
+  // 静态板块全挂多半是上游故障：返回空让 cron 记失败重试，也避免动态板块把故障掩盖成成功
+  if (staticCount === 0) {
+    console.warn('[market] 静态板块全部抓取失败，跳过动态解析');
+    return [];
+  }
+
+  // 读缓存共享同一对象，写入前先拷贝；读失败则本轮不做解析，避免用空表覆盖持久映射
+  let resolvedBase: ResolvedSectorMap | null = null;
+  try {
+    resolvedBase = { ...(await loadResolvedSectors()) };
+  } catch (err) {
+    console.warn('[market] 读取行业板块映射失败，本轮跳过动态解析:', err instanceof Error ? err.message : err);
+  }
+  const [misses, industries] = await Promise.all([loadSectorMisses(), collectIndustryNames()]);
+
+  if (resolvedBase) {
+    const resolved = resolvedBase;
+    const now = Date.now();
+    const pending = industries
+      .filter((name) => !resolved[name])
+      .filter((name) => {
+        const at = Date.parse(misses[name] || '');
+        return !Number.isFinite(at) || now - at > MISS_RETRY_MS;
+      })
+      .slice(0, RESOLVE_LIMIT);
+    let added = false;
+    let missesChanged = false;
+    for (let i = 0; i < pending.length; i += 5) {
+      const chunk = pending.slice(i, i + 5);
+      const boards = await Promise.all(chunk.map(resolveSectorBoard));
+      boards.forEach((board, index) => {
+        const name = chunk[index];
+        // 请求失败不写负缓存，下轮重试；只有「搜索成功但确实没有板块」才冷却 7 天
+        if (board === undefined) return;
+        if (board === null) {
+          misses[name] = new Date(now).toISOString();
+          missesChanged = true;
+          return;
+        }
+        if (misses[name] !== undefined) {
+          delete misses[name];
+          missesChanged = true;
+        }
+        resolved[name] = board;
+        added = true;
+      });
+    }
+    if (added) await saveResolvedSectors(resolved);
+    if (missesChanged) await saveSectorMisses(misses);
+
+    // 只抓当前仍被线索/信号引用的行业：resolved 只增不减，全量重抓会随历史线性变慢
+    const staticCodes = new Set(SECTOR_CODES);
+    const referenced = new Set(industries);
+    const dynamicCodes = Array.from(
+      new Set(
+        Object.entries(resolved)
+          .filter(([name, board]) => referenced.has(name) && !staticCodes.has(board.code))
+          .map(([, board]) => board.code),
+      ),
+    );
+    for (let i = 0; i < dynamicCodes.length; i += 5) {
+      const chunk = dynamicCodes.slice(i, i + 5);
+      const rows = await Promise.all(chunk.map(fetchSectorQuote));
+      allRows.push(...rows.flat());
+    }
   }
 
   return allRows;
@@ -158,7 +430,10 @@ export async function saveMarketData(rows) {
     }
   }
   // 写后失效行情读缓存(否则 getTodayMarketData 要等 TTL 过后才展示新数据)
-  if (inserted > 0) clearReadCache('marketToday');
+  if (inserted > 0) {
+    clearReadCache('marketToday');
+    clearReadCache('marketLatest');
+  }
   console.log(`[market] Saved ${inserted} rows for ${today}`);
   return inserted;
 }
@@ -210,23 +485,33 @@ export async function runBacktest(daysBack = 30) {
   // 一次拉取窗口内全部行情，内存中按行业索引——避免每个 (date, industry)
   // 键 2 次串行 DB 往返的 N+1 查询风暴（上千键 × 远端 DB 往返 = 数分钟超时）
   const market = await db.execute({
-    sql: `SELECT name, trade_date, change_pct FROM market_data
+    sql: `SELECT code, name, trade_date, change_pct FROM market_data
           WHERE trade_date >= ?
-          ORDER BY name, trade_date ASC`,
+          ORDER BY trade_date ASC, code, name`,
     args: [since.slice(0, 10)],
   });
   const marketByIndustry = new Map<string, Array<{ trade_date: string; change_pct: number | null }>>();
+  const marketByCode = new Map<string, Array<{ trade_date: string; change_pct: number | null }>>();
   for (const row of market.rows) {
-    const list = marketByIndustry.get(row.name) || [];
-    list.push({ trade_date: row.trade_date, change_pct: row.change_pct });
-    marketByIndustry.set(row.name, list);
+    const point = { trade_date: row.trade_date, change_pct: row.change_pct };
+    const byName = marketByIndustry.get(row.name) || [];
+    byName.push(point);
+    marketByIndustry.set(row.name, byName);
+    const byCode = marketByCode.get(row.code) || [];
+    byCode.push(point);
+    marketByCode.set(row.code, byCode);
   }
+  // 读取失败只影响代码兜底，名称直配仍然可用
+  const resolved = await loadResolvedSectors().catch(() => ({}));
 
   // Use INSERT OR REPLACE with UNIQUE(signal_date, industry) — atomic, no DELETE needed
   const upserts: Array<[string, string, number, number, EventDirection, number | null, number | null, number | null]> = [];
   for (const [, sig] of signalMap) {
-    // 别名兜底：LLM 行业名与板块名不一致时映射到标准板块（仅无直接匹配时）
+    // 名称直配 → 已解析板块代码 → 别名兜底；任一层命中即用，避免重复计入。
     let rows = marketByIndustry.get(sig.industry) || [];
+    if (rows.length === 0 && resolved[sig.industry]) {
+      rows = marketByCode.get(resolved[sig.industry].code) || [];
+    }
     if (rows.length === 0 && INDUSTRY_ALIASES[sig.industry]) {
       rows = marketByIndustry.get(INDUSTRY_ALIASES[sig.industry]) || [];
     }
@@ -269,18 +554,40 @@ export async function runBacktest(daysBack = 30) {
  */
 export async function getTodayMarketData(limit = 8) {
   const safeLimit = Math.min(limit, 20);
+  const curated = SECTOR_CODES.map(() => '?').join(', ');
   return cachedRead(
     readCacheKey(['marketToday', safeLimit]),
     READ_CACHE_TTL.analysisAgg,
     async () => {
   const db = await getDb();
+  // 只看精选板块：动态解析出的概念板块进同一张表，按涨幅截断会挤掉原来的主流板块
   const result = await db.execute({
     sql: `SELECT name, close, change_pct FROM market_data
           WHERE trade_date = (SELECT MAX(trade_date) FROM market_data)
             AND change_pct IS NOT NULL
+            AND code IN (${curated})
           ORDER BY ABS(change_pct) DESC
           LIMIT ?`,
-    args: [safeLimit],
+    args: [...SECTOR_CODES, safeLimit],
+  });
+  return result.rows;
+    },
+  );
+}
+
+/** 最新交易日的全部板块行情；线索页按行业筛选，不能先截断再筛（会漏掉冷门行业）。 */
+export async function getLatestMarketData() {
+  return cachedRead(
+    readCacheKey(['marketLatest']),
+    READ_CACHE_TTL.analysisAgg,
+    async () => {
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `SELECT code, name, change_pct FROM market_data
+          WHERE trade_date = (SELECT MAX(trade_date) FROM market_data)
+            AND change_pct IS NOT NULL
+          ORDER BY name`,
+    args: [],
   });
   return result.rows;
     },
@@ -342,15 +649,15 @@ export async function getBacktestSummary() {
  * 供 /api/thread/[id] 与 thread/[id].tsx SSG 共用（与 signal 详情页同构组装）。
  */
 export async function getThreadMarketContext(industries: string[]) {
-  const inds = Array.isArray(industries) ? industries : [];
-  const [today, backtest] = await Promise.all([
-    getTodayMarketData(20),
+  const inds = Array.isArray(industries) ? industries.map((ind) => String(ind || '')).filter(Boolean) : [];
+  const [today, backtest, resolved] = await Promise.all([
+    getLatestMarketData(),
     getBacktestByIndustry(30),
+    loadResolvedSectors().catch(() => ({})),
   ]);
-  const matches = (name: string | null | undefined) =>
-    !!name && inds.some((ind: string) => name.includes(ind) || ind.includes(name));
   return {
-    market: (today || []).filter((m) => matches(m.name as string | undefined)),
-    backtest: (backtest || []).filter((b) => matches(b.industry as string | undefined)),
+    market: selectThreadMarket(today || [], inds, resolved),
+    // 回测行存的是信号里的原始行业名，按名称匹配
+    backtest: (backtest || []).filter((b) => industryMatches(String(b.industry ?? ''), inds)),
   };
 }

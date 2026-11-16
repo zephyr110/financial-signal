@@ -24,6 +24,9 @@ export default async function handler(req, res) {
       async () => {
         const rows = await fetchMarketData();
         const saved = await saveMarketData(rows);
+        // 全部失败时是 0 行；先短路再做全量回测，别为一次上游故障白跑 30 天重建
+        // （失败不记成功，调度会重试，所以也不会被 6h 节流挡住）
+        if (saved === 0) throw new Error('no market rows fetched (upstream unavailable)');
         const btResult = await runBacktest();
         return { market_rows: saved, backtest_pairs: btResult.pairs };
       },
