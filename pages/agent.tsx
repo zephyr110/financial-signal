@@ -1098,41 +1098,43 @@ export default function AgentPage() {
 
             {/* 输入区：与消息流内容列对齐；右侧多 6px 抵掉滚动条占位 */}
             <div className="shrink-0 bg-background pb-4 pl-3 pr-[18px] pt-3 sm:pb-5 lg:pl-4 lg:pr-[22px]">
-              <div className="flex items-end gap-1.5 rounded-2xl border bg-card py-2 pl-3 pr-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+              <div className="rounded-2xl border bg-card p-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                 <Textarea
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
                   placeholder="询问政策影响、行业趋势、事件进展…（Enter 发送，Shift+Enter 换行）"
-                  rows={1}
+                  rows={3}
                   maxLength={2000}
-                  className="max-h-[200px] min-h-9 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-1.5 shadow-none focus-visible:ring-0"
+                  className="max-h-[200px] min-h-20 resize-none overflow-hidden border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0"
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={toggleWebSearch}
-                  aria-pressed={webSearch}
-                  title="开启后本轮可联网检索最新的财经新闻、行情与政策"
-                  className={cn(
-                    "mb-0.5 h-9 shrink-0 gap-1.5 rounded-xl px-2.5 text-xs",
-                    webSearch && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                  )}
-                >
-                  <Globe className="size-4" />
-                  联网
-                </Button>
-                <Button
-                  size="icon"
-                  className="mb-0.5 h-9 w-9 shrink-0 rounded-xl"
-                  onClick={send}
-                  disabled={loading || loadingHistory || switching || !input.trim()}
-                  aria-label="发送"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
+                <div className="mt-1 flex items-center justify-between gap-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={toggleWebSearch}
+                    aria-pressed={webSearch}
+                    title="开启后本轮可联网检索最新的财经新闻、行情与政策"
+                    className={cn(
+                      "h-8 shrink-0 gap-1.5 rounded-xl px-2.5 text-xs",
+                      webSearch && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                    )}
+                  >
+                    <Globe className="size-4" />
+                    联网
+                  </Button>
+                  <Button
+                    size="icon"
+                    className="h-9 w-9 shrink-0 rounded-xl"
+                    onClick={send}
+                    disabled={loading || loadingHistory || switching || !input.trim()}
+                    aria-label="发送"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <p className="mt-2.5 px-1 text-center text-xs text-muted-foreground">
                 AI 输出基于历史信号数据整理，仅供参考，不构成投资建议
