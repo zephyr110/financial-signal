@@ -3,6 +3,7 @@ import { Archive, Brain, Check, Loader2, Plus, ShieldCheck, Trash2, X } from 'lu
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Hint } from '@/components/ui/hint'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -256,15 +257,17 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                       <p className="truncate text-[13px] font-semibold tracking-tight">{project.name}</p>
                       {project.thesis && <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{project.thesis}</p>}
                     </div>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      title="归档项目"
-                      disabled={busy === project.id}
-                      onClick={() => void archiveProject(project)}
-                    >
-                      <Archive className="size-3.5" />
-                    </Button>
+                    <Hint content="归档项目">
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label="归档项目"
+                        disabled={busy === project.id}
+                        onClick={() => void archiveProject(project)}
+                      >
+                        <Archive className="size-3.5" />
+                      </Button>
+                    </Hint>
                   </div>
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {project.industries.map((industry) => (
@@ -329,15 +332,17 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                     </div>
                     <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{memory.value}</p>
                   </div>
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    title="删除记忆"
-                    disabled={busy === memory.id}
-                    onClick={() => void removeMemory(memory)}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
+                  <Hint content="删除记忆">
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      aria-label="删除记忆"
+                      disabled={busy === memory.id}
+                      onClick={() => void removeMemory(memory)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </Hint>
                 </div>
               ))}
             </TabsContent>

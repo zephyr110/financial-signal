@@ -26,6 +26,13 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    // 原生 title 会弹出浏览器自带 tooltip，与全站 shadcn Tooltip 风格冲突；
+    // 一律改用 components/ui/hint.tsx（纯展示组件或组件 props 的 title 不受影响）。
+    rules: {
+      "react/forbid-dom-props": ["error", { forbid: [{ propName: "title" }] }],
+    },
+  },
+  {
     files: ["electron/**/*.js"],
     rules: {
       // CJS 主进程模块:require 是合法用法

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { Hint } from "./ui/hint";
 import { cn } from "@/lib/utils";
 import {
   CATEGORY_LABELS,
@@ -38,12 +39,11 @@ export default function AnalysisNewsCard({ item }) {
           </span>
 
           <div className="min-w-0 flex-1">
-            <p
-              className="text-sm leading-snug text-foreground font-medium line-clamp-2"
-              title={item.summary}
-            >
-              {item.summary}
-            </p>
+            <Hint content={item.summary}>
+              <p className="text-sm leading-snug text-foreground font-medium line-clamp-2">
+                {item.summary}
+              </p>
+            </Hint>
 
             {item.content && (
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-1">
@@ -80,12 +80,11 @@ export default function AnalysisNewsCard({ item }) {
             </div>
 
             {companies.length > 0 && (
-              <p
-                className="mt-1 text-[11px] text-muted-foreground truncate"
-                title={`个股：${companies.join("、")}`}
-              >
-                个股：{companies.join("、")}
-              </p>
+              <Hint content={`个股：${companies.join("、")}`}>
+                <p className="mt-1 text-[11px] text-muted-foreground truncate">
+                  个股：{companies.join("、")}
+                </p>
+              </Hint>
             )}
           </div>
         </div>

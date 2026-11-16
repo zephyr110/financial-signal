@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { TrendingUp, AlertCircle, Zap, ExternalLink } from "lucide-react";
 import SignalBadge from "./SignalBadge";
+import { Hint } from "./ui/hint";
 import IndustryBacktestInline from "./IndustryBacktestInline";
 import RelatedSignals from "./RelatedSignals";
 import WatchlistButton from "./WatchlistButton";
@@ -233,14 +234,16 @@ export default function SignalDetail({
                           </span>
                         </span>
                       </td>
-                      <td className="py-2 px-2 text-right tabular-nums" title={dirCount !== row.samples ? `总事件 ${row.samples}(含中性/混合)` : undefined}>
-                        {dirCount}
-                        {!showNumbers && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            /10
-                          </span>
-                        )}
-                      </td>
+                      <Hint content={dirCount !== row.samples ? `总事件 ${row.samples}(含中性/混合)` : undefined}>
+                        <td className="py-2 px-2 text-right tabular-nums">
+                          {dirCount}
+                          {!showNumbers && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              /10
+                            </span>
+                          )}
+                        </td>
+                      </Hint>
                       <td className="py-2 px-2 text-right tabular-nums">
                         {showNumbers ? <ReturnSpan value={row.avg_d1} /> : <span className="text-muted-foreground">—</span>}
                       </td>

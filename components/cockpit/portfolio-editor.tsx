@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/router'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Hint } from '@/components/ui/hint'
 import { Input } from '@/components/ui/input'
 
 export function PortfolioEditor() {
@@ -144,17 +145,18 @@ export function PortfolioRemove({ code, name }: { code: string; name: string }) 
 
   if (!confirming) {
     return (
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="ck-row-action"
-        type="button"
-        onClick={() => setConfirming(true)}
-        aria-label={`移除持仓 ${name}`}
-        title="移除持仓"
-      >
-        <Trash2 aria-hidden="true" />
-      </Button>
+      <Hint content="移除持仓">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="ck-row-action"
+          type="button"
+          onClick={() => setConfirming(true)}
+          aria-label={`移除持仓 ${name}`}
+        >
+          <Trash2 aria-hidden="true" />
+        </Button>
+      </Hint>
     )
   }
   return (

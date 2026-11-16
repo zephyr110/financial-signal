@@ -222,12 +222,14 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
           name="description"
           content="7×24 财经快讯与信号筛选，个人收盘研究用途"
         />
+        {/* eslint-disable react/forbid-dom-props -- rel=alternate 的 title 是订阅源元数据，不是 tooltip */}
         <link
           rel="alternate"
           type="application/rss+xml"
           title="Recent Entries"
           href="/api/rss.xml"
         />
+        {/* eslint-enable react/forbid-dom-props */}
       </Head>
 
       <AppShell

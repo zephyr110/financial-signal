@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type {
   Breadth,
@@ -42,7 +42,7 @@ describe('cockpit bits', () => {
     expect(screen.getByText('正文')).toBeInTheDocument()
   })
 
-  it('缺失涨跌停统计时显示破折号，不画成 0', () => {
+  it('缺失涨跌停统计时显示破折号，不画成 0', async () => {
     const breadth: Breadth = {
       up: 10,
       flat: 2,
@@ -58,7 +58,10 @@ describe('cockpit bits', () => {
     )
     const breakdown = container.querySelector('.ck-snapshot-breakdown')
     expect(breakdown?.textContent).toContain('涨停 — / 跌停 —')
-    expect(breakdown).toHaveAttribute('title', '本次未取到涨跌停统计')
+    // 原生 title 已全局禁用，缺口说明必须仍能通过 Tooltip 取到
+    expect(breakdown).not.toHaveAttribute('title')
+    fireEvent.focus(breakdown as Element)
+    expect(await screen.findByText('本次未取到涨跌停统计')).toBeInTheDocument()
   })
 })
 

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/router'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Hint } from '@/components/ui/hint'
 import { Input } from '@/components/ui/input'
 
 export function WatchlistEditor() {
@@ -41,8 +42,8 @@ export function WatchlistEditor() {
 
   return (
     <form className="ck-card ck-form" onSubmit={(event) => void submit(event)}>
-      <h2 className="ck-form-title">加入观察名单</h2>
-      <p className="ck-form-hint">只登记需要持续验证的标的；行情未入库时自动排队补齐，页面明确显示状态，不补造价格。</p>
+      <h2 className="ck-form-title">加入自选个股</h2>
+      <p className="ck-form-hint">只登记需要持续验证的个股；行情未入库时自动排队补齐，页面明确显示状态，不补造价格。</p>
       <div className="ck-form-row">
         <div className="ck-field">
           <label className="ck-label" htmlFor="watch-code">股票代码</label>
@@ -57,7 +58,7 @@ export function WatchlistEditor() {
           />
         </div>
         <div className="ck-field ck-field-full">
-          <label className="ck-label" htmlFor="watch-note">观察理由（可选）</label>
+          <label className="ck-label" htmlFor="watch-note">自选理由（可选）</label>
           <Input
             className="text-base md:text-sm"
             id="watch-note"
@@ -110,17 +111,18 @@ export function WatchlistRemove({ code, name }: { code: string; name: string }) 
 
   if (!confirming) {
     return (
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="ck-row-action"
-        type="button"
-        onClick={() => setConfirming(true)}
-        aria-label={`从自选移除 ${name}`}
-        title="从自选移除"
-      >
-        <Trash2 aria-hidden="true" />
-      </Button>
+      <Hint content="从自选移除">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="ck-row-action"
+          type="button"
+          onClick={() => setConfirming(true)}
+          aria-label={`从自选移除 ${name}`}
+        >
+          <Trash2 aria-hidden="true" />
+        </Button>
+      </Hint>
     )
   }
   return (

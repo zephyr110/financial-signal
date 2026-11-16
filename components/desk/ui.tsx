@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { RiskCard } from '@/components/ui/risk-card'
 import { cn } from '@/lib/utils'
 import type { AlertView, DeskConfidence, DeskStance, JudgmentView } from '@/lib/desk/types'
 
@@ -123,37 +124,41 @@ export function AlertRow({
   onAcknowledge: () => void
   busy?: boolean
 }) {
+  const tone = alert.severity === 'critical' ? 'critical' : alert.severity === 'info' ? 'info' : 'warn'
   return (
-    <div className="relative px-4 py-3 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
-      <div className="flex min-w-0 items-start gap-2">
-        <SeverityBadge severity={alert.severity} />
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold leading-5 tracking-tight">{alert.title}</p>
-          <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{alert.whyNow}</p>
-        </div>
-      </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="truncate text-[11px] text-muted-foreground">
-          {alert.industry ? `${alert.industry} · ` : ''}证据 {alert.evidence.length} 条
-        </span>
-        <div className="flex shrink-0 gap-1">
-          <button
-            type="button"
-            className="rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            onClick={onDeepDive}
-          >
-            深挖
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
-            onClick={onAcknowledge}
-          >
-            已读
-          </button>
-        </div>
-      </div>
+    <div className="px-3 py-2">
+      <RiskCard
+        tone={tone}
+        showLevel={false}
+        title={alert.title}
+        meta={<SeverityBadge severity={alert.severity} />}
+        action={(
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-[11px] text-muted-foreground">
+              {alert.industry ? `${alert.industry} · ` : ''}证据 {alert.evidence.length} 条
+            </span>
+            <div className="flex shrink-0 gap-1">
+              <button
+                type="button"
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                onClick={onDeepDive}
+              >
+                深挖
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
+                onClick={onAcknowledge}
+              >
+                已读
+              </button>
+            </div>
+          </div>
+        )}
+      >
+        <p className="line-clamp-2">{alert.whyNow}</p>
+      </RiskCard>
     </div>
   )
 }

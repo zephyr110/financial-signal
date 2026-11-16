@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { Hint } from "@/components/ui/hint";
 
 const SCORE_STYLES: Record<number, string> = {
   5: "bg-red-600 text-white",
@@ -41,50 +42,53 @@ export default function SignalBadge({
 
   if (isUnanalyzed) {
     return (
-      <span
-        className={cn(
-          "inline-block shrink-0 rounded-full border border-dotted border-muted-foreground/35 bg-muted/20",
-          SIZE_CLASSES[size],
-          className
-        )}
-        title="待分析"
-        aria-label="待分析"
-      />
+      <Hint content="待分析">
+        <span
+          className={cn(
+            "inline-block shrink-0 rounded-full border border-dotted border-muted-foreground/35 bg-muted/20",
+            SIZE_CLASSES[size],
+            className
+          )}
+          aria-label="待分析"
+        />
+      </Hint>
     );
   }
 
   if (score <= 2) {
     if (!showLowScores) return null;
     return (
-      <span
-        className={cn(
-          "inline-flex items-center justify-center rounded-full border border-dashed border-muted-foreground/40 font-medium text-muted-foreground shrink-0",
-          SIZE_CLASSES[size],
-          className
-        )}
-        title={`低分信号（${score} 分）`}
-        aria-label={`低分信号 ${score} 分`}
-      >
-        {score}
-      </span>
+      <Hint content={`低分信号（${score} 分）`}>
+        <span
+          className={cn(
+            "inline-flex items-center justify-center rounded-full border border-dashed border-muted-foreground/40 font-medium text-muted-foreground shrink-0",
+            SIZE_CLASSES[size],
+            className
+          )}
+          aria-label={`低分信号 ${score} 分`}
+        >
+          {score}
+        </span>
+      </Hint>
     );
   }
 
   const style = SCORE_STYLES[score] || SCORE_STYLES[3];
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center justify-center rounded-full font-bold shrink-0 select-none",
-        style,
-        SIZE_CLASSES[size],
-        clickable && "cursor-pointer hover:scale-110 active:scale-95 transition-transform",
-        className
-      )}
-      title={`信号强度 ${score}`}
-      aria-label={`信号强度 ${score}`}
-    >
-      {score}
-    </span>
+    <Hint content={`信号强度 ${score}`}>
+      <span
+        className={cn(
+          "inline-flex items-center justify-center rounded-full font-bold shrink-0 select-none",
+          style,
+          SIZE_CLASSES[size],
+          clickable && "cursor-pointer hover:scale-110 active:scale-95 transition-transform",
+          className
+        )}
+        aria-label={`信号强度 ${score}`}
+      >
+        {score}
+      </span>
+    </Hint>
   );
 }

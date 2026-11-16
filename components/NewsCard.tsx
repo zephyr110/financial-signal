@@ -68,7 +68,11 @@ export default function NewsCard({ item, index }: NewsCardProps) {
         {/* Signal badge: 3+ 可点进详情；低分/待分析用 showLowScores 区分样式 */}
         <div className="shrink-0 flex items-start mt-[3px]">
           {hasSignal ? (
-            <Link href={`/signal/${analysis.id}`} title="查看信号分析">
+            // 徽章自身带 tooltip；再套一层会被 base-ui 的嵌套触发抑制，永远弹不出来
+            <Link
+              href={`/signal/${analysis.id}`}
+              aria-label={`查看信号分析（信号强度 ${analysis.signal_score}）`}
+            >
               <SignalBadge score={analysis.signal_score} size="sm" />
             </Link>
           ) : (

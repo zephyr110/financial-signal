@@ -19,6 +19,7 @@ import { historyToChatItems, type ChatItem } from "@/types/agent-chat";
 import { useAutosizeTextarea } from "@/hooks/use-autosize-textarea";
 import { Button } from "../components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "../components/ui/alert";
+import { Hint } from "../components/ui/hint";
 import { Textarea } from "../components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { CONTENT_GUTTER } from "@/lib/layout-classes";
@@ -917,52 +918,55 @@ export default function AgentPage() {
                                     重新生成
                                   </Button>
                                 )}
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="xs"
-                                onClick={() => void shareConversation()}
-                                aria-label="分享会话"
-                                title="生成会话分享链接"
-                              >
-                                {copiedId === "share" ? (
-                                  <>
-                                    <Check className="text-positive" />
-                                    已复制
-                                  </>
-                                ) : (
-                                  <>
-                                    <Share2 />
-                                    分享
-                                  </>
-                                )}
-                              </Button>
+                              <Hint content="生成会话分享链接">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="xs"
+                                  onClick={() => void shareConversation()}
+                                  aria-label="分享会话"
+                                >
+                                  {copiedId === "share" ? (
+                                    <>
+                                      <Check className="text-positive" />
+                                      已复制
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Share2 />
+                                      分享
+                                    </>
+                                  )}
+                                </Button>
+                              </Hint>
                               {m.turnId && (
                                 <>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="xs"
-                                    onClick={() => void sendFeedback(m, "up")}
-                                    aria-label="回答有帮助"
-                                    aria-pressed={m.feedback === "up"}
-                                    title="回答有帮助"
-                                    className={cn(m.feedback === "up" && "text-positive")}
-                                  >
-                                    <ThumbsUp />
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="xs"
-                                    onClick={() => void sendFeedback(m, "down")}
-                                    aria-label="回答需改进"
-                                    aria-pressed={m.feedback === "down"}
-                                    title="回答需改进"
-                                    className={cn(m.feedback === "down" && "text-destructive")}
-                                  >
-                                    <ThumbsDown />
-                                  </Button>
+                                  <Hint content="回答有帮助">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="xs"
+                                      onClick={() => void sendFeedback(m, "up")}
+                                      aria-label="回答有帮助"
+                                      aria-pressed={m.feedback === "up"}
+                                      className={cn(m.feedback === "up" && "text-positive")}
+                                    >
+                                      <ThumbsUp />
+                                    </Button>
+                                  </Hint>
+                                  <Hint content="回答需改进">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="xs"
+                                      onClick={() => void sendFeedback(m, "down")}
+                                      aria-label="回答需改进"
+                                      aria-pressed={m.feedback === "down"}
+                                      className={cn(m.feedback === "down" && "text-destructive")}
+                                    >
+                                      <ThumbsDown />
+                                    </Button>
+                                  </Hint>
                                 </>
                               )}
                             </div>
@@ -1110,21 +1114,22 @@ export default function AgentPage() {
                   className="max-h-[200px] min-h-20 resize-none overflow-hidden border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0"
                 />
                 <div className="mt-1 flex items-center justify-between gap-1.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={toggleWebSearch}
-                    aria-pressed={webSearch}
-                    title="开启后本轮可联网检索最新的财经新闻、行情与政策"
-                    className={cn(
-                      "h-8 shrink-0 gap-1.5 rounded-xl px-2.5 text-xs",
-                      webSearch && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                    )}
-                  >
-                    <Globe className="size-4" />
-                    联网
-                  </Button>
+                  <Hint content="开启后本轮可联网检索最新的财经新闻、行情与政策">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={toggleWebSearch}
+                      aria-pressed={webSearch}
+                      className={cn(
+                        "h-8 shrink-0 gap-1.5 rounded-xl px-2.5 text-xs",
+                        webSearch && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                      )}
+                    >
+                      <Globe className="size-4" />
+                      联网
+                    </Button>
+                  </Hint>
                   <Button
                     size="icon"
                     className="h-9 w-9 shrink-0 rounded-xl"
