@@ -268,13 +268,13 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
         {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
         <div className={`w-full pb-12 ${CONTENT_GUTTER}`}>
           {/* Hero */}
-          <div className="pt-6 pb-6 flex items-end justify-between gap-4 flex-wrap">
+          <div className="pt-6 pb-5 flex items-end justify-between gap-4 flex-wrap">
             <div className="min-w-0">
               <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">
                 新闻线索
               </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                7×24 全球快讯 · AI 辅助筛选值得跟进的线索
+              <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
+                7×24 全球快讯，按影响与相关性筛选值得跟进的线索
               </p>
               <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock className="size-3.5" aria-hidden="true" />

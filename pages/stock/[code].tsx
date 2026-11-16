@@ -67,11 +67,11 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
             actions={(
               <>
                 <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/watchlist">返回自选</Link>
-                <Link className={buttonVariants({ size: 'sm' })} href="/tasks">运行个股深挖</Link>
+                <Link className={buttonVariants({ size: 'sm' })} href="/tasks">发起个股深挖</Link>
               </>
             )}
           >
-            个股页只展示已有行情与文档的标的。先在任务中心按代码读取证据，或完成行情入库。
+            个股页只展示已有行情与文档的标的。可在任务中心按代码发起深挖，或等待行情入库。
           </EmptyState>
         </CockpitShell>
       </>

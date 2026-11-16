@@ -695,7 +695,7 @@ export default function AgentPage() {
 
       <AppShell
         title="研究助手"
-        subtitle="基于真实信号数据的问答 · 政策 · 行业 · 事件线索"
+        subtitle="基于已入库的真实信号，回答政策、行业与事件问题"
         scrollable={false}
         sidebarExtra={
           <SessionSidebarGroup
@@ -1142,7 +1142,7 @@ export default function AgentPage() {
                 </div>
               </div>
               <p className="mt-2.5 px-1 text-center text-xs text-muted-foreground">
-                AI 输出基于历史信号数据整理，仅供参考，不构成投资建议
+                回答由 AI 基于已入库信号整理，仅供参考，不构成投资建议
               </p>
             </div>
       </AppShell>

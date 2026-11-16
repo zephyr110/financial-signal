@@ -107,11 +107,11 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
           <SectionHeader
             id="watchlist-title"
             title={`${items.length} 只自选个股`}
-            detail="按最新收盘价与论点状态展示；点击整行原地展开证据，也可进入完整个股页。"
+            detail="按最新收盘价与论点状态展示；点击整行展开证据，或进入完整个股页。"
           />
           {items.length === 0 ? (
-            <EmptyState title="自选名单还是空的">
-              展开上方“添加自选个股”，先登记一个股票代码。加入后不会自动生成价格或结论，必须等行情与公告入库。
+            <EmptyState title="还没有自选个股">
+              展开上方“添加自选个股”登记代码。加入后不会自动生成价格或结论，需等行情与公告入库。
             </EmptyState>
           ) : (
             <div className="ck-card ck-list-stack">

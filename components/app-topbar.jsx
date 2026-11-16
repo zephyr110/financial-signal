@@ -27,7 +27,7 @@ export default function AppTopbar({ title, subtitle = null, actions = null }) {
               orientation="vertical"
               className="hidden md:block h-3.5"
             />
-            <span className="hidden md:inline truncate text-xs text-muted-foreground">
+            <span className="hidden md:inline truncate text-[13px] text-muted-foreground">
               {subtitle}
             </span>
           </>
