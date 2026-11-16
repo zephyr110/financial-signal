@@ -38,10 +38,20 @@ export interface TurnInfo {
   feedback?: "up" | "down" | null;
 }
 
+export interface MessageVersions {
+  /** 同一分叉组内的消息 id（前端 hist-* 形式），按时间排序 */
+  ids: string[];
+  index: number;
+}
+
 export interface ChatItem {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  /** 流式生成中：Markdown 渲染按帧节流 */
+  streaming?: boolean;
+  /** 消息分支版本（只有存在兄弟分支时才有） */
+  versions?: MessageVersions;
   /** 本轮遥测 id：反馈与成本归集用 */
   turnId?: string;
   feedback?: "up" | "down" | null;
@@ -60,7 +70,13 @@ export interface ChatItem {
  * - 连续 toolCall 合并为 processing，附着到紧随其后的助手正文（单条消息、单头像）
  * - user 内部工具结果 → 写入上一条工具的 summary
  */
-export function historyToChatItems(rows: any[], turns: TurnInfo[] = []): ChatItem[] {
+export type AgentVersionMap = Record<string, { ids: number[]; index: number }>;
+
+export function historyToChatItems(
+  rows: any[],
+  turns: TurnInfo[] = [],
+  versions: AgentVersionMap = {},
+): ChatItem[] {
   const turnMap = new Map(turns.map((turn) => [turn.id, turn]));
   const out: ChatItem[] = [];
   let pendingTools: ToolCallInfo[] = [];
@@ -136,6 +152,13 @@ export function historyToChatItems(rows: any[], turns: TurnInfo[] = []): ChatIte
     }
     const processing = takeProcessing(r.role === "assistant");
     if (processing) item.processing = processing;
+    const versionInfo = versions[String(r.id)];
+    if (versionInfo && versionInfo.ids.length > 1) {
+      item.versions = {
+        ids: versionInfo.ids.map((id) => `hist-${id}`),
+        index: versionInfo.index,
+      };
+    }
     out.push(item);
   }
 

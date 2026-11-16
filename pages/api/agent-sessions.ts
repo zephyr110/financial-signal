@@ -5,6 +5,7 @@ import {
   renameAgentSession,
   agentSessionExists,
   listAgentTurns,
+  getAgentMessageVersions,
 } from '../../lib/db';
 import { isLocalOrigin } from '../../lib/cronAuth';
 import { requestUserId } from '../../lib/request-user';
@@ -94,8 +95,12 @@ export default async function handler(req, res) {
       // 会话不存在返回 404：前端据此清理 localStorage 里残留的失效 sessionId
       const exists = await agentSessionExists(sid, userId);
       if (!exists) return res.status(404).json({ error: '会话不存在', sessionId: sid });
-      const [messages, turns] = await Promise.all([getAgentMessages(sid), listAgentTurns(sid, 50)]);
-      return res.status(200).json({ sessionId: sid, messages, turns });
+      const [messages, turns, versions] = await Promise.all([
+        getAgentMessages(sid),
+        listAgentTurns(sid, 50),
+        getAgentMessageVersions(sid),
+      ]);
+      return res.status(200).json({ sessionId: sid, messages, turns, versions });
     } catch (error) {
       console.error('[api/agent-sessions] GET detail error:', error);
       return res.status(500).json({ error: '会话加载失败，请稍后重试' });
