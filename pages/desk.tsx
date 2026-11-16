@@ -290,23 +290,27 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
         )}
       >
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground lg:px-4">
-            <span className="flex items-center gap-1.5 font-medium text-foreground">
-              <Radar className="size-3.5" />
-              交易日 {snapshot.tradeDate || status.tradeDate || '—'}
-            </span>
-            <span suppressHydrationWarning>数据更新 {freshness(updatedAt)}</span>
-            {isDemo && <Badge variant="outline" className="h-5 px-1.5 text-[10px]">示例数据</Badge>}
-            {unhealthy.length > 0 && (
-              <span className="flex items-center gap-1 text-chart-5">
-                <ShieldAlert className="size-3.5" />{unhealthy.length} 个数据源异常
+          <div className={`shrink-0 pt-3 ${CONTENT_GUTTER}`}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-card px-3 py-2 text-xs text-muted-foreground ring-1 ring-foreground/10">
+              <span className="flex items-center gap-1.5 font-medium text-foreground">
+                <Radar className="size-3.5" />
+                交易日 {snapshot.tradeDate || status.tradeDate || '—'}
               </span>
-            )}
-            <span className="ml-auto hidden text-[11px] lg:inline">仅供个人研究参考，不构成投资建议</span>
+              <span suppressHydrationWarning>数据更新 {freshness(updatedAt)}</span>
+              {isDemo && <Badge variant="outline" className="h-5 px-1.5 text-[10px]">示例数据</Badge>}
+              {unhealthy.length > 0 && (
+                <span className="flex items-center gap-1 text-chart-5">
+                  <ShieldAlert className="size-3.5" />{unhealthy.length} 个数据源异常
+                </span>
+              )}
+              <span className="ml-auto hidden text-[11px] lg:inline">仅供个人研究参考，不构成投资建议</span>
+            </div>
           </div>
 
           {error && (
-            <div className="shrink-0 border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">{error}</div>
+            <div className={`shrink-0 pt-2 ${CONTENT_GUTTER}`}>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">{error}</div>
+            </div>
           )}
 
           {!snapshot.tradeDate ? (
