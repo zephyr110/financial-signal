@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Wrench,
   Loader2,
@@ -64,22 +64,11 @@ function StatusBadge({ tool }: { tool: ToolCallInfo }) {
   );
 }
 
-/** 单轮思考 + 工具调用：默认折叠，完成后收起用户手动展开的内容（shadcn Collapsible + 过渡动画） */
+/** 单轮思考 + 工具调用：默认折叠，用户可点击展开（shadcn Collapsible + 过渡动画） */
 export function AgentProcessingBlock({ processing }: AgentProcessingBlockProps) {
   const { tools, active, thinking, compaction } = processing;
   const [open, setOpen] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
-  const wasActive = useRef(active);
-
-  // 只在「进行中 → 完成」时自动收起；历史块挂载时不要抢用户刚展开的面板
-  useEffect(() => {
-    if (wasActive.current && !active) {
-      wasActive.current = false;
-      const timer = window.setTimeout(() => setOpen(false), 600);
-      return () => window.clearTimeout(timer);
-    }
-    wasActive.current = active;
-  }, [active]);
 
   const doneCount = tools.filter((t) => t.status === "done").length;
   const errorCount = tools.filter((t) => t.status === "error").length;
