@@ -1883,6 +1883,81 @@ export function normalizeThreadTitle(title: string | null | undefined): string {
   return String(title || '未命名事件').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/**
+ * 事件线索的重点个股：成员新闻抽到的公司按情绪投票，信号分越高的新闻权重越大。
+ * mixed/neutral 或权重打平的公司归入「待观察」，不硬判方向。
+ */
+async function attachFocusStocks(db, threads: any[]): Promise<any[]> {
+  const empty = { bullish: [], bearish: [], watch: [] };
+  if (threads.length === 0) return [];
+  const ids = [...new Set(
+    threads.flatMap((t) => (Array.isArray(t.news_ids) ? t.news_ids : []))
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0),
+  )];
+  if (ids.length === 0) return threads.map((t) => ({ ...t, focus_stocks: empty }));
+
+  const rows = await db.execute({
+    sql: `SELECT id, sentiment, signal_score, companies FROM analysis_result
+          WHERE id IN (${ids.map(() => '?').join(', ')})`,
+    args: ids,
+  });
+  const byId = new Map<number, any>(rows.rows.map((r) => [Number(r.id), r]));
+
+  const scored = threads.map((thread) => {
+    const weights = new Map<string, { bullish: number; bearish: number; mentioned: number }>();
+    for (const raw of Array.isArray(thread.news_ids) ? thread.news_ids : []) {
+      const analysis = byId.get(Number(raw));
+      if (!analysis) continue;
+      const sentiment = String(analysis.sentiment || '');
+      const score = Math.max(1, Number(analysis.signal_score) || 1);
+      for (const rawName of tryParseJson(analysis.companies)) {
+        const name = String(rawName || '').trim();
+        if (!name) continue;
+        const weight = weights.get(name) || { bullish: 0, bearish: 0, mentioned: 0 };
+        if (sentiment === 'positive') weight.bullish += score;
+        else if (sentiment === 'negative') weight.bearish += score;
+        else weight.mentioned += score;
+        weights.set(name, weight);
+      }
+    }
+    const rank = (side: 'bullish' | 'bearish' | 'watch') => [...weights.entries()]
+      .filter(([, w]) => {
+        if (side === 'bullish') return w.bullish > w.bearish;
+        if (side === 'bearish') return w.bearish > w.bullish;
+        return w.bullish === w.bearish;
+      })
+      .sort((a, b) => {
+        const left = side === 'watch' ? a[1].mentioned + a[1].bullish + a[1].bearish : a[1][side];
+        const right = side === 'watch' ? b[1].mentioned + b[1].bullish + b[1].bearish : b[1][side];
+        return right - left;
+      })
+      .slice(0, 5)
+      .map(([name]) => name);
+    return { thread, bullish: rank('bullish'), bearish: rank('bearish'), watch: rank('watch') };
+  });
+
+  const names = [...new Set(scored.flatMap((s) => [...s.bullish, ...s.bearish, ...s.watch]))];
+  const codeByName = new Map<string, string>();
+  if (names.length > 0) {
+    const symbols = await db.execute({
+      sql: `SELECT code, name FROM symbols WHERE name IN (${names.map(() => '?').join(', ')})`,
+      args: names,
+    });
+    for (const row of symbols.rows) codeByName.set(String(row.name), String(row.code));
+  }
+  const toStock = (name: string) => ({ name, code: codeByName.get(name) || null });
+
+  return scored.map(({ thread, bullish, bearish, watch }) => ({
+    ...thread,
+    focus_stocks: {
+      bullish: bullish.map(toStock),
+      bearish: bearish.map(toStock),
+      watch: watch.map(toStock),
+    },
+  }));
+}
+
 /** Get recent event threads. limit 用于 ISR 预渲染裁剪（P1.5 构建期 DB 解耦）。 */
 export async function getEventThreads(hoursBack = 24, limit = 500, industries: string[] | null = null) {
   return cachedRead(
@@ -1903,14 +1978,16 @@ export async function getEventThreads(hoursBack = 24, limit = 500, industries: s
     industries: tryParseJson(r.industries),
     watch_points: tryParseJson(r.watch_points),
   }));
-  if (!industries || industries.length === 0) return parsed;
-  // 线索行业(LLM 原始名)与关注行业(板块名)归一后比对
-  const watchedSet = new Set(industries.map((w) => industryDisplayName(w)));
-  return parsed.filter((t) => {
-    const inds = (t.industries as string[]) || [];
-    if (inds.length === 0) return false;
-    return inds.some((ind) => watchedSet.has(industryDisplayName(ind)));
-  });
+  const filtered = !industries || industries.length === 0
+    ? parsed
+    : parsed.filter((t) => {
+        // 线索行业(LLM 原始名)与关注行业(板块名)归一后比对
+        const watchedSet = new Set(industries.map((w) => industryDisplayName(w)));
+        const inds = (t.industries as string[]) || [];
+        if (inds.length === 0) return false;
+        return inds.some((ind) => watchedSet.has(industryDisplayName(ind)));
+      });
+  return attachFocusStocks(db, filtered);
     },
   );
 }
@@ -1976,9 +2053,10 @@ export async function getEventThreadById(id: number) {
   const thread = threadResult.rows[0] as Record<string, unknown>;
   const signals = await fetchThreadSignals(db, id, tryParseJson(thread.news_ids as string));
 
-  return {
+  const [detail] = await attachFocusStocks(db, [{
     id: rowId(thread.id),
     title: thread.title,
+    news_ids: tryParseJson(thread.news_ids as string),
     narrative: thread.narrative,
     stage: thread.stage,
     confidence: thread.confidence,
@@ -1986,7 +2064,8 @@ export async function getEventThreadById(id: number) {
     watch_points: tryParseJson(thread.watch_points as string),
     created_at: thread.created_at,
     signals,
-  };
+  }]);
+  return detail;
 }
 
 // ── Agent Session CRUD（研究 Agent 持久化） ──
