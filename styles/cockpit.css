@@ -35,8 +35,9 @@
   --ck-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --ck-mono: var(--ck-sans);
-  --ck-radius: 0.75rem;
-  --ck-radius-sm: 0.5rem;
+  /* 与 Tailwind 的 rounded-xl / rounded-lg 对齐（globals 里 --radius 为 0.5rem） */
+  --ck-radius: calc(var(--radius) * 1.4);
+  --ck-radius-sm: var(--radius);
   --ck-max: 1120px;
 }
 
@@ -125,7 +126,7 @@
   border-radius: 999px;
   color: var(--ck-copper);
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
 }
@@ -147,7 +148,7 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 9px;
+  margin-bottom: 12px;
 }
 
 .ck-section-head-main {
@@ -178,7 +179,8 @@
   margin-top: 3px !important;
   color: var(--ck-faint);
   font-size: 13px;
-  line-height: 1.5;
+  /* 固定 20px 行高：1.5 会得到 19.5px，让下方卡片顶边落在半个像素上，虚线被抗锯齿吃掉 */
+  line-height: 20px;
 }
 
 .ck-section-action {
@@ -375,7 +377,7 @@ a.ck-chip:hover {
   align-items: center;
   gap: 6px;
   color: var(--ck-muted);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .ck-confidence-label {
@@ -460,7 +462,7 @@ a.ck-chip:hover {
   margin-top: 0;
   padding: 0 0 4px;
   color: var(--ck-muted);
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.75;
 }
 
@@ -633,7 +635,7 @@ a.ck-chip:hover {
   gap: 4px;
   overflow: hidden;
   color: var(--ck-faint);
-  font-size: 11.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -641,7 +643,7 @@ a.ck-chip:hover {
 .ck-snapshot-name code {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   opacity: 0.75;
 }
 
@@ -658,7 +660,7 @@ a.ck-chip:hover {
 }
 
 .ck-snapshot-index .ck-delta {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .ck-snapshot-stats {
@@ -751,7 +753,7 @@ a.ck-chip:hover {
 }
 
 .ck-snapshot-turnover .ck-delta {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .ck-snapshot-source {
@@ -865,6 +867,18 @@ a.ck-chip:hover {
   padding: 0 14px 14px;
 }
 
+/* 展开/收起：Base UI 在面板上暴露 --collapsible-panel-height，高度过渡无需 JS 测量 */
+.ck-disclosure [data-slot="collapsible-content"] {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  transition: height 220ms ease;
+}
+
+.ck-disclosure [data-slot="collapsible-content"][data-starting-style],
+.ck-disclosure [data-slot="collapsible-content"][data-ending-style] {
+  height: 0;
+}
+
 .ck-disclosure-body > .ck-form {
   padding: 0;
   border: 0;
@@ -887,35 +901,13 @@ a.ck-chip:hover {
   font-size: 13px;
 }
 
-/* 展开后限高内滚，贴底卡片不至于吞掉整屏 */
+/* 展开后限高内滚，避免一次占满整屏 */
 .ck-source-status .ck-disclosure-body {
   max-height: min(50vh, 420px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-top: 2px;
   padding-bottom: 10px;
-}
-
-/* 停靠在视窗底部：滚动长面板时摘要始终可见；sticky 只在滚动途中浮起，
-   滚到页尾自然归位，不会永久遮挡页尾内容。移动端要给底部导航让位。 */
-.ck-source-dock {
-  position: sticky;
-  bottom: calc(3.5rem + env(safe-area-inset-bottom) + 10px);
-  z-index: 20;
-  margin-top: 16px;
-}
-
-@media (min-width: 1024px) {
-  .ck-source-dock {
-    bottom: 12px;
-  }
-}
-
-/* 浮起时与滚过的内容拉开层次：半透明加模糊，避免文字透叠 */
-.ck-source-dock .ck-disclosure {
-  background: color-mix(in srgb, var(--ck-surface) 94%, transparent);
-  box-shadow: 0 10px 28px -18px rgb(0 0 0 / 0.35);
-  backdrop-filter: blur(10px);
 }
 
 /* 首屏内的次级说明：叙述、置信度构成 */
@@ -1050,7 +1042,7 @@ a.ck-chip:hover {
   flex: none;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .ck-index-value {
@@ -1180,7 +1172,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .ck-stat-line {
@@ -1218,7 +1210,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 /* ---------- 个人影响 ---------- */
@@ -1410,7 +1402,8 @@ a.ck-chip:hover {
 
 .ck-empty {
   padding: 28px 18px;
-  border: 1px dashed var(--ck-line-strong);
+  /* 2px 虚线 + 7 成色：1px 在 1.25x/1.5x 缩放下顶边会落到半个设备像素，看起来像被裁掉 */
+  border: 2px dashed color-mix(in srgb, var(--ck-line-strong) 75%, transparent);
   border-radius: var(--ck-radius);
   background: color-mix(in srgb, var(--ck-surface) 65%, transparent);
   text-align: center;
@@ -1443,7 +1436,7 @@ a.ck-chip:hover {
   margin-bottom: 14px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--ck-critical) 35%, var(--ck-line));
-  border-radius: 5px;
+  border-radius: var(--ck-radius-sm);
   background: var(--ck-critical-soft);
   color: var(--ck-critical);
   font-size: 13px;
@@ -1496,7 +1489,7 @@ a.ck-chip:hover {
   display: block;
   margin-top: 1px;
   color: var(--ck-faint);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -1565,7 +1558,7 @@ a.ck-chip:hover {
 
 .ck-metric-label {
   color: var(--ck-faint);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .ck-metric-value {
@@ -1659,10 +1652,9 @@ a.ck-chip:hover {
   padding: 8px 10px;
   border-bottom: 1px solid var(--ck-line);
   color: var(--ck-faint);
-  font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-family: var(--ck-sans);
+  font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.06em;
   text-align: left;
   white-space: nowrap;
 }
@@ -1869,7 +1861,7 @@ a.ck-chip:hover {
   margin-top: 1px;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2040,7 +2032,7 @@ a.ck-chip:hover {
 .ck-watch-code span:first-child {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .ck-watch-name {
@@ -2199,7 +2191,7 @@ a.ck-chip:hover {
   margin-top: 4px;
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .ck-price-table {
@@ -2270,7 +2262,7 @@ a.ck-chip:hover {
   margin-top: 7px;
   color: var(--ck-ink);
   font-family: var(--ck-sans);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.45;
 }
@@ -2292,7 +2284,7 @@ a.ck-chip:hover {
 .ck-thesis-invalidation-label {
   color: var(--ck-copper);
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
 }
@@ -2322,12 +2314,12 @@ a.ck-chip:hover {
   display: flex;
   gap: 10px;
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .ck-thesis-horizon {
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 /* ---------- 表单 ---------- */
@@ -2488,7 +2480,7 @@ a.ck-chip:hover {
 .ck-task-composer-title {
   color: var(--ck-ink);
   font-family: var(--ck-sans);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.35;
 }
@@ -2496,7 +2488,7 @@ a.ck-chip:hover {
 .ck-task-composer-hint {
   margin-top: 2px !important;
   color: var(--ck-faint);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -2517,7 +2509,7 @@ a.ck-chip:hover {
   gap: 8px;
   padding: 10px;
   border: 1px solid var(--ck-line);
-  border-radius: 8px;
+  border-radius: var(--ck-radius-sm);
   background: var(--ck-surface);
   text-align: left;
   white-space: normal;
@@ -2668,12 +2660,12 @@ a.ck-chip:hover {
   gap: 6px;
   margin-top: 7px;
   color: var(--ck-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .ck-task-meta code {
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .ck-task-result {
@@ -2947,7 +2939,7 @@ a.ck-chip:hover {
   background: var(--ck-up);
   color: #fff;
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
 }
@@ -2969,6 +2961,25 @@ a.ck-chip:hover {
   border-radius: var(--ck-radius);
   background: var(--ck-surface);
   box-shadow: var(--ck-shadow);
+  transform-origin: top right;
+  animation: ck-pop-in 160ms ease-out;
+}
+
+@keyframes ck-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ck-notify-panel {
+    animation: none;
+  }
 }
 
 .ck-notify-head {
@@ -3082,7 +3093,7 @@ a.ck-chip:hover {
 .ck-notify-copy time {
   color: var(--ck-faint);
   font-family: var(--ck-mono);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .ck-index-table {

@@ -47,7 +47,7 @@ export function CockpitShell({
       {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
       <div className={`w-full pb-10 sm:pb-14 ${CONTENT_GUTTER}`}>
         <div className="min-w-0" id="ck-main">
-          <header className="flex flex-wrap items-start justify-between gap-3 pb-5 pt-6 sm:pt-7">
+          <header className="flex flex-wrap items-start justify-between gap-3 pb-5 pt-6">
             <div className="min-w-0">
               <h1 className="sr-only">{title}</h1>
               {(eyebrow || asOf) && (
@@ -58,7 +58,7 @@ export function CockpitShell({
                 </div>
               )}
               {subtitle && (
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{subtitle}</p>
+                <p className="mt-1 max-w-2xl text-[13px] leading-5 text-muted-foreground">{subtitle}</p>
               )}
             </div>
             {headerAction && <div className="shrink-0">{headerAction}</div>}
@@ -67,8 +67,7 @@ export function CockpitShell({
           <div className="ck-root">
             {isDemo && <DemoBanner />}
             {children}
-            {/* 数据源状态停靠在视窗底部：长面板滚动时也始终可见，滚到页尾自然归位 */}
-            <div className="ck-source-dock">
+            <footer className="mt-8 pt-3">
               <Disclosure
                 className="ck-source-status"
                 title={sourceTitle}
@@ -84,9 +83,7 @@ export function CockpitShell({
                   <ArrowRight aria-hidden="true" />
                 </Link>
               </Disclosure>
-            </div>
-            <footer className="mt-6">
-              <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
+              <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
                 <span>财经信号 · 个人研究记录，不构成投资建议。</span>
                 <span>数据先于判断。</span>
               </div>

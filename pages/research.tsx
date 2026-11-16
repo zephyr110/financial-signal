@@ -120,13 +120,13 @@ export default function ResearchPage({
           <SectionHeader
             id="theses-title"
             title={`${theses.length} 条研究论点`}
-            detail="每条论点同时展示支持证据、反证与失效条件。"
-            action={<SectionLink href="/tasks">派发复核</SectionLink>}
+            detail="每条论点列出支持证据、反证与失效条件。"
+            action={<SectionLink href="/tasks">发起复核</SectionLink>}
           />
           {theses.length === 0 ? (
             <div className="space-y-3">
               <EmptyState title="还没有研究论点">
-                研究笔记不会自动生成：行情与公告只提供事实，第一条论点需要你亲手写下。填好主张与至少一条失效条件即可开始。
+                行情与公告只提供事实，论点需要亲手写下。填好主张与至少一条失效条件即可开始。
               </EmptyState>
               <ThesisComposer />
             </div>
@@ -147,12 +147,12 @@ export default function ResearchPage({
           <SectionHeader
             id="journal-list-title"
             title="最近记录"
-            detail={`${journal.length} 条 · 按录入时间倒序，只代表当时的判断。`}
+            detail={`${journal.length} 条 · 按录入时间倒序，仅代表当时判断。`}
           />
           {journal.length === 0 ? (
             <div className="space-y-3">
               <EmptyState title="还没有研究日志">
-                研究日志只记录你写下的决定，系统不会代写。写下第一条决定，并保留当时看到的反证。
+                研究日志只记录你写下的决定，系统不会代写。写下第一条决定，并保留当时的反证。
               </EmptyState>
               <JournalComposer today={today} theses={theses} />
             </div>

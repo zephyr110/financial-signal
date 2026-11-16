@@ -272,11 +272,11 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
   return (
     <>
       <Head>
-        <title>投研驾驶舱 · 财经信号</title>
+        <title>投研台 · 财经信号</title>
         <meta name="description" content="市场判断、行业台账、风险预警与深挖结论，一屏完成盘前决策" />
       </Head>
       <AppShell
-        title="投研驾驶舱"
+        title="投研台"
         subtitle="市场判断、行业台账与风险预警"
         scrollable={false}
         actions={(
@@ -290,7 +290,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
         )}
       >
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className={`shrink-0 pt-3 ${CONTENT_GUTTER}`}>
+          <div className={`shrink-0 pt-6 ${CONTENT_GUTTER}`}>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-card px-3 py-2 text-xs text-muted-foreground ring-1 ring-foreground/10">
               <span className="flex items-center gap-1.5 font-medium text-foreground">
                 <Radar className="size-3.5" />
@@ -318,7 +318,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
               <Gauge className="size-8 text-muted-foreground" />
               <div>
                 <p className="text-sm font-medium">还没有投研快照</p>
-                <p className="mt-1 text-xs text-muted-foreground">点击刷新拉取行情与公告，生成当天的市场与行业判断。</p>
+                <p className="mt-1 text-xs text-muted-foreground">点击下方按钮拉取行情与公告，生成当天的市场与行业判断。</p>
               </div>
               <Button size="sm" disabled={refreshing} onClick={() => void refresh()}>
                 {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
@@ -377,7 +377,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                   </div>
                 ) : (
                   <div className="flex min-h-0 flex-col xl:flex-1">
-                    <EmptyHint>今天还没有生成市场判断，点右上角刷新。</EmptyHint>
+                    <EmptyHint>今天还没有生成市场判断，点右上角“刷新数据”拉取行情与公告。</EmptyHint>
                     <RealtimeQuotes quotes={snapshot.realtime} />
                   </div>
                 )}

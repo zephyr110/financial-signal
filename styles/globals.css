@@ -195,3 +195,52 @@
 }
 .markdown-body th { background: var(--color-muted); font-weight: 600; }
 .markdown-body hr { margin: 1em 0; border: none; border-top: 1px solid var(--color-border); }
+
+/* ---------- 折叠动效 ---------- */
+
+/* 侧栏「页面内容」分组：Base UI 在面板上暴露 --collapsible-panel-height */
+.section-nav-content {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  transition: height 200ms ease;
+}
+
+.section-nav-content[data-starting-style],
+.section-nav-content[data-ending-style] {
+  height: 0;
+}
+
+/* 原生 details（数据表等）：浏览器支持时过渡高度，不支持则直接开合 */
+@supports (interpolate-size: allow-keywords) {
+  details {
+    interpolate-size: allow-keywords;
+  }
+
+  details::details-content {
+    block-size: 0;
+    overflow-y: clip;
+    transition:
+      block-size 220ms ease,
+      content-visibility 220ms allow-discrete;
+  }
+
+  details[open]::details-content {
+    block-size: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-nav-content,
+  details::details-content {
+    transition-duration: 0.01ms;
+  }
+}
+
+/* 侧栏分组箭头：Base UI 的 Root 用 data-open 表示展开 */
+.section-nav-chevron {
+  transition: transform 180ms ease;
+}
+
+.section-nav-group[data-open] .section-nav-chevron {
+  transform: rotate(90deg);
+}

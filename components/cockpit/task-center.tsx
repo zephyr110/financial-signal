@@ -27,7 +27,7 @@ const SOURCE_LABEL: Record<string, string> = {
 
 const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
-  daily_close: '收盘全链路',
+  daily_close: '每日收盘流程',
   market_ingest: '行情入库',
   market_backfill: '个股补行情',
   akshare_ingest: 'T2 补充入库',
@@ -35,6 +35,8 @@ const TYPE_LABEL: Record<string, string> = {
   ask: '向简报提问',
   weekly_review: '周度复盘',
   symbol_deep_dive: '个股深挖',
+  desk_tick: '投研台刷新',
+  desk_investigation: '预警深挖',
 }
 
 const QUICK_ACTIONS: Array<{
@@ -359,7 +361,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       <section className="ck-card ck-task-composer" aria-labelledby="task-composer-title">
         <div className="ck-task-composer-head">
           <h2 className="ck-task-composer-title" id="task-composer-title">快速派发</h2>
-          <p className="ck-task-composer-hint">串行执行，结果写入研究记录；同参数不会重复计费。</p>
+          <p className="ck-task-composer-hint">任务串行执行，结果写入研究记录；参数相同的任务不会重复执行。</p>
         </div>
         <div className="ck-task-grid">
           {QUICK_ACTIONS.map((action) => {

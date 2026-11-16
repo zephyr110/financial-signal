@@ -38,15 +38,15 @@ export default function SectionNavGroup({ items, scrollRoot = null }) {
   };
 
   return (
-    <Collapsible defaultOpen className="group/collapsible group-data-[collapsible=icon]:hidden">
+    <Collapsible defaultOpen className="section-nav-group group/collapsible group-data-[collapsible=icon]:hidden">
       <SidebarGroup>
         <SidebarGroupLabel className="cursor-pointer">
           <CollapsibleTrigger className="flex w-full items-center gap-2">
             <span>页面内容</span>
-            <ChevronRight className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+            <ChevronRight className="section-nav-chevron ml-auto size-4" />
           </CollapsibleTrigger>
         </SidebarGroupLabel>
-        <CollapsibleContent>
+        <CollapsibleContent className="section-nav-content">
           <SidebarMenu>
             {items.map((item) => {
               const isActive = active === item.id;

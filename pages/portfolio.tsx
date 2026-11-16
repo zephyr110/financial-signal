@@ -57,7 +57,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
       <CockpitShell
         title="持仓"
         eyebrow="持仓账本"
-        subtitle="先看暴露与集中度，再看单日盈亏。金额按最新收盘价标记，缺价持仓不虚增市值。"
+        subtitle="先看暴露与集中度，再看浮动盈亏。市值按最新收盘价计算，缺价持仓不计入。"
         isDemo={portfolio?.isDemo}
         sourceHealth={sourceHealth}
       >
@@ -73,11 +73,11 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
             actions={(
               <>
                 <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/watchlist">查看自选</Link>
-                <Link className={buttonVariants({ size: 'sm' })} href="/tasks">运行周度复盘</Link>
+                <Link className={buttonVariants({ size: 'sm' })} href="/tasks">生成周度复盘</Link>
               </>
             )}
           >
-            展开上方“录入或更新持仓”，填入股票、股数与成本。最新价入库后才会计算市值、浮动盈亏和行业暴露。
+            展开上方“录入或更新持仓”，填入股票、股数与成本。最新价入库后才会计算市值、浮动盈亏与行业暴露。
           </EmptyState>
         ) : (
           <>
@@ -85,7 +85,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
               <SectionHeader
                 id="portfolio-summary-title"
                 title="组合概览"
-                detail={`${portfolio.positions.length} 只持仓 · 按最新收盘价计算 · 金额为参考值`}
+                detail={`${portfolio.positions.length} 只持仓 · 金额按最新收盘价计算，仅供参考`}
               />
               <div className="ck-summary-grid">
                 <Card size="sm" className="ck-metric gap-0">
@@ -101,7 +101,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                     </span>
                   </p>
                   <p className="ck-metric-note">
-                    {portfolio.totalPnlPct === null ? '成本基数不足' : formatSignedPct(portfolio.totalPnlPct)}
+                    {portfolio.totalPnlPct === null ? '成本数据不足，无法计算' : formatSignedPct(portfolio.totalPnlPct)}
                   </p>
                 </Card>
                 <Card size="sm" className="ck-metric gap-0">
@@ -116,7 +116,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
               <SectionHeader
                 id="risks-title"
                 title="风险与约束"
-                detail="只描述组合结构，不替你决定买或卖。"
+                detail="只描述组合结构，不构成买卖建议。"
               />
               {portfolio.risks.length > 0 ? (
                 <div className="space-y-2">
@@ -131,7 +131,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                   ))}
                 </div>
               ) : (
-                <EmptyState title="没有触发结构风险">这不代表持仓安全，只表示当前规则没有发现集中度或缺价问题。</EmptyState>
+                <EmptyState title="还没有触发结构风险">不代表持仓安全，只说明当前规则未发现集中度或缺价问题。</EmptyState>
               )}
             </section>
 
@@ -142,7 +142,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                 detail="按当前市值加权；行业分类来自标的档案。"
               />
               {portfolio.exposure.length === 0 ? (
-                <EmptyState title="暂无行业暴露">补齐持仓价格后才能计算行业权重。</EmptyState>
+                <EmptyState title="还没有行业暴露">补齐持仓最新价后可计算行业权重。</EmptyState>
               ) : (
                 <div className="ck-card ck-exposure-list">
                   {portfolio.exposure.map((item) => (
@@ -229,7 +229,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
                     <tr>
                       <th scope="col">标的</th>
                       <th scope="col">行业</th>
-                      <th scope="col" className="ck-num">持仓</th>
+                      <th scope="col" className="ck-num">股数</th>
                       <th scope="col" className="ck-num">现价</th>
                       <th scope="col" className="ck-num">市值</th>
                       <th scope="col" className="ck-num">浮动盈亏</th>

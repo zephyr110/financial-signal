@@ -360,6 +360,7 @@ export default function Analysis({
       {/* 全局壳：左侧导航侧栏（页面内容分组）+ 顶栏 + 内容滚动区 */}
       <AppShell
         title="信号分析"
+        subtitle="政策、行业与公司信号，按强度与事件线索聚合"
         scrollable={false}
         actions={<TopbarRefreshButton onClick={doRefresh} refreshing={fetching} />}
         sidebarExtra={<SectionNavGroup items={navItems} scrollRoot={scrollRoot} />}
@@ -371,10 +372,7 @@ export default function Analysis({
           >
         {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
         <div className={`w-full pb-8 ${CONTENT_GUTTER}`}>
-          <div className="pt-8 pb-5 flex items-end justify-between flex-wrap gap-2">
-            <p className="text-sm text-muted-foreground font-normal">
-              政策 · 行业 · 公司 — AI 智能分析，一目了然
-            </p>
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-6 pb-5">
             {/* 操作区：重要信号提醒 + 关注行业（同组：提醒作用于关注行业的信号） */}
             <div className="flex items-center gap-2 flex-wrap">
               <SignalAlert items={watchedItems} />
@@ -399,7 +397,7 @@ export default function Analysis({
           />
 
           <div id="overview" className="scroll-mt-28">
-            <h3 className="text-sm font-semibold text-foreground mb-3">概览</h3>
+            <h3 className="text-[15px] font-semibold text-foreground mb-3">概览</h3>
             <AnalysisOverview
               stats={stats}
               items={watchedItems}
@@ -413,11 +411,11 @@ export default function Analysis({
           {hasData && (
             <ClientOnly fallback={<div className="h-40 rounded-xl bg-muted/20 animate-pulse mb-6" />}>
               <div id="charts" className="scroll-mt-28">
-              <h3 className="text-sm font-semibold text-foreground mb-3">图表</h3>
+              <h3 className="text-[15px] font-semibold text-foreground mb-3">图表</h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <div className="bg-card border rounded-xl p-4 sm:p-5">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className="text-[15px] font-semibold text-foreground">
                       {viewMode === "industry" ? "行业信号分布" : "公司提及热度"}
                     </h3>
                     <div className="flex items-center rounded-lg border text-xs overflow-hidden">
@@ -483,7 +481,7 @@ export default function Analysis({
                   )}
                 </div>
                 <div className="bg-card border rounded-xl p-4 sm:p-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">
+                  <h3 className="text-[15px] font-semibold text-foreground mb-3">
                     信号分类占比
                   </h3>
                   <CategoryDonutChart items={filteredItems} />
@@ -494,7 +492,7 @@ export default function Analysis({
               {/* Sentiment distribution (full width below the 2-col grid) */}
               {sentimentBreakdown.length > 0 && (
                 <div id="sentiment" className="scroll-mt-28">
-                  <h3 className="text-sm font-semibold text-foreground mb-1">
+                  <h3 className="text-[15px] font-semibold text-foreground mb-1">
                     情感分布
                   </h3>
                   <p className="text-xs text-muted-foreground mb-3">
@@ -509,7 +507,7 @@ export default function Analysis({
               {trend.length >= 2 && (
                 <div id="trend" className="scroll-mt-28">
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className="text-[15px] font-semibold text-foreground">
                       行业热度趋势
                     </h3>
                     <TimeRangeFilter value={trendHours} onChange={setTrendHours} />
@@ -524,7 +522,7 @@ export default function Analysis({
           )}
 
           <div id="threads" className="scroll-mt-28">
-            <h3 className="text-sm font-semibold text-foreground mb-3">
+            <h3 className="text-[15px] font-semibold text-foreground mb-3">
               事件线索
             </h3>
             <p className="text-xs text-muted-foreground mb-3">
@@ -534,7 +532,7 @@ export default function Analysis({
           </div>
 
           <div id="backtest" className="scroll-mt-28">
-            <h3 className="text-sm font-semibold text-foreground mb-3">
+            <h3 className="text-[15px] font-semibold text-foreground mb-3">
               信号有效性回测
             </h3>
             <p className="text-xs text-muted-foreground mb-3">
@@ -547,7 +545,7 @@ export default function Analysis({
           {isSearchActive ? (
             <div className="mb-6">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-foreground">
+                <h3 className="text-[15px] font-semibold text-foreground">
                   搜索结果
                 </h3>
                 <button
@@ -573,7 +571,7 @@ export default function Analysis({
             <>
               <ScoreFilter value={scoreFilter} onChange={setScoreFilter} />
 
-              <h3 className="text-sm font-semibold text-foreground mb-3">
+              <h3 className="text-[15px] font-semibold text-foreground mb-3">
                 信号时间线 {filteredItems.length > 0 && `(${filteredItems.length})`}
               </h3>
               <SignalTimeline

@@ -37,7 +37,7 @@ export default function IndustrySelector({ industries, watched, onToggle, onClea
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-2 w-72 sm:w-80 bg-card border rounded-xl shadow-lg z-50 p-3">
+        <div className="absolute top-full left-0 z-50 mt-2 w-72 origin-top-left animate-in rounded-xl border bg-card p-3 shadow-lg fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none sm:w-80">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-foreground">
               选择关注的行业

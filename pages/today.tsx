@@ -56,7 +56,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
         <CockpitShell
           title="今日"
           eyebrow="收盘简报"
-          subtitle="收盘后先看今天的事实，再决定原来的判断是否需要改变。"
+          subtitle="收盘后先看事实，再判断原观点是否需要修正。"
           headerAction={<TodayTabs />}
           sourceHealth={sourceHealth}
         >
@@ -65,12 +65,12 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
             title="今天还没有收盘简报"
             actions={(
               <>
-                <Link className={buttonVariants({ size: 'sm' })} href="/tasks">派发收盘简报</Link>
+                <Link className={buttonVariants({ size: 'sm' })} href="/tasks">生成今日简报</Link>
                 <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/watchlist">先看自选</Link>
               </>
             )}
           >
-            简报由收盘行情、政策与公告共同生成。数据源未就绪时会明确降级，不会拿旧数据冒充今天。
+            简报由收盘行情、政策与公告共同生成。数据源未就绪时会标注降级原因，不会用旧数据充当今日简报。
           </EmptyState>
         </CockpitShell>
       </>
@@ -164,7 +164,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
           <SectionHeader
             id="impact-title"
             title="对你的影响"
-            detail="只统计已录入的持仓与自选；描述影响，不生成买卖动作。"
+            detail="仅统计已录入的持仓与自选，描述影响，不给出买卖建议。"
             action={<SectionLink href="/portfolio">持仓详情</SectionLink>}
           />
           {impacts.length === 0 ? (
