@@ -118,6 +118,13 @@ export interface FreePoolResult {
   warnings: string[]
 }
 
+export interface FreeSymbolResult {
+  code: string
+  tradeDate: string
+  bars: number
+  source: FreeSourceId
+}
+
 interface ProviderLog {
   ok: Set<FreeSourceId>
   errors: Map<FreeSourceId, string>
@@ -1008,4 +1015,29 @@ export async function ingestFreeMarket(options: {
     limitPoolWritten,
     warnings,
   }
+}
+
+/**
+ * 单只标的补行情：交易日口径与整批入库一致；
+ * 已有 T0/T1 同键日线不会被覆盖。
+ */
+export async function ingestFreeSymbol(options: {
+  code: string
+  tradeDate?: string
+  fetchImpl?: FetchLike
+}): Promise<FreeSymbolResult> {
+  const fetchImpl = options.fetchImpl || fetch
+  await ensureCockpitSources()
+  await assertNoDemoData()
+
+  const log = newLog()
+  const anchor = options.tradeDate || todayOf(nowDate())
+  const openDates = await deriveFreeCalendar({ anchorDate: anchor, fetchImpl })
+  const tradeDate = chooseTradeDate(openDates, options.tradeDate)
+  const start = addDays(tradeDate, -HISTORY_DAYS)
+  const { bars, provider } = await fetchBarsWithFallback(options.code, start, tradeDate, fetchImpl, log)
+  const eligible = bars.filter((bar) => bar.tradeDate <= tradeDate)
+  await writeBars(eligible, new Date().toISOString())
+  await reportLog(log)
+  return { code: options.code, tradeDate, bars: eligible.length, source: provider }
 }

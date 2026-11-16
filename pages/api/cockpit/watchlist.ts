@@ -12,6 +12,7 @@ import {
 import { normalizeCode } from '../../../lib/cockpit/codes'
 import { ensureCockpitDemoSeed } from '../../../lib/cockpit/demo'
 import { getWatchlist } from '../../../lib/cockpit/repo'
+import { enqueueMarketBackfill } from '../../../lib/cockpit/tasks'
 
 function bodyObject(body: unknown): Record<string, unknown> {
   if (typeof body === 'string') {
@@ -59,6 +60,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               CASE WHEN ? = 1 THEN excluded.note ELSE watchlist_items.note END`,
       args: [code, note || null, new Date().toISOString(), noteProvided ? 1 : 0],
     })
+    try {
+      await enqueueMarketBackfill(code)
+    } catch (err) {
+      // 补库排队失败不影响自选写入；下次行情入库会再扫一遍漏项。
+      console.error('[cockpit/watchlist] backfill', err instanceof Error ? err.message : err)
+    }
     noStore(res)
     return res.status(201).json({ data: await getWatchlist(), meta: await buildMeta() })
   } catch (err) {

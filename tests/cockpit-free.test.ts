@@ -379,6 +379,50 @@ describe('免费行情源兜底链', () => {
     expect(source.rows[0]?.last_error).toBeNull()
   })
 
+  it('单只补库只写该标的日线，已有 T1 日线不被覆盖', async () => {
+    const db = await dbModule.getDb()
+    const now = new Date().toISOString()
+    await db.execute({
+      sql: `INSERT INTO market_bars
+            (code, trade_date, open, high, low, close, volume, amount, adj_factor, adjust_type,
+             source_id, fetched_at, is_demo)
+            VALUES ('600519.SH', ?, 1690, 1710, 1680, 1700, 5000, 850000000, 1, 'raw', 'tushare', ?, 0)`,
+      args: [TRADE_DATE, now],
+    })
+
+    const result = await free.ingestFreeSymbol({
+      code: '600519.SH',
+      tradeDate: TRADE_DATE,
+      fetchImpl: makeFetch(),
+    })
+
+    expect(result).toEqual({
+      code: '600519.SH',
+      tradeDate: TRADE_DATE,
+      bars: 2,
+      source: 'eastmoney',
+    })
+
+    const bars = await db.execute({
+      sql: `SELECT trade_date, close, source_id FROM market_bars
+            WHERE code = '600519.SH' AND adjust_type = 'raw' ORDER BY trade_date`,
+      args: [],
+    })
+    expect(bars.rows).toHaveLength(2)
+    // 前一日由免费源补入，收盘日已有 T1 行情则保持原值。
+    expect(bars.rows[0]?.source_id).toBe('eastmoney')
+    expect(Number(bars.rows[0]?.close)).toBe(1580)
+    expect(bars.rows[1]?.source_id).toBe('tushare')
+    expect(Number(bars.rows[1]?.close)).toBe(1700)
+
+    const indices = await db.execute({
+      sql: `SELECT COUNT(*) AS n FROM market_bars
+            WHERE code IN ('000001.SH', '399001.SZ', '399006.SZ')`,
+      args: [],
+    })
+    expect(Number(indices.rows[0]?.n)).toBe(0)
+  })
+
   it('已有 T1 日线与概览不被免费源覆盖', async () => {
     const db = await dbModule.getDb()
     await addWatchlist('600519.SH')

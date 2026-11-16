@@ -29,6 +29,7 @@ const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
   daily_close: '收盘全链路',
   market_ingest: '行情入库',
+  market_backfill: '个股补行情',
   akshare_ingest: 'T2 补充入库',
   thesis_review: '论点复核',
   ask: '向简报提问',
@@ -118,6 +119,7 @@ function resultView(task: TaskRecord): TaskResultView | null {
           result.claim ? String(result.claim) : '',
           `行情 ${String(ingest.bars ?? 0)} 根日线 · 公告 ${String(result.documents ?? 0)} 条`
             + (source ? ` · ${SOURCE_LABEL[source] || source}` : ''),
+          result.backfillQueued ? `待补标的 ${String(result.backfillQueued)} 只已入队` : '',
           warningsText(result.warnings),
         ].filter(Boolean).join('\n'),
       }
@@ -131,8 +133,19 @@ function resultView(task: TaskRecord): TaskResultView | null {
           result.limitPoolWritten ? `涨停池 ${String(result.limitPoolWritten)} 条` : '',
           result.limitUpDownAvailable === false ? '涨跌停统计不可用' : '',
           result.fallbackFromTushare === true ? 'Tushare 不可用，已自动降级到免费源' : '',
+          result.backfillQueued ? `待补标的 ${String(result.backfillQueued)} 只已入队` : '',
           warningsText(result.warnings),
         ].filter(Boolean).join('\n'),
+      }
+    }
+    case 'market_backfill': {
+      const source = String(result.source ?? '')
+      return {
+        title: `${String(result.code ?? '')} 行情补齐 · ${String(result.tradeDate ?? '')}`,
+        body: [
+          `${String(result.bars ?? 0)} 根日线`,
+          SOURCE_LABEL[source] || source,
+        ].filter(Boolean).join(' · '),
       }
     }
     case 'akshare_ingest':

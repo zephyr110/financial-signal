@@ -12,6 +12,7 @@ export type TaskType =
   | 'weekly_review'
   | 'symbol_deep_dive'
   | 'market_ingest'
+  | 'market_backfill'
   | 'akshare_ingest'
   | 'daily_close'
   | 'desk_tick'
@@ -143,6 +144,8 @@ export interface WatchlistItem {
   thesisStatus?: ThesisStatus
   nextEvent?: string
   source?: SourceRef
+  /** 最近一次自动补库任务的状态；行情已入库时界面不展示。 */
+  backfill?: 'queued' | 'running' | 'failed'
 }
 
 export interface PositionInput {

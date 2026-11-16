@@ -225,6 +225,39 @@ describe('cockpit task queue', () => {
     expect(all.length).toBeLessThanOrEqual(100)
   })
 
+  it('行情入库后只给仍无日线的自选排队补库', async () => {
+    const db = await dbModule.getDb()
+    const now = new Date().toISOString()
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO watchlist_items (code, note, created_at) VALUES ('601111.SH', '待补', ?)",
+      args: [now],
+    })
+
+    const first = await tasks.queueWatchlistBackfills()
+    expect(first).toEqual(['601111.SH'])
+    const queued = (await tasks.listTasks(100)).filter((task) => task.type === 'market_backfill')
+    expect(queued).toHaveLength(1)
+    expect(queued[0].params).toMatchObject({ code: '601111.SH' })
+    expect(queued[0].status).toBe('queued')
+
+    // 同一天重复扫描返回同一任务，不会堆出重复补库。
+    expect(await tasks.queueWatchlistBackfills()).toEqual(['601111.SH'])
+    expect((await tasks.listTasks(100)).filter((task) => task.type === 'market_backfill')).toHaveLength(1)
+
+    await db.execute({
+      sql: `INSERT INTO market_bars
+            (code, trade_date, open, high, low, close, volume, amount, adj_factor, adjust_type,
+             source_id, fetched_at, is_demo)
+            VALUES ('601111.SH', ?, 8, 8.1, 7.9, 8, 1000, 800000, 1, 'raw', 'tushare', ?, 0)`,
+      args: [demo.DEMO_TRADE_DATE, now],
+    })
+    expect(await tasks.queueWatchlistBackfills()).toEqual([])
+
+    for (const task of await tasks.listTasks(100)) {
+      if (task.type === 'market_backfill' && task.status === 'queued') await tasks.cancelTask(task.id)
+    }
+  })
+
   afterAll(async () => {
     const db = await dbModule.getDb()
     await db.close?.()
