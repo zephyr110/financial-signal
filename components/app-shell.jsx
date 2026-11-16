@@ -14,7 +14,7 @@ export function useAppShellScroll() {
 /**
  * 全局 App 壳（shadcn sidebar-07 模式）：
  * 左侧全局侧栏（导航分组 + 页面专属分组）+ 右侧列（顶栏 + 内容滚动区）。
- * 滚动容器内为 mx-auto 内容列，由各页面自行排布。
+ * 滚动容器内为满宽内容区，水平留白由各页面自行排布（统一用 CONTENT_GUTTER，与投研台对齐）。
  * scrollable=false 时（agent 页）滚动容器改为 flex-col 透传，页面管理自身滚动。
  */
 export default function AppShell({

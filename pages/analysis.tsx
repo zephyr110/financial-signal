@@ -30,6 +30,7 @@ import { useWatchedIndustries } from "../lib/useWatchedIndustries";
 import { industryDisplayName } from "@/lib/constants";
 import { computeSentimentBreakdown } from "@/lib/sentiment";
 import { safeParse } from "../lib/utils";
+import { CONTENT_GUTTER } from "@/lib/layout-classes";
 
 function applyFilters(allItems, cardFilter, scoreFilter, maxScore) {
   let filtered = allItems;
@@ -369,7 +370,7 @@ export default function Analysis({
             className="min-h-0 flex-1 overflow-y-auto overscroll-none"
           >
         {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
-        <div className="w-full px-3 pb-8 lg:px-4">
+        <div className={`w-full pb-8 ${CONTENT_GUTTER}`}>
           <div className="pt-8 pb-5 flex items-end justify-between flex-wrap gap-2">
             <p className="text-sm text-muted-foreground font-normal">
               政策 · 行业 · 公司 — AI 智能分析，一目了然
@@ -588,18 +589,16 @@ export default function Analysis({
           </div>
 
           {/* 页脚：固定在视口底部 */}
-          <div className="shrink-0 bg-background px-3 py-3 lg:px-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <p className="text-xs text-muted-foreground">
-                分析仅作为信息准备，不构成投资建议
-              </p>
-              <Link
-                href="/analytics/value"
-                className="text-xs text-muted-foreground hover:text-primary transition-colors"
-              >
-                价值验证报告
-              </Link>
-            </div>
+          <div className={`shrink-0 bg-background py-3 flex items-center justify-between flex-wrap gap-2 ${CONTENT_GUTTER}`}>
+            <p className="text-xs text-muted-foreground">
+              分析仅作为信息准备，不构成投资建议
+            </p>
+            <Link
+              href="/analytics/value"
+              className="text-xs text-muted-foreground hover:text-primary transition-colors"
+            >
+              价值验证报告
+            </Link>
           </div>
         </div>
       </AppShell>
