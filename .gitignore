@@ -22,3 +22,7 @@ seed/
 
 # pnpm 本地 store 兜底(全局 store 不可写时的回退产物,不入库)
 .pnpm-store/
+
+# 本地浏览器验收产物(.playwright-mcp/ 与根目录截图)
+.playwright-mcp/
+cockpit-*.png
