@@ -1609,17 +1609,11 @@ a.ck-chip:hover {
   border-top: 0;
 }
 
-.ck-risk-info {
-  border-left: 3px solid var(--ck-accent);
-}
-
 .ck-risk-warn {
-  border-left: 3px solid var(--ck-warning);
   background: color-mix(in srgb, var(--ck-warning-soft) 55%, transparent);
 }
 
 .ck-risk-critical {
-  border-left: 3px solid var(--ck-critical);
   background: color-mix(in srgb, var(--ck-critical-soft) 55%, transparent);
 }
 
@@ -2015,10 +2009,6 @@ a.ck-chip:hover {
 
 /* ---------- 个股 ---------- */
 
-.ck-stock-hero {
-  border-top: 2px solid color-mix(in srgb, var(--ck-accent) 45%, var(--ck-line));
-}
-
 .ck-stock-head {
   display: flex;
   flex-wrap: wrap;
@@ -2174,8 +2164,8 @@ a.ck-chip:hover {
 .ck-thesis-invalidation {
   margin-top: 9px;
   padding: 8px 10px;
-  border-left: 2px solid var(--ck-copper);
   background: var(--ck-copper-soft);
+  border-radius: 3px;
 }
 
 .ck-thesis-invalidation-label {
