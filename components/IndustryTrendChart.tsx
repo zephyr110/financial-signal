@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import EmptyData from "@/components/EmptyData";
 import { useChartTooltip, resolveTooltipColor } from "@/components/chart-tooltip";
 
 const COLORS = ["#2563eb", "#e11d48", "#16a34a", "#f97316", "#7c3aed", "#ca8a04"];
@@ -10,11 +11,7 @@ const COLORS = ["#2563eb", "#e11d48", "#16a34a", "#f97316", "#7c3aed", "#ca8a04"
  */
 export default function IndustryTrendChart({ data, watched }) {
   if (!data || data.length < 2) {
-    return (
-      <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
-        数据不足，需要至少 2 个时间点才能绘制趋势
-      </div>
-    );
+    return <EmptyData message="数据不足，需要至少 2 个时间点才能绘制趋势" className="h-[260px]" />;
   }
 
   // Discover industry keys from data (skip 'time' key)。
@@ -47,11 +44,7 @@ export default function IndustryTrendChart({ data, watched }) {
   }
 
   if (topKeys.length === 0) {
-    return (
-      <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
-        暂无行业趋势数据
-      </div>
-    );
+    return <EmptyData className="h-[260px]" />;
   }
 
   const topKeysKey = topKeys.join("\0");

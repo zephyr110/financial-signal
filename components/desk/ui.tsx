@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { RiskCard } from '@/components/ui/risk-card'
 import { cn } from '@/lib/utils'
+import { EmptyData } from '@/components/EmptyData'
 import type { AlertView, DeskConfidence, DeskStance, JudgmentView } from '@/lib/desk/types'
 
 export function DeskPanel({
@@ -164,5 +165,5 @@ export function AlertRow({
 }
 
 export function EmptyHint({ children }: { children: ReactNode }) {
-  return <div className="flex h-full min-h-24 items-center justify-center px-4 py-6 text-center text-xs text-muted-foreground">{children}</div>
+  return <EmptyData message={children} className="h-full min-h-24" />
 }

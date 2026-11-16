@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from "recharts";
 import { track } from "@/lib/track";
+import EmptyData from "@/components/EmptyData";
 import { CHART_TOOLTIP_CURSOR, chartTooltipContent } from "@/components/chart-tooltip";
 
 const industryBarTooltip = chartTooltipContent({
@@ -23,11 +24,7 @@ export default function IndustryBarChart({ data, onIndustryClick }: IndustryBarC
   const [hoverIndex, setHoverIndex] = useState(-1);
 
   if (!data || data.length === 0) {
-    return (
-      <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
-        暂无行业数据
-      </div>
-    );
+    return <EmptyData className="h-[200px]" />;
   }
 
   const chartData = data.slice(0, 8).map((d) => {

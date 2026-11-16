@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import EmptyData from "@/components/EmptyData";
 import AnalysisNewsCard from './AnalysisNewsCard';
 
 interface Props {
@@ -11,9 +12,10 @@ interface Props {
 export default function SignalTimeline({ items, hasMore, loading, onLoadMore }: Props) {
   if (!items || items.length === 0) {
     return (
-      <div className="text-center py-10 text-muted-foreground text-sm">
-        暂无信号数据，等待新闻归档和分析完成...
-      </div>
+      <EmptyData
+        message="暂无信号数据，等待新闻归档和分析完成…"
+        className="min-h-[240px]"
+      />
     );
   }
 

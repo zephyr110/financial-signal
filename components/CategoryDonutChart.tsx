@@ -1,5 +1,6 @@
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { CATEGORY_LABELS } from "@/lib/constants";
+import EmptyData from "@/components/EmptyData";
 import { chartTooltipContent, useChartTooltip } from "@/components/chart-tooltip";
 
 const COLORS: Record<string, string> = {
@@ -17,21 +18,13 @@ const FALLBACK = "#6b7280";
  */
 export default function CategoryDonutChart({ items }) {
   if (!items || items.length === 0) {
-    return (
-      <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
-        暂无分类数据
-      </div>
-    );
+    return <EmptyData className="h-[220px]" />;
   }
 
   const qualityItems = items.filter(i => i.signal_score >= 3);
 
   if (qualityItems.length === 0) {
-    return (
-      <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
-        暂无高质量信号（≥3分）
-      </div>
-    );
+    return <EmptyData message="暂无高质量信号（≥3分）" className="h-[220px]" />;
   }
 
   const total = qualityItems.length;

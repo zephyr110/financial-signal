@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Settings2, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import EmptyData from "@/components/EmptyData";
 
 /**
  * Popover selector for watched industries.
@@ -79,9 +80,7 @@ export default function IndustrySelector({ industries, watched, onToggle, onClea
           </div>
 
           {available.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-4">
-              暂无行业数据
-            </p>
+            <EmptyData className="min-h-20 px-0 py-4" />
           )}
         </div>
       )}

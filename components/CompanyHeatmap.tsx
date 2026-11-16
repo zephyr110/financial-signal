@@ -8,6 +8,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import EmptyData from "@/components/EmptyData";
 import { CHART_TOOLTIP_CURSOR, chartTooltipContent } from "@/components/chart-tooltip";
 
 const companyHeatmapTooltip = chartTooltipContent({
@@ -35,11 +36,7 @@ interface CompanyHeatmapProps {
  */
 export default function CompanyHeatmap({ data }: CompanyHeatmapProps) {
   if (!data || data.length === 0) {
-    return (
-      <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
-        暂无公司数据
-      </div>
-    );
+    return <EmptyData className="h-[200px]" />;
   }
 
   const chartData = data.map((d) => ({
