@@ -3,29 +3,47 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#edf1ef" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafafa" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0a" />
     <title>离线 · 财经信号</title>
+    <script>
+      // 与 _document 的主题预置保持一致：离线页也跟随用户选择的浅色/深色。
+      (function () {
+        try {
+          var s = localStorage.getItem('theme');
+          var t = s === 'dark' || s === 'light' ? s : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          document.documentElement.classList.add(t);
+        } catch (e) {}
+      })();
+    </script>
     <style>
       :root {
-        color-scheme: light dark;
-        --bg: #edf1ef;
-        --surface: #fafbfa;
-        --ink: #17211f;
-        --muted: #46534f;
-        --line: #d0d9d5;
-        --accent: #1f5c55;
+        color-scheme: light;
+        --bg: #fafafa;
+        --surface: #ffffff;
+        --ink: #1a1a1a;
+        --muted: #6b7280;
+        --line: #e5e5e5;
+        --accent: #2563eb;
+        --accent-foreground: #ffffff;
+        --tint: #f3f4f6;
+        --radius: 0.75rem;
+        --shadow: 0 12px 32px -16px rgb(0 0 0 / 0.25);
       }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #0f1514;
-          --surface: #16201e;
-          --ink: #e8edeb;
-          --muted: #aab6b2;
-          --line: #2a3734;
-          --accent: #79b8ac;
-        }
+      html.dark {
+        color-scheme: dark;
+        --bg: #0a0a0a;
+        --surface: #141414;
+        --ink: #e5e5e5;
+        --muted: #9ca3af;
+        --line: #262626;
+        --accent: #3b82f6;
+        --accent-foreground: #ffffff;
+        --tint: #1f1f1f;
       }
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
       body {
         display: grid;
         min-height: 100dvh;
@@ -34,58 +52,151 @@
         padding: 24px;
         background: var(--bg);
         color: var(--ink);
-        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        font-size: 14px;
         line-height: 1.7;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
       }
       main {
         width: 100%;
-        max-width: 420px;
-        padding: 28px;
+        max-width: 440px;
+        padding: 32px;
         border: 1px solid var(--line);
-        border-top: 3px solid var(--accent);
-        border-radius: 8px;
+        border-radius: var(--radius);
         background: var(--surface);
+        box-shadow: var(--shadow);
       }
-      .mark {
-        display: grid;
-        width: 34px;
-        height: 34px;
-        place-items: center;
-        border: 1px solid var(--accent);
-        border-radius: 4px;
-        color: var(--accent);
-        font-family: "Songti SC", "STSong", serif;
-        font-size: 19px;
-        font-weight: 700;
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .brand img {
+        width: 28px;
+        height: 28px;
+        flex: none;
+        filter: invert(1);
+      }
+      html.dark .brand img {
+        filter: none;
+      }
+      .brand-copy {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+      }
+      .brand-name {
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 20px;
+        letter-spacing: -0.01em;
+      }
+      .brand-latin {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .eyebrow {
+        margin: 32px 0 0;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
       }
       h1 {
-        margin: 18px 0 6px;
-        font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
-        font-size: 27px;
-        line-height: 1.3;
-      }
-      p { margin: 0; color: var(--muted); font-size: 13px; }
-      .hint { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-      a {
-        display: inline-flex;
-        margin-top: 18px;
-        padding: 8px 12px;
-        border: 1px solid var(--accent);
-        border-radius: 5px;
-        color: var(--accent);
-        font-size: 12px;
+        margin: 8px 0 0;
+        font-size: 24px;
         font-weight: 600;
+        line-height: 1.3;
+        letter-spacing: -0.01em;
+      }
+      p {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+      .hint {
+        margin-top: 18px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: calc(var(--radius) * 0.67);
+        background: var(--tint);
+        font-size: 12.5px;
+        line-height: 1.6;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 26px;
+      }
+      .actions a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 36px;
+        padding: 0 14px;
+        border: 1px solid transparent;
+        border-radius: calc(var(--radius) * 0.67);
+        font-size: 13px;
+        font-weight: 500;
         text-decoration: none;
+        transition: background-color 0.15s ease, color 0.15s ease;
+      }
+      .actions .primary {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+      .actions .primary:hover {
+        background: color-mix(in srgb, var(--accent) 82%, var(--ink));
+      }
+      .actions .secondary {
+        border-color: var(--line);
+        background: var(--surface);
+        color: var(--ink);
+      }
+      .actions .secondary:hover {
+        background: var(--tint);
+      }
+      a:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      @media (max-width: 420px) {
+        body {
+          padding: 16px;
+        }
+        main {
+          padding: 24px;
+        }
       }
     </style>
   </head>
   <body>
     <main>
-      <div class="mark" aria-hidden="true">收</div>
+      <div class="brand">
+        <img src="/logo.png" alt="" aria-hidden="true" />
+        <span class="brand-copy">
+          <span class="brand-name">财经信号</span>
+          <span class="brand-latin">Financial Signal</span>
+        </span>
+      </div>
+      <p class="eyebrow">离线 · Offline</p>
       <h1>现在没有网络</h1>
-      <p>财经信号需要连接本地服务才能生成新简报、读取行情和派发任务。出于隐私考虑，页面不会离线缓存；恢复连接后刷新即可查看最新数据。</p>
+      <p>财经信号需要连接本地服务才能读取行情、生成简报和派发任务。页面不会缓存任何私有数据，恢复连接后刷新即可。</p>
       <p class="hint">恢复网络后刷新页面。若仍无法连接，请检查运行服务的设备与当前网络。</p>
-      <a href="/today">重试今日收盘</a>
+      <div class="actions">
+        <a class="primary" href="/today">重试今日收盘</a>
+        <a class="secondary" href="/tasks">查看任务中心</a>
+      </div>
     </main>
   </body>
 </html>

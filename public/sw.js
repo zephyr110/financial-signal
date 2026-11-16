@@ -1,9 +1,10 @@
 /* 财经信号 service worker：只缓存离线外壳与静态资源，绝不缓存登录后的页面 HTML 或 /api 数据。 */
-const VERSION = 'afterclose-v3'
+const VERSION = 'afterclose-v4'
 const ASSET_CACHE = `${VERSION}-assets`
 const OFFLINE_URL = '/offline.html'
 const PRECACHE = [
   OFFLINE_URL,
+  '/logo.png',
   '/manifest.webmanifest',
   '/cockpit-192.png',
   '/cockpit-512.png',

@@ -15,7 +15,7 @@ export const config = {
 // 静态资源（public/ 下的 logo、图标等）不走登录门卫，否则未登录时 /logo.png 会被
 // 307 到 /login?next=/logo.png 形成循环，登录页品牌 logo 无法显示。
 // 放 handler 内判定而非 matcher：matcher 正则区分大小写，/logo.PNG 会漏过门禁形成循环
-const STATIC_EXT_RE = /\.(?:png|svg|jpg|jpeg|gif|webp|ico|css|woff2?|js|json|txt|pdf|mp4|webm)$/i;
+const STATIC_EXT_RE = /\.(?:png|svg|jpg|jpeg|gif|webp|ico|css|woff2?|js|json|txt|pdf|mp4|webm|html?)$/i;
 
 const PUBLIC_PAGE = ['/login'];
 const PUBLIC_API = ['/api/auth/', '/api/health', '/api/rss', '/api/events', '/api/cron/'];
