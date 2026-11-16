@@ -29,6 +29,10 @@ const CALENDAR_MIN_ROWS = 15
 
 type Row = Record<string, unknown>
 
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 interface TushareResponse {
   code?: number
   msg?: string
@@ -417,29 +421,41 @@ export async function ingestTushare(options: {
     const fetchedAt = new Date().toISOString()
     const db = await getDb()
 
-    const basics = await tushareFetch(
-      'stock_basic',
-      { exchange: '', list_status: 'L' },
-      'ts_code,symbol,name,industry,market,exchange,list_date',
-      token,
-      fetchImpl,
-    )
-    await upsertSymbols(basics, fetchedAt)
+    // stock_basic 免费额度仅 1 次/小时；证券列表只用于补名称/行业，
+    // 失败不应阻断当天的广度、成交额与日线入库。
+    try {
+      const basics = await tushareFetch(
+        'stock_basic',
+        { exchange: '', list_status: 'L' },
+        'ts_code,symbol,name,industry,market,exchange,list_date',
+        token,
+        fetchImpl,
+      )
+      await upsertSymbols(basics, fetchedAt)
+    } catch (err) {
+      warnings.push(`证券列表不可用：${messageOf(err).slice(0, 160)}`)
+    }
 
     const indexBars: BarInput[] = []
     let indexCount = 0
     for (const index of INDEXES) {
-      const rows = await tushareFetch(
-        'index_daily',
-        { ts_code: index.code, start_date: compact(addDays(tradeDate, -HISTORY_DAYS)), end_date: compact(tradeDate) },
-        'ts_code,trade_date,open,high,low,close,vol,amount',
-        token,
-        fetchImpl,
-      )
-      const bars = rows.map(barFrom).filter((bar): bar is BarInput => bar !== null && bar.tradeDate <= tradeDate)
-      indexBars.push(...bars)
-      if (bars.some((bar) => bar.tradeDate === tradeDate)) indexCount += 1
-      await upsertSymbols([{ ts_code: index.code, name: index.name, industry: '指数', exchange: index.exchange }], fetchedAt)
+      try {
+        const rows = await tushareFetch(
+          'index_daily',
+          { ts_code: index.code, start_date: compact(addDays(tradeDate, -HISTORY_DAYS)), end_date: compact(tradeDate) },
+          'ts_code,trade_date,open,high,low,close,vol,amount',
+          token,
+          fetchImpl,
+        )
+        const bars = rows.map(barFrom).filter((bar): bar is BarInput => bar !== null && bar.tradeDate <= tradeDate)
+        indexBars.push(...bars)
+        if (bars.some((bar) => bar.tradeDate === tradeDate)) indexCount += 1
+        await upsertSymbols([{ ts_code: index.code, name: index.name, industry: '指数', exchange: index.exchange }], fetchedAt)
+      } catch (err) {
+        // index_daily 限频 1 次/分钟；指数日线可由免费源兜底，
+        // 不能让 3 个指数把全市场广度/成交额（daily 一次取回）一起拖垮。
+        warnings.push(`指数 ${index.name} 日线不可用：${messageOf(err).slice(0, 160)}`)
+      }
     }
 
     const dailyRows = await tushareFetch(
@@ -516,16 +532,27 @@ export async function ingestTushare(options: {
     const completeHistory = await codesWithFullHistory(historyCodes, expectedDates)
     const universeBars: BarInput[] = []
     const missing: string[] = []
+    let historyFailures = 0
+    let historyError = ''
     for (const code of historyCodes) {
       if (!dailyByCode.has(code) || completeHistory.has(code)) continue
-      const rows = await tushareFetch(
-        'daily',
-        { ts_code: code, start_date: compact(addDays(tradeDate, -HISTORY_DAYS)), end_date: compact(tradeDate) },
-        'ts_code,trade_date,open,high,low,close,vol,amount',
-        token,
-        fetchImpl,
-      )
-      universeBars.push(...rows.map(barFrom).filter((bar): bar is BarInput => bar !== null && bar.tradeDate <= tradeDate))
+      try {
+        const rows = await tushareFetch(
+          'daily',
+          { ts_code: code, start_date: compact(addDays(tradeDate, -HISTORY_DAYS)), end_date: compact(tradeDate) },
+          'ts_code,trade_date,open,high,low,close,vol,amount',
+          token,
+          fetchImpl,
+        )
+        universeBars.push(...rows.map(barFrom).filter((bar): bar is BarInput => bar !== null && bar.tradeDate <= tradeDate))
+      } catch (err) {
+        historyFailures += 1
+        if (!historyError) historyError = messageOf(err).slice(0, 120)
+      }
+    }
+    // 单只历史日线是补库性质，限频耗尽时保留当日全市场数据比整体失败更有价值。
+    if (historyFailures > 0) {
+      warnings.push(`历史日线回补失败 ${historyFailures} 个：${historyError}`)
     }
     // 当日 bar 不受历史回补上限影响，避免第 61 个标的当天缺行情。
     for (const code of universe) {

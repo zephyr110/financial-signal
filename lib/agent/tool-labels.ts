@@ -12,6 +12,7 @@ export const TOOL_LABELS: Record<string, string> = {
   propose_action: "提交待确认动作",
   format_markdown: "整理 Markdown",
   fix_json: "修复 JSON",
+  web_search: "联网搜索",
 };
 
 export function getToolLabel(name: string): string {

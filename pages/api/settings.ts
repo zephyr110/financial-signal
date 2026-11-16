@@ -36,13 +36,20 @@ export default async function handler(req: any, res: any) {
       tushare: {
         tokenSet: has(SETTING_KEYS.TUSHARE_TOKEN),
       },
+      webSearch: {
+        provider: all[SETTING_KEYS.WEB_SEARCH_PROVIDER] ?? '',
+        apiKeySet: has(SETTING_KEYS.WEB_SEARCH_API_KEY),
+      },
       cronSecretSet: has(SETTING_KEYS.CRON_SECRET),
     });
     return;
   }
 
   if (req.method === 'POST') {
-    const { llmModel, llmBaseUrl, llmApiKey, tursoUrl, tursoToken, tushareToken, cronSecret } = req.body || {};
+    const {
+      llmModel, llmBaseUrl, llmApiKey, tursoUrl, tursoToken, tushareToken, cronSecret,
+      webSearchProvider, webSearchApiKey,
+    } = req.body || {};
     // 留空字符串 = 保持不变；未传 = 忽略；只有显式 null 才清除
     const patch: Record<string, string | null> = {};
     if (llmModel != null) patch[SETTING_KEYS.LLM_MODEL] = llmModel === '' ? null : String(llmModel).trim();
@@ -52,6 +59,16 @@ export default async function handler(req: any, res: any) {
     if (tursoToken != null) patch[SETTING_KEYS.TURSO_AUTH_TOKEN] = tursoToken === '' ? null : String(tursoToken).trim();
     if (tushareToken != null) patch[SETTING_KEYS.TUSHARE_TOKEN] = tushareToken === '' ? null : String(tushareToken).trim();
     if (cronSecret != null) patch[SETTING_KEYS.CRON_SECRET] = cronSecret === '' ? null : String(cronSecret).trim();
+    if (webSearchProvider != null) {
+      const provider = String(webSearchProvider).trim().toLowerCase();
+      if (provider && provider !== 'bocha' && provider !== 'tavily') {
+        return res.status(400).json({ error: '联网搜索服务商只能是 bocha 或 tavily' });
+      }
+      patch[SETTING_KEYS.WEB_SEARCH_PROVIDER] = provider || null;
+    }
+    if (webSearchApiKey != null) {
+      patch[SETTING_KEYS.WEB_SEARCH_API_KEY] = webSearchApiKey === '' ? null : String(webSearchApiKey).trim();
+    }
     if (Object.keys(patch).length === 0) return res.status(400).json({ error: '没有需要保存的配置' });
 
     try {

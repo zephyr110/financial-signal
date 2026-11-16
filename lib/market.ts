@@ -292,7 +292,7 @@ export async function getTodayMarketData(limit = 8) {
  */
 export async function getBacktestSummary() {
   const db = await getDb();
-  const [byScore, byIndustry] = await Promise.all([
+  const [byScore, byIndustry, pending] = await Promise.all([
     db.execute({
       sql: `SELECT signal_score,
               COUNT(*) as samples,
@@ -322,8 +322,19 @@ export async function getBacktestSummary() {
             HAVING COUNT(*) >= 3
             ORDER BY signal_score DESC, samples DESC`,
     }),
+    // 已入库但尚无 T+1 行情可算的信号数：用于空态说明「在等行情」，而非看起来像没跑过
+    db.execute({
+      sql: `SELECT COUNT(*) as pending
+            FROM backtest_result
+            WHERE day_1_return IS NULL
+              AND signal_date >= date('now', '-30 day')`,
+    }),
   ]);
-  return { byScore: byScore.rows, byIndustry: byIndustry.rows };
+  return {
+    byScore: byScore.rows,
+    byIndustry: byIndustry.rows,
+    pending: Number(pending.rows[0]?.pending ?? 0),
+  };
 }
 
 /**

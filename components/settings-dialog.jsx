@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { useTheme } from "next-themes";
-import { CheckCircle2, Clock, Cpu, Database, Loader2, Monitor, Moon, Palette, RotateCcw, Save, Sun, UserRound, XIcon } from "lucide-react";
+import { CheckCircle2, Clock, Cpu, Database, Globe, Loader2, Monitor, Moon, Palette, RotateCcw, Save, Sun, UserRound, XIcon } from "lucide-react";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Badge } from "./ui/badge";
@@ -16,6 +16,7 @@ import { clearClientCaches, cn } from "@/lib/utils";
  * - 账号：修改登录名 / 密码（需当前密码）
  * - 外观：主题模式（next-themes，只存本机浏览器）
  * - 模型：LLM_MODEL / LLM_BASE_URL / LLM_API_KEY（30s 缓存热生效，无需重启）
+ * - 联网搜索：WEB_SEARCH_PROVIDER / WEB_SEARCH_API_KEY（研究助手「联网」开关使用）
  * - 数据源：TURSO_DATABASE_URL / TURSO_AUTH_TOKEN / TUSHARE_TOKEN（Turso 改动需重启）
  * - 定时任务：CRON_SECRET（30s 缓存热生效）
  * 布局参考 reelay-sensee：左栏标题+分组导航，右侧面板叠在同一 grid 格子里，
@@ -32,6 +33,7 @@ const PANELS = [
   { id: "account", label: "账号", group: "账号", icon: UserRound },
   { id: "appearance", label: "外观", group: "偏好", icon: Palette },
   { id: "model", label: "模型", group: "服务配置", icon: Cpu },
+  { id: "websearch", label: "联网搜索", group: "服务配置", icon: Globe },
   { id: "turso", label: "数据源", group: "服务配置", icon: Database },
   { id: "cron", label: "定时任务", group: "服务配置", icon: Clock },
 ];
@@ -61,6 +63,10 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   const [cronSecret, setCronSecret] = useState("");
   const [cronSecretSet, setCronSecretSet] = useState(false);
 
+  const [webSearchProvider, setWebSearchProvider] = useState("");
+  const [webSearchKey, setWebSearchKey] = useState("");
+  const [webSearchKeySet, setWebSearchKeySet] = useState(false);
+
   // 账号表单
   const [accUsername, setAccUsername] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -84,6 +90,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     setTursoToken("");
     setTushareToken("");
     setCronSecret("");
+    setWebSearchKey("");
     setAccUsername(username || "");
     setCurrentPassword("");
     setNewPassword("");
@@ -98,6 +105,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
         setTursoTokenSet(Boolean(d.turso?.tokenSet));
         setTushareTokenSet(Boolean(d.tushare?.tokenSet));
         setCronSecretSet(Boolean(d.cronSecretSet));
+        setWebSearchProvider(d.webSearch?.provider ?? "");
+        setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
         setLoaded(true);
       })
       .catch(() => {
@@ -140,6 +149,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       ...(tursoToken ? { tursoToken } : clearedKeys.has("tursoToken") ? { tursoToken: "" } : {}),
       ...(tushareToken ? { tushareToken } : clearedKeys.has("tushareToken") ? { tushareToken: "" } : {}),
       ...(cronSecret ? { cronSecret } : clearedKeys.has("cronSecret") ? { cronSecret: "" } : {}),
+      webSearchProvider,
+      ...(webSearchKey ? { webSearchApiKey: webSearchKey } : clearedKeys.has("webSearchApiKey") ? { webSearchApiKey: "" } : {}),
     };
     try {
       const res = await fetch("/api/settings", {
@@ -159,11 +170,14 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       setTursoTokenSet(Boolean(d.turso?.tokenSet));
       setTushareTokenSet(Boolean(d.tushare?.tokenSet));
       setCronSecretSet(Boolean(d.cronSecretSet));
+      setWebSearchProvider(d.webSearch?.provider ?? "");
+      setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
       setClearedKeys(new Set());
       setApiKey("");
       setTursoToken("");
       setTushareToken("");
       setCronSecret("");
+      setWebSearchKey("");
       setOkMsg("已保存" + (tursoUrl || clearedKeys.has("tursoUrl") || tursoToken || clearedKeys.has("tursoToken") ? "（Turso 数据源改动需重启应用生效）" : ""));
     } catch {
       setError("网络错误，请稍后重试");
@@ -443,6 +457,61 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">模型/接口/Key 保存在应用内（app_settings 表），保存后约 30 秒内热生效，无需重启。</p>
+                    {saveButton(saveSettings)}
+                  </div>
+                </section>
+
+                {/* ── 联网搜索 ── */}
+                <section className={sectionClass("websearch")}>
+                  <div className="space-y-3 rounded-lg bg-muted p-4">
+                    <div className="space-y-2">
+                      <span className="text-sm font-medium">服务商 (WEB_SEARCH_PROVIDER)</span>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          ["", "自动"],
+                          ["bocha", "博查"],
+                          ["tavily", "Tavily"],
+                        ].map(([value, label]) => {
+                          const active = webSearchProvider === value;
+                          return (
+                            <button
+                              key={value || "auto"}
+                              type="button"
+                              onClick={() => setWebSearchProvider(value)}
+                              aria-pressed={active}
+                              disabled={!loaded}
+                              className={cn(
+                                "rounded-md border bg-background px-3 py-2 text-xs transition-colors",
+                                active
+                                  ? "border-primary text-foreground shadow-sm"
+                                  : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                              )}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="web-search-key" className="text-sm font-medium">API Key (WEB_SEARCH_API_KEY)</label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="web-search-key"
+                          {...secretInputProps("webSearchApiKey", webSearchKey, setWebSearchKey, webSearchKeySet)}
+                          className="flex-1 bg-background"
+                          disabled={!loaded}
+                        />
+                        {webSearchKeySet && (
+                          <Button type="button" variant="outline" size="icon" onClick={() => clearKey("webSearchApiKey")} title="清除">
+                            <RotateCcw className="size-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      自动：按已配置的 BOCHA_API_KEY / TAVILY_API_KEY 推断（优先博查）。仅在研究助手打开「联网」开关后调用；保存后约 30 秒内热生效。
+                    </p>
                     {saveButton(saveSettings)}
                   </div>
                 </section>

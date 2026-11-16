@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Forbidden origin' });
   }
 
-  const { sessionId, message, stream, editingId, regenerateFromId } = req.body || {};
+  const { sessionId, message, stream, editingId, regenerateFromId, webSearch } = req.body || {};
   const text = typeof message === 'string' ? message.trim() : '';
   if (regenerateFromId == null && !text) {
     return res.status(400).json({ error: 'message 必填' });
@@ -72,6 +72,7 @@ export default async function handler(req, res) {
         userMessage: text,
         editingId: eid,
         regenerateFromId: rid,
+        webSearch: webSearch === true,
         userId,
       });
       return res.status(200).json(result);
@@ -108,6 +109,7 @@ export default async function handler(req, res) {
       userMessage: text,
       editingId: eid,
       regenerateFromId: rid,
+      webSearch: webSearch === true,
       userId,
       onEvent: (e) => {
         if (e.type === 'context_compact_start') {

@@ -44,7 +44,13 @@ const ALL_MARKET_ROWS = [
   ['688001.SH', '20261022', 40, 42, 39.8, 42, 40, 5, 40000, 4_000_000],
 ]
 
-function makeFetch({ limitFails = false, prevDailyEmpty = false } = {}): FetchLike {
+function makeFetch({
+  limitFails = false,
+  prevDailyEmpty = false,
+  indexFails = false,
+  basicFails = false,
+  historyFails = false,
+} = {}): FetchLike {
   return vi.fn(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body || '{}')) as {
       api_name: string
@@ -54,11 +60,17 @@ function makeFetch({ limitFails = false, prevDailyEmpty = false } = {}): FetchLi
       case 'trade_cal':
         return table(['exchange', 'cal_date', 'is_open', 'pretrade_date'], CALENDAR_ROWS)
       case 'stock_basic':
+        if (basicFails) {
+          return response({ code: 40203, msg: '抱歉，您访问接口(stock_basic)频率超限(1次/小时)' })
+        }
         return table(
           ['ts_code', 'symbol', 'name', 'industry', 'market', 'exchange', 'list_date'],
           [['600519.SH', '600519', '贵州茅台', '白酒', '主板', 'SSE', '20010827']],
         )
       case 'index_daily': {
+        if (indexFails) {
+          return response({ code: 40203, msg: '抱歉，您访问接口(index_daily)频率超限(1次/分钟)' })
+        }
         const code = String(body.params.ts_code)
         return table(
           ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount'],
@@ -69,6 +81,9 @@ function makeFetch({ limitFails = false, prevDailyEmpty = false } = {}): FetchLi
         )
       }
       case 'daily': {
+        if (historyFails && body.params.ts_code) {
+          return response({ code: 40203, msg: '抱歉，您访问接口(daily)频率超限(1次/分钟)' })
+        }
         if (body.params.ts_code === '600519.SH') {
           return table(
             ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount'],
@@ -251,6 +266,62 @@ describe('Tushare 收盘入库', () => {
       args: ['2026-10-22'],
     })
     expect(JSON.parse(String(overview.rows[0]?.breadth_json)).limitUpDownAvailable).toBe(false)
+  })
+
+  it('指数日线限频时仍写入全市场广度与成交额', async () => {
+    const result = await tushareApi.ingestTushare({
+      tradeDate: '2026-10-22',
+      token: 'test-token',
+      fetchImpl: makeFetch({ indexFails: true }),
+    })
+
+    expect(result.indices).toBe(0)
+    expect(result.breadth).toEqual({ up: 2, down: 1, flat: 1, limitUp: 2, limitDown: 1 })
+    expect(result.warnings.join(' ')).toContain('指数 上证指数 日线不可用')
+
+    const db = await dbModule.getDb()
+    const overview = await db.execute({
+      sql: 'SELECT breadth_json FROM market_overview WHERE trade_date = ?',
+      args: ['2026-10-22'],
+    })
+    expect(JSON.parse(String(overview.rows[0]?.breadth_json)).up).toBe(2)
+  })
+
+  it('证券列表限频时仍写入全市场广度与成交额', async () => {
+    const result = await tushareApi.ingestTushare({
+      tradeDate: '2026-10-22',
+      token: 'test-token',
+      fetchImpl: makeFetch({ basicFails: true }),
+    })
+
+    expect(result.breadth).toEqual({ up: 2, down: 1, flat: 1, limitUp: 2, limitDown: 1 })
+    expect(result.warnings.join(' ')).toContain('证券列表不可用')
+
+    const db = await dbModule.getDb()
+    const overview = await db.execute({
+      sql: 'SELECT breadth_json FROM market_overview WHERE trade_date = ?',
+      args: ['2026-10-22'],
+    })
+    expect(JSON.parse(String(overview.rows[0]?.breadth_json)).up).toBe(2)
+  })
+
+  it('单只历史回补失败不影响当日入库', async () => {
+    const result = await tushareApi.ingestTushare({
+      tradeDate: '2026-10-22',
+      token: 'test-token',
+      fetchImpl: makeFetch({ historyFails: true }),
+    })
+
+    expect(result.breadth).not.toBeNull()
+    expect(result.warnings.join(' ')).toContain('历史日线回补失败')
+
+    const db = await dbModule.getDb()
+    const bar = await db.execute({
+      sql: `SELECT close FROM market_bars
+            WHERE code = '600519.SH' AND trade_date = '2026-10-22' AND adjust_type = 'raw'`,
+      args: [],
+    })
+    expect(Number(bar.rows[0]?.close)).toBe(1600)
   })
 
   it('库里出现示例行情后拒绝真实入库，且不发起网络请求', async () => {

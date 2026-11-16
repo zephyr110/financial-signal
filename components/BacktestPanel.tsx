@@ -29,6 +29,8 @@ const ROW_GRID = "grid grid-cols-[1fr_40px_1fr] sm:grid-cols-[1.4fr_0.9fr_1.4fr_
 export default function BacktestPanel() {
   const [byScore, setByScore] = useState<BacktestRow[] | null>(null);
   const [byIndustry, setByIndustry] = useState<BacktestRow[] | null>(null);
+  // 已入库但还没等到后续交易日行情的信号数（当天信号只能等 T+1）
+  const [pending, setPending] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>("industry");
   // 行业视图排序：null=默认（样本降序）；score/winRate 点击表头切换升降序
@@ -75,6 +77,7 @@ export default function BacktestPanel() {
         if (cancelled) return;
         setByScore(d.byScore || []);
         setByIndustry(d.byIndustry || []);
+        setPending(Number(d.pending) || 0);
       })
       .catch(() => {
         if (cancelled) return;
@@ -99,7 +102,9 @@ export default function BacktestPanel() {
         </div>
       ) : !hasData ? (
         <div className="text-center py-8 text-xs text-muted-foreground">
-          暂无数据，信号和行情积累后自动生成
+          {pending > 0
+            ? `已入库 ${pending} 条信号，等待后续交易日行情回填 T+1 / T+3 / T+7 收益后自动生成`
+            : "暂无数据，信号和行情积累后自动生成"}
         </div>
       ) : (
         <>
