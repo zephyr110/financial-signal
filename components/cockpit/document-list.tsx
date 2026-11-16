@@ -16,7 +16,8 @@ function DocumentBody({ doc }: { doc: DocumentSummary }) {
         {doc.status && <span>{doc.status}</span>}
       </div>
       <div className="ck-doc-source">
-        <SourceChip source={doc.source} />
+        {/* 整行已是链接，芯片再渲染 a 会嵌套，浏览器解析时把来源块挪出链接导致水合不一致 */}
+        <SourceChip source={doc.source} link={false} />
       </div>
     </>
   )
