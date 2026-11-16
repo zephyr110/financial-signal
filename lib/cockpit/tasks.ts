@@ -395,6 +395,18 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
     case 'daily_brief': {
       const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : await latestTradeDate()
       if (!tradeDate) throw new Error('没有可用的交易日，先完成行情入库')
+      // 简报会被单独重跑，不能只依赖 daily_close 抓公告，否则「政策与公告」永远为空。
+      await setProgress(task.id, 15, '抓取官方公告与政策')
+      let documents = 0
+      const warnings: string[] = []
+      try {
+        const official = await ingestOfficialDocuments({ tradeDate })
+        documents = official.documents
+        warnings.push(...official.warnings)
+      } catch (err) {
+        // 公告失败不阻断简报；来源健康度会同时标红。
+        warnings.push(`官方公告未完成：${err instanceof Error ? err.message : String(err)}`)
+      }
       await setProgress(task.id, 25, '构建事实包')
       const report = await buildAndStoreDailyReport(tradeDate, {
         force: Boolean(params.force),
@@ -409,6 +421,8 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         confidence: report.payload.hero.confidence.label,
         narrative: Boolean(report.payload.narrative),
         narrativeModel: report.payload.narrative?.model || null,
+        documents,
+        warnings,
       }
     }
     case 'market_ingest': {
