@@ -1,8 +1,10 @@
 import Head from 'next/head'
 import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import type { GetServerSideProps } from 'next'
 import type { SourceHealth, StockDetail } from '@/lib/cockpit/types'
 import { formatDateCn, formatPrice, formatTime } from '@/lib/cockpit/format'
+import { watchAnchorId } from '@/lib/cockpit/anchor'
 import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
 import { getSourceHealth, getStockDetail } from '@/lib/cockpit/repo'
 import { serializable } from '@/lib/cockpit/page-data'
@@ -98,6 +100,16 @@ export default function StockPage({ code, detail, sourceHealth, loadError }: Sto
         isDemo={detail.isDemo}
         sourceHealth={sourceHealth}
       >
+        {/* 回到自选面板并定位到这只个股的卡片（自选页按 hash 滚动高亮） */}
+        <nav className="ck-stock-back" aria-label="返回导航">
+          <Link
+            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+            href={`/watchlist#${watchAnchorId(detail.code)}`}
+          >
+            <ArrowLeft className="size-3.5" aria-hidden="true" />
+            返回自选
+          </Link>
+        </nav>
         <article className="ck-card ck-stock-hero" aria-labelledby="stock-quote-title">
           {/* 页头已经是大号名称，卡片不再重复；保留读屏标题维持文章语义。 */}
           <h2 className="ck-sr-only" id="stock-quote-title">{detail.name}最新行情</h2>

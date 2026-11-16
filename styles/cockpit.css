@@ -1897,6 +1897,12 @@ a.ck-chip:hover {
   background: color-mix(in srgb, var(--ck-surface-2) 55%, transparent);
 }
 
+/* 从个股页返回时短暂高亮对应自选卡片，帮助定位 */
+.ck-watch-row.is-focus-target {
+  background: var(--ck-accent-soft);
+  box-shadow: inset 3px 0 0 var(--ck-accent);
+}
+
 .ck-watch-main {
   display: grid;
   grid-column: 1 / -1;
@@ -2077,6 +2083,11 @@ a.ck-chip:hover {
 }
 
 /* ---------- 个股 ---------- */
+
+.ck-stock-back {
+  display: flex;
+  margin-bottom: 10px;
+}
 
 .ck-stock-head {
   display: flex;

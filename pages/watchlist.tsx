@@ -41,6 +41,25 @@ function BackfillRefresh({ active }: { active: boolean }) {
   return null
 }
 
+/** 从个股页带 #watch-<code> 返回时，滚动到对应自选卡片并短暂高亮。 */
+function FocusWatchRow() {
+  const router = useRouter()
+  useEffect(() => {
+    const hash = window.location.hash
+    if (!hash.startsWith('#watch-')) return
+    const target = document.getElementById(hash.slice(1))
+    if (!target) return
+    target.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    target.classList.add('is-focus-target')
+    const timer = setTimeout(() => target.classList.remove('is-focus-target'), 2400)
+    return () => {
+      clearTimeout(timer)
+      target.classList.remove('is-focus-target')
+    }
+  }, [router.asPath])
+  return null
+}
+
 export const getServerSideProps: GetServerSideProps<WatchlistProps> = async () => {
   try {
     if (process.env.COCKPIT_DEMO === '1') await ensureCockpitDemoSeed()
@@ -77,6 +96,7 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
         sourceHealth={sourceHealth}
       >
         <BackfillRefresh active={backfillActive} />
+        <FocusWatchRow />
         {loadError && <div className="ck-error-banner">{loadError}</div>}
 
         <Disclosure title="添加自选个股" hint="加入后自动排队补齐行情" headingLevel={2}>

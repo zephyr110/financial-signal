@@ -43,6 +43,8 @@ describe('自选行内展开', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { container } = render(<WatchlistRow item={item} />)
+    // 个股页「返回自选」按此锚点定位到本行
+    expect(container.querySelector('#watch-600519-SH')).not.toBeNull()
     const trigger = screen.getByRole('button', { name: /600519/ })
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(fetchMock).not.toHaveBeenCalled()

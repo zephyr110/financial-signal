@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import type { StockDetail, WatchlistItem } from '@/lib/cockpit/types'
 import { formatPrice } from '@/lib/cockpit/format'
+import { watchAnchorId } from '@/lib/cockpit/anchor'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { DeltaValue, SourceChip, Sparkline, ThesisTag } from './bits'
 import { DocumentList } from './document-list'
@@ -53,7 +54,7 @@ export function WatchlistRow({ item }: { item: WatchlistItem }) {
   }
 
   return (
-    <article className="ck-watch-row">
+    <article className="ck-watch-row" id={watchAnchorId(item.code)}>
       <button
         type="button"
         className="ck-watch-main"
