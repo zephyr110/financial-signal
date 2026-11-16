@@ -227,6 +227,7 @@ export function MarketPulse({
                 <span className="ck-index-spark">
                   <Sparkline
                     values={index.sparkline}
+                    changePct={index.changePct}
                     label={`${index.name}近 ${index.sparkline.length} 个交易日收盘走势，最新 ${formatPrice(index.close)}，涨跌幅 ${index.changePct.toFixed(2)}%`}
                   />
                 </span>
