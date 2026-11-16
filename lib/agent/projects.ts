@@ -81,19 +81,37 @@ function validateName(name: unknown): string {
   return value
 }
 
-export async function listProjects(opts: { status?: string; limit?: number } = {}): Promise<AgentProjectView[]> {
+/** 传 userId 时只看本账号与 legacy（NULL）项目；不传维持全局行为。 */
+function ownerClause(userId?: number | null): { sql: string; args: number[] } {
+  return userId != null
+    ? { sql: ' AND (user_id = ? OR user_id IS NULL)', args: [userId] }
+    : { sql: '', args: [] }
+}
+
+export async function listProjects(opts: { status?: string; limit?: number; userId?: number | null } = {}): Promise<AgentProjectView[]> {
   const db = await getDb()
   const limit = Math.max(1, Math.min(100, opts.limit ?? 50))
   const status = opts.status === 'archived' ? 'archived' : opts.status === 'all' ? null : 'active'
+  const owner = ownerClause(opts.userId)
   const res = status
-    ? await db.execute({ sql: 'SELECT * FROM agent_project WHERE status = ? ORDER BY updated_at DESC LIMIT ?', args: [status, limit] })
-    : await db.execute({ sql: 'SELECT * FROM agent_project ORDER BY updated_at DESC LIMIT ?', args: [limit] })
+    ? await db.execute({
+        sql: `SELECT * FROM agent_project WHERE status = ?${owner.sql} ORDER BY updated_at DESC LIMIT ?`,
+        args: [status, ...owner.args, limit],
+      })
+    : await db.execute({
+        sql: `SELECT * FROM agent_project WHERE 1 = 1${owner.sql} ORDER BY updated_at DESC LIMIT ?`,
+        args: [...owner.args, limit],
+      })
   return (res.rows as unknown as Row[]).map((row) => mapProject(row))
 }
 
-export async function getProject(id: string): Promise<AgentProjectView | null> {
+export async function getProject(id: string, userId?: number | null): Promise<AgentProjectView | null> {
   const db = await getDb()
-  const res = await db.execute({ sql: 'SELECT * FROM agent_project WHERE id = ?', args: [id] })
+  const owner = ownerClause(userId)
+  const res = await db.execute({
+    sql: `SELECT * FROM agent_project WHERE id = ?${owner.sql}`,
+    args: [id, ...owner.args],
+  })
   const row = res.rows[0] as Row | undefined
   if (!row) return null
   const items = await db.execute({
@@ -108,13 +126,15 @@ export async function createProject(input: {
   thesis?: string
   industries?: unknown
   symbols?: unknown
+  userId?: number | null
 }): Promise<AgentProjectView> {
   const db = await getDb()
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   await db.execute({
-    sql: `INSERT INTO agent_project (id, name, thesis, status, industries_json, symbols_json, created_at, updated_at)
-          VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`,
+    sql: `INSERT INTO agent_project
+            (id, name, thesis, status, industries_json, symbols_json, created_at, updated_at, user_id)
+          VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
     args: [
       id,
       validateName(input.name),
@@ -123,9 +143,10 @@ export async function createProject(input: {
       JSON.stringify(cleanList(input.symbols)),
       now,
       now,
+      input.userId ?? null,
     ],
   })
-  return (await getProject(id)) as AgentProjectView
+  return (await getProject(id, input.userId)) as AgentProjectView
 }
 
 export async function updateProject(id: string, patch: {
@@ -134,8 +155,8 @@ export async function updateProject(id: string, patch: {
   status?: ProjectStatus
   industries?: unknown
   symbols?: unknown
-}): Promise<AgentProjectView | null> {
-  const current = await getProject(id)
+}, userId?: number | null): Promise<AgentProjectView | null> {
+  const current = await getProject(id, userId)
   if (!current) return null
   const db = await getDb()
   const status: ProjectStatus = patch.status === 'archived' ? 'archived' : patch.status === 'active' ? 'active' : current.status
@@ -152,7 +173,7 @@ export async function updateProject(id: string, patch: {
       id,
     ],
   })
-  return getProject(id)
+  return getProject(id, userId)
 }
 
 export async function addProjectItem(input: {
@@ -161,11 +182,12 @@ export async function addProjectItem(input: {
   refId: string
   title?: string
   note?: string
+  userId?: number | null
 }): Promise<ProjectItemView | null> {
   if (!KINDS.includes(input.kind)) throw new Error('项目条目类型无效')
   const refId = String(input.refId || '').trim()
   if (!refId || refId.length > 200) throw new Error('条目 refId 需为 1-200 字符')
-  const project = await getProject(input.projectId)
+  const project = await getProject(input.projectId, input.userId)
   if (!project) return null
   const db = await getDb()
   const now = new Date().toISOString()
@@ -191,7 +213,13 @@ export async function addProjectItem(input: {
   return res.rows[0] ? mapItem(res.rows[0] as unknown as Row) : null
 }
 
-export async function removeProjectItem(projectId: string, kind: ProjectItemKind, refId: string): Promise<boolean> {
+export async function removeProjectItem(
+  projectId: string,
+  kind: ProjectItemKind,
+  refId: string,
+  userId?: number | null,
+): Promise<boolean> {
+  if (!(await getProject(projectId, userId))) return false
   const db = await getDb()
   const res = await db.execute({
     sql: 'DELETE FROM agent_project_item WHERE project_id = ? AND kind = ? AND ref_id = ?',
@@ -203,8 +231,8 @@ export async function removeProjectItem(projectId: string, kind: ProjectItemKind
   return res.rowsAffected > 0
 }
 
-export async function projectContext(projectId: string): Promise<string> {
-  const project = await getProject(projectId)
+export async function projectContext(projectId: string, userId?: number | null): Promise<string> {
+  const project = await getProject(projectId, userId)
   if (!project) return ''
   const lines = [
     `研究项目：${project.name}`,

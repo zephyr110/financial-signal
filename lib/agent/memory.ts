@@ -35,12 +35,17 @@ function num(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+/** 存储键可能带 u<id>: 前缀（同 key 在不同账号下各存一条），展示时还原。 */
+function displayKey(storageKey: string): string {
+  return storageKey.replace(/^u\d+:/, '')
+}
+
 function mapMemory(row: Row): AgentMemoryView {
   return {
     id: str(row.id),
     scope: str(row.scope) as MemoryScope,
     projectId: str(row.project_id) || undefined,
-    key: str(row.key),
+    key: displayKey(str(row.key)),
     value: str(row.value),
     confidence: num(row.confidence, 0.5),
     sourceSessionId: str(row.source_session_id) || undefined,
@@ -59,6 +64,8 @@ export interface UpsertMemoryInput {
   confidence?: number
   sourceSessionId?: string | null
   expiresAt?: string | null
+  /** 当前登录账号；null 走 legacy 全局键 */
+  userId?: number | null
 }
 
 function validateMemory(input: UpsertMemoryInput): { scope: MemoryScope; key: string; value: string } {
@@ -71,9 +78,10 @@ function validateMemory(input: UpsertMemoryInput): { scope: MemoryScope; key: st
   return { scope: input.scope, key, value }
 }
 
-/** 项目记忆写入同一个 UNIQUE(scope,key)，key 内嵌项目 ID 避免跨项目覆盖。 */
-function storageKey(scope: MemoryScope, projectId: string | null | undefined, key: string): string {
-  return scope === 'project' && projectId ? `project:${projectId}:${key}` : key
+/** 表上仍是 UNIQUE(scope,key)：项目 ID 与账号 ID 都内嵌进 key，避免跨项目/跨账号覆盖。 */
+function storageKey(scope: MemoryScope, projectId: string | null | undefined, key: string, userId?: number | null): string {
+  const scoped = scope === 'project' && projectId ? `project:${projectId}:${key}` : key
+  return userId != null ? `u${userId}:${scoped}` : scoped
 }
 
 /** 到期记忆降级而非删除：保留可追溯性，但不再注入 prompt。 */
@@ -92,13 +100,14 @@ export async function upsertAgentMemory(input: UpsertMemoryInput): Promise<Agent
   const db = await getDb()
   const now = new Date().toISOString()
   const confidence = Math.max(0, Math.min(0.95, input.confidence ?? 0.5))
-  const keyForStorage = storageKey(scope, input.projectId, key)
+  const keyForStorage = storageKey(scope, input.projectId, key, input.userId)
   const id = crypto.randomUUID()
 
   await db.execute({
     sql: `INSERT INTO agent_memory
-            (id, scope, project_id, key, value, confidence, source_session_id, status, expires_at, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+            (id, scope, project_id, key, value, confidence, source_session_id, status, expires_at,
+             created_at, updated_at, user_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
           ON CONFLICT(scope, key) DO UPDATE SET
             value = excluded.value,
             confidence = excluded.confidence,
@@ -106,7 +115,8 @@ export async function upsertAgentMemory(input: UpsertMemoryInput): Promise<Agent
             source_session_id = COALESCE(excluded.source_session_id, agent_memory.source_session_id),
             expires_at = excluded.expires_at,
             status = 'active',
-            updated_at = excluded.updated_at`,
+            updated_at = excluded.updated_at,
+            user_id = COALESCE(excluded.user_id, agent_memory.user_id)`,
     args: [
       id,
       scope,
@@ -118,6 +128,7 @@ export async function upsertAgentMemory(input: UpsertMemoryInput): Promise<Agent
       input.expiresAt ?? null,
       now,
       now,
+      input.userId ?? null,
     ],
   })
   const res = await db.execute({ sql: 'SELECT * FROM agent_memory WHERE scope = ? AND key = ?', args: [scope, keyForStorage] })
@@ -129,12 +140,17 @@ export async function listAgentMemories(opts: {
   scope?: string
   status?: string
   limit?: number
+  userId?: number | null
 } = {}): Promise<AgentMemoryView[]> {
   await decayExpiredMemories()
   const db = await getDb()
   const limit = Math.max(1, Math.min(100, opts.limit ?? 30))
   const conditions: string[] = []
   const args: unknown[] = []
+  if (opts.userId != null) {
+    conditions.push('(user_id = ? OR user_id IS NULL)')
+    args.push(opts.userId)
+  }
   if (opts.scope) {
     if (!SCOPES.includes(opts.scope as MemoryScope)) throw new Error('记忆 scope 无效')
     conditions.push('scope = ?')
@@ -155,19 +171,21 @@ export async function listAgentMemories(opts: {
   return (res.rows as unknown as Row[]).map(mapMemory)
 }
 
-export async function deleteAgentMemory(id: string): Promise<boolean> {
+export async function deleteAgentMemory(id: string, userId?: number | null): Promise<boolean> {
   const db = await getDb()
+  const scoped = userId != null
   const res = await db.execute({
-    sql: "UPDATE agent_memory SET status = 'deleted', updated_at = ? WHERE id = ? AND status <> 'deleted'",
-    args: [new Date().toISOString(), id],
+    sql: `UPDATE agent_memory SET status = 'deleted', updated_at = ?
+          WHERE id = ? AND status <> 'deleted'${scoped ? ' AND (user_id = ? OR user_id IS NULL)' : ''}`,
+    args: scoped ? [new Date().toISOString(), id, userId] : [new Date().toISOString(), id],
   })
   return res.rowsAffected > 0
 }
 
 /** 注入 system prompt 的短记忆清单；没有记忆时返回空串。 */
-export async function loadAgentMemoryPrompt(limit = 12): Promise<string> {
+export async function loadAgentMemoryPrompt(limit = 12, userId?: number | null): Promise<string> {
   try {
-    const memories = await listAgentMemories({ limit })
+    const memories = await listAgentMemories({ limit, userId })
     if (!memories.length) return ''
     return memories
       .map((memory) => `- [${memory.scope}] ${memory.key}: ${memory.value.slice(0, 240)}（置信度 ${memory.confidence.toFixed(2)}）`)

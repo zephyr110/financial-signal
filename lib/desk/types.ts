@@ -101,6 +101,19 @@ export interface OverseasQuoteView {
   fetchedAt: string
 }
 
+export interface RealtimeQuoteView {
+  code: string
+  name?: string
+  price: number
+  previousClose?: number
+  changePct?: number
+  tradeTime: string
+  /** 永远存在：展示层据此标注“延迟 N 秒”，不提供实时措辞。 */
+  delaySeconds: number
+  sourceId: string
+  fetchedAt: string
+}
+
 export interface DeskSnapshot {
   tradeDate: string | null
   asOf: string
@@ -108,6 +121,7 @@ export interface DeskSnapshot {
   industries: JudgmentView[]
   alerts: AlertView[]
   overseas: OverseasQuoteView[]
+  realtime: RealtimeQuoteView[]
   dataQuality: SourceHealth[]
   isDemo: boolean
   generatedAt: string
@@ -176,6 +190,7 @@ export interface DeskRefreshResult {
   events: number
   evaluations: number
   overseas: number
+  realtime: number
   warnings: string[]
   isDemo: boolean
 }

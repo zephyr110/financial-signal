@@ -10,14 +10,16 @@ import {
   type ProjectItemKind,
   type ProjectStatus,
 } from '../../lib/agent/projects'
+import { requestUserId } from '../../lib/request-user'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!ensureMethod(req, res, ['GET', 'POST', 'PATCH', 'DELETE'])) return
+  const userId = await requestUserId(req)
   try {
     if (req.method === 'GET') {
       const id = queryString(req.query.id)
       if (id) {
-        const project = await getProject(id)
+        const project = await getProject(id, userId)
         if (!project) return sendError(req, res, 404, 'PROJECT_NOT_FOUND', '研究项目不存在')
         sendData(res, project, await buildMeta())
         return
@@ -25,6 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const projects = await listProjects({
         status: queryString(req.query.status) || 'active',
         limit: queryInt(req.query.limit, 50, 1, 100),
+        userId,
       })
       sendData(res, { projects }, await buildMeta())
       return
@@ -44,6 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         thesis: typeof body.thesis === 'string' ? body.thesis : undefined,
         industries: body.industries,
         symbols: body.symbols,
+        userId,
       })
       sendData(res, { project }, await buildMeta())
       return
@@ -62,6 +66,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           refId: String(item.refId || ''),
           title: typeof item.title === 'string' ? item.title : undefined,
           note: typeof item.note === 'string' ? item.note : undefined,
+          userId,
         })
         if (!added) return sendError(req, res, 404, 'PROJECT_NOT_FOUND', '研究项目不存在')
         sendData(res, { item: added }, await buildMeta())
@@ -69,7 +74,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       if (body.removeItem && typeof body.removeItem === 'object') {
         const remove = body.removeItem as Record<string, unknown>
-        const ok = await removeProjectItem(body.id, String(remove.kind || '') as ProjectItemKind, String(remove.refId || ''))
+        const ok = await removeProjectItem(
+          body.id,
+          String(remove.kind || '') as ProjectItemKind,
+          String(remove.refId || ''),
+          userId,
+        )
         sendData(res, { ok }, await buildMeta())
         return
       }
@@ -79,13 +89,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         status: typeof body.status === 'string' ? body.status as ProjectStatus : undefined,
         industries: body.industries,
         symbols: body.symbols,
-      })
+      }, userId)
       if (!project) return sendError(req, res, 404, 'PROJECT_NOT_FOUND', '研究项目不存在')
       sendData(res, { project }, await buildMeta())
       return
     }
 
-    const project = await updateProject(body.id, { status: 'archived' })
+    const project = await updateProject(body.id, { status: 'archived' }, userId)
     if (!project) return sendError(req, res, 404, 'PROJECT_NOT_FOUND', '研究项目不存在')
     sendData(res, { project }, await buildMeta())
   } catch (err) {

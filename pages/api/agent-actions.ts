@@ -6,14 +6,17 @@ import {
   resolveAgentAction,
   type AgentActionType,
 } from '../../lib/agent/actions'
+import { requestUserId } from '../../lib/request-user'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!ensureMethod(req, res, ['GET', 'POST', 'PATCH'])) return
+  const userId = await requestUserId(req)
   try {
     if (req.method === 'GET') {
       const actions = await listAgentActions({
         status: queryString(req.query.status),
         limit: queryInt(req.query.limit, 30, 1, 100),
+        userId,
       })
       sendData(res, { actions }, await buildMeta())
       return
@@ -31,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (body.decision !== 'confirm' && body.decision !== 'reject') {
         return sendError(req, res, 400, 'INVALID_DECISION', 'decision 需为 confirm 或 reject')
       }
-      const action = await resolveAgentAction(body.id, body.decision)
+      const action = await resolveAgentAction(body.id, body.decision, userId)
       if (!action) return sendError(req, res, 404, 'ACTION_NOT_FOUND', '动作不存在')
       sendData(res, { action }, await buildMeta())
       return
@@ -45,6 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       payload: body.payload as Record<string, unknown>,
       sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
       turnId: typeof body.turnId === 'string' ? body.turnId : null,
+      userId,
     })
     sendData(res, { action }, await buildMeta())
   } catch (err) {

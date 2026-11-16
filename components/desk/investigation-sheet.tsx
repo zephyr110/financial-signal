@@ -33,6 +33,15 @@ const STRENGTH_LABEL: Record<string, string> = {
   strong: '证据较强',
 }
 
+const STEP_LABEL: Record<string, string> = {
+  evidence: '初始证据',
+  counter: '反方核查',
+  conclusion: '结论',
+  reason: '推理',
+  fallback: '降级',
+  budget: '预算',
+}
+
 function targetTitle(target: InvestigationTarget): string {
   return target.kind === 'alert' ? target.alert.title : target.judgment.headline
 }
@@ -247,7 +256,7 @@ export function InvestigationSheet({
                     {investigation.steps.map((step) => (
                       <li key={step.stepNo} className="text-xs leading-5">
                         <span className="mr-1 text-muted-foreground">#{step.stepNo}</span>
-                        <span className="font-medium">{step.tool || step.kind}</span>
+                        <span className="font-medium">{step.tool || STEP_LABEL[step.kind] || step.kind}</span>
                         {!step.ok && <span className="ml-1 text-destructive">失败</span>}
                         <p className="line-clamp-3 text-muted-foreground">{step.digest}</p>
                         {step.refs.length > 0 && (

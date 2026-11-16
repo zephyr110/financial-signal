@@ -291,6 +291,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
           payload: args.payload && typeof args.payload === 'object' ? args.payload as Record<string, unknown> : {},
           sessionId: context?.sessionId == null ? null : String(context.sessionId),
           turnId: context?.turnId ?? null,
+          userId: context?.userId ?? null,
         })
         return `已创建待确认动作 ${action.id}（${action.type}，状态 proposed）。请提示用户在界面确认后才会执行。`
       } catch (err) {

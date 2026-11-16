@@ -25,6 +25,8 @@ export interface AgentMessage {
 export interface ToolContext {
   sessionId?: number;
   turnId?: string | null;
+  /** 当前登录账号，用于动作/记忆归属 */
+  userId?: number | null;
 }
 
 export interface ToolDefinition {

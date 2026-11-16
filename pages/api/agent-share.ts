@@ -1,5 +1,6 @@
-import { createAgentShare, getSharedSession, revokeAgentShare } from '../../lib/db';
+import { agentSessionExists, createAgentShare, getSharedSession, revokeAgentShare } from '../../lib/db';
 import { isLocalOrigin } from '../../lib/cronAuth';
+import { requestUserId } from '../../lib/request-user';
 
 /**
  * 会话分享链接：
@@ -22,6 +23,10 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Invalid sessionId' });
     }
     try {
+      const userId = await requestUserId(req);
+      if (!(await agentSessionExists(sessionId, userId))) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
       const share = await createAgentShare(sessionId);
       res.setHeader('Cache-Control', 'no-store');
       res.status(200).json({ ...share, path: `/agent/s/${share.token}` });
@@ -38,6 +43,10 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Invalid sessionId' });
     }
     try {
+      const userId = await requestUserId(req);
+      if (!(await agentSessionExists(sessionId, userId))) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
       const revoked = await revokeAgentShare(sessionId);
       res.setHeader('Cache-Control', 'no-store');
       res.status(200).json({ ok: true, revoked });
