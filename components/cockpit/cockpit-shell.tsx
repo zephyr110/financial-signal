@@ -67,7 +67,8 @@ export function CockpitShell({
           <div className="ck-root">
             {isDemo && <DemoBanner />}
             {children}
-            <footer className="mt-8 pt-3">
+            {/* 数据源状态停靠在视窗底部：长面板滚动时也始终可见，滚到页尾自然归位 */}
+            <div className="ck-source-dock">
               <Disclosure
                 className="ck-source-status"
                 title={sourceTitle}
@@ -83,7 +84,9 @@ export function CockpitShell({
                   <ArrowRight aria-hidden="true" />
                 </Link>
               </Disclosure>
-              <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
+            </div>
+            <footer className="mt-6">
+              <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
                 <span>财经信号 · 个人研究记录，不构成投资建议。</span>
                 <span>数据先于判断。</span>
               </div>
