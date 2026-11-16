@@ -5,7 +5,7 @@ import { todayShanghai } from './format'
 import { getJournal, getPortfolio, getStockDetail, getTheses, getTodayPayload } from './repo'
 import { createNotification } from './notifications'
 import { answerBriefQuestion } from './narrative'
-import { ingestTushare } from './sources/tushare'
+import { ingestMarket } from './sources/market'
 import { ingestAkshare } from './sources/akshare'
 import { ingestOfficialDocuments } from './sources/official'
 import { refreshDesk } from '../desk/engine'
@@ -31,6 +31,15 @@ const TASK_LANES: TaskLane[] = ['core', 'interactive']
 const MAX_ATTEMPTS = 2
 const LEASE_MS = 5 * 60 * 1000
 const MODEL = 'deterministic'
+
+const SOURCE_LABEL: Record<string, string> = {
+  tushare: 'Tushare',
+  eastmoney: '东方财富',
+  sina: '新浪财经',
+  tencent: '腾讯财经',
+  mixed: '免费源混合',
+  akshare: 'AKShare 侧车',
+}
 
 const TASK_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
@@ -344,16 +353,23 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
     }
     case 'market_ingest': {
       const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
-      await setProgress(task.id, 15, '拉取 Tushare 收盘行情')
-      const ingest = await ingestTushare({ tradeDate })
+      const prefer = params.prefer === 'free' ? 'free' : 'auto'
+      await setProgress(task.id, 15, prefer === 'free'
+        ? '拉取免费行情（东财 → 新浪 → 腾讯）'
+        : '检查数据源与交易日历')
+      const ingest = await ingestMarket({ tradeDate, prefer })
       await setProgress(task.id, 85, '写入日线、广度与成交额')
       return {
         tradeDate: ingest.tradeDate,
+        source: ingest.source,
+        fallbackFromTushare: ingest.fallbackFromTushare,
         bars: ingest.bars,
         indices: ingest.indices,
+        universe: ingest.universe,
         breadth: ingest.breadth,
         turnover: ingest.turnover,
         limitUpDownAvailable: ingest.limitUpDownAvailable,
+        limitPoolWritten: ingest.limitPoolWritten,
         warnings: ingest.warnings,
       }
     }
@@ -375,8 +391,8 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
     }
     case 'daily_close': {
       const requested = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
-      await setProgress(task.id, 15, '拉取 Tushare 收盘行情')
-      const ingest = await ingestTushare({ tradeDate: requested })
+      await setProgress(task.id, 15, '拉取收盘行情（Tushare 优先，免费源兜底）')
+      const ingest = await ingestMarket({ tradeDate: requested })
       const warnings = [...ingest.warnings]
 
       await setProgress(task.id, 45, '抓取官方公告与政策')
@@ -399,6 +415,8 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       return {
         tradeDate: ingest.tradeDate,
         ingest: {
+          source: ingest.source,
+          fallbackFromTushare: ingest.fallbackFromTushare,
           bars: ingest.bars,
           indices: ingest.indices,
           breadth: ingest.breadth,
@@ -582,8 +600,12 @@ function taskNotification(
     case 'market_ingest':
       return {
         title: '行情入库完成',
-        body: [data.tradeDate, data.bars ? `${String(data.bars)} 根日线` : '', data.documents ? `${String(data.documents)} 条公告` : '']
-          .filter(Boolean).join(' · '),
+        body: [
+          data.tradeDate,
+          data.source ? `来源 ${SOURCE_LABEL[String(data.source)] || String(data.source)}` : '',
+          data.bars ? `${String(data.bars)} 根日线` : '',
+          data.documents ? `${String(data.documents)} 条公告` : '',
+        ].filter(Boolean).join(' · '),
         deepLink: '/today',
         severity: 'info',
       }

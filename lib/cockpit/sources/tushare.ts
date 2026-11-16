@@ -196,12 +196,16 @@ export async function ensureTradingCalendar(options: {
 
 /** A 股收盘数据在 15:00 后才稳定；16:00 前自动回退到上一交易日，避免拿当天半截数据。 */
 function chooseTradeDate(openDates: string[], explicit?: string): string {
-  if (explicit) {
-    if (!openDates.includes(explicit)) throw new Error(`${explicit} 不是交易日`)
-    return explicit
-  }
   const today = todayShanghai()
   const closed = shanghaiHour() >= 16
+  if (explicit) {
+    if (!openDates.includes(explicit)) throw new Error(`${explicit} 不是交易日`)
+    // 显式指定当天也要等收盘数据稳定，否则 daily 可能只有半截。
+    if (explicit === today && !closed) {
+      throw new Error(`${explicit} 收盘数据 16:00 后才稳定，请稍后再试`)
+    }
+    return explicit
+  }
   const eligible = openDates.filter((date) => date < today || (closed && date === today))
   if (eligible.length === 0) throw new Error('交易日历中没有可用的收盘日期')
   return eligible[eligible.length - 1]
@@ -393,6 +397,8 @@ export async function ingestTushare(options: {
   tradeDate?: string
   token?: string
   fetchImpl?: FetchLike
+  /** 调用方已用免费指数日线派生好的开市日；给了就跳过 trade_cal（该接口 1 次/分钟限频）。 */
+  openDates?: string[]
 } = {}): Promise<TushareIngestResult> {
   const fetchImpl = options.fetchImpl || fetch
   await ensureCockpitSources()
@@ -404,12 +410,10 @@ export async function ingestTushare(options: {
   const warnings: string[] = []
   try {
     const anchorDate = options.tradeDate || todayShanghai()
-    const calendar = await ensureTradingCalendar({
-      anchorDate,
-      token,
-      fetchImpl,
-    })
-    const tradeDate = chooseTradeDate(calendar.openDates, options.tradeDate)
+    const openDates = options.openDates && options.openDates.length > 0
+      ? options.openDates
+      : (await ensureTradingCalendar({ anchorDate, token, fetchImpl })).openDates
+    const tradeDate = chooseTradeDate(openDates, options.tradeDate)
     const fetchedAt = new Date().toISOString()
     const db = await getDb()
 
