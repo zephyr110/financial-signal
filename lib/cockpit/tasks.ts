@@ -6,7 +6,9 @@ import { getJournal, getPortfolio, getStockDetail, getTheses, getTodayPayload } 
 import { createNotification } from './notifications'
 import { answerBriefQuestion } from './narrative'
 import { ingestMarket } from './sources/market'
+import { ingestFreeSymbol } from './sources/free'
 import { ingestAkshare } from './sources/akshare'
+import { normalizeCode } from './codes'
 import { ingestOfficialDocuments } from './sources/official'
 import { refreshDesk } from '../desk/engine'
 import { listInvestigations, queueAutoInvestigations, runInvestigation } from '../desk/investigation'
@@ -19,6 +21,7 @@ export const TASK_TYPES: TaskType[] = [
   'weekly_review',
   'symbol_deep_dive',
   'market_ingest',
+  'market_backfill',
   'akshare_ingest',
   'daily_close',
   'desk_tick',
@@ -31,6 +34,8 @@ const TASK_LANES: TaskLane[] = ['core', 'interactive']
 const MAX_ATTEMPTS = 2
 const LEASE_MS = 5 * 60 * 1000
 const MODEL = 'deterministic'
+/** 免费源整批入库有 60 只上限；补漏每轮最多补这么多，避免一次塞满队列。 */
+const MAX_BACKFILLS_PER_SWEEP = 60
 
 const SOURCE_LABEL: Record<string, string> = {
   tushare: 'Tushare',
@@ -48,6 +53,7 @@ const TASK_LABEL: Record<string, string> = {
   weekly_review: '周度复盘',
   symbol_deep_dive: '个股深挖',
   market_ingest: '行情入库',
+  market_backfill: '个股补行情',
   akshare_ingest: 'T2 补充入库',
   daily_close: '每日收盘流程',
   desk_tick: '投研台刷新',
@@ -239,6 +245,60 @@ export async function enqueueTask(input: {
   }
 }
 
+/**
+ * 单只标的补行情：已有原始日线就跳过。
+ * 失败不额外建表，等下一次行情入库的漏项扫描重新入队。
+ */
+export async function enqueueMarketBackfill(code: string): Promise<TaskRecord | null> {
+  if (process.env.COCKPIT_DEMO === '1') return null
+  const normalized = normalizeCode(code)
+  if (!normalized) return null
+  const db = await getDb()
+  const existing = await db.execute({
+    sql: "SELECT 1 FROM market_bars WHERE code = ? AND adjust_type = 'raw' LIMIT 1",
+    args: [normalized],
+  })
+  if (existing.rows[0]) return null
+  const task = await enqueueTask({ type: 'market_backfill', params: { code: normalized } })
+  if (task.status === 'queued') scheduleTaskDrain()
+  return task
+}
+
+/**
+ * 行情入库后扫一遍自选与持仓，仍无日线的标的排队补齐。
+ * 免费源整批入库只取前 60 只，靠这里把漏下的标的逐只补上。
+ */
+export async function queueWatchlistBackfills(limit = MAX_BACKFILLS_PER_SWEEP): Promise<string[]> {
+  if (process.env.COCKPIT_DEMO === '1') return []
+  const safeLimit = Math.max(0, Math.min(MAX_BACKFILLS_PER_SWEEP, Math.floor(limit)))
+  if (safeLimit === 0) return []
+  try {
+    const db = await getDb()
+    const res = await db.execute({
+      sql: `SELECT DISTINCT code FROM (
+              SELECT code FROM watchlist_items
+              UNION
+              SELECT code FROM positions WHERE account_id <> 'demo-account' AND shares > 0
+            ) codes
+            WHERE NOT EXISTS (
+              SELECT 1 FROM market_bars b WHERE b.code = codes.code AND b.adjust_type = 'raw'
+            )
+            ORDER BY code LIMIT ?`,
+      args: [safeLimit],
+    })
+    const codes = res.rows.map((row) => str(row.code)).filter(Boolean)
+    for (const code of codes) {
+      await enqueueTask({ type: 'market_backfill', params: { code } })
+    }
+    // 只在行情入库任务内调用；当前任务结束后 drain 循环会接着认领这些补库任务。
+    return codes
+  } catch (err) {
+    // 补漏是附属步骤；失败不能把已经写入数据的行情入库任务改判为失败。
+    console.error('[cockpit/tasks] backfill sweep', err instanceof Error ? err.message : err)
+    return []
+  }
+}
+
 async function setProgress(id: string, progress: number, step: string): Promise<void> {
   const db = await getDb()
   await db.execute({
@@ -359,6 +419,8 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         : '检查数据源与交易日历')
       const ingest = await ingestMarket({ tradeDate, prefer })
       await setProgress(task.id, 85, '写入日线、广度与成交额')
+      await setProgress(task.id, 92, '排队补齐缺失的自选/持仓行情')
+      const backfillQueued = await queueWatchlistBackfills()
       return {
         tradeDate: ingest.tradeDate,
         source: ingest.source,
@@ -370,7 +432,22 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         turnover: ingest.turnover,
         limitUpDownAvailable: ingest.limitUpDownAvailable,
         limitPoolWritten: ingest.limitPoolWritten,
+        backfillQueued: backfillQueued.length,
         warnings: ingest.warnings,
+      }
+    }
+    case 'market_backfill': {
+      const code = normalizeCode(params.code)
+      if (!code) throw new Error('股票代码无效')
+      const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
+      await setProgress(task.id, 30, '拉取个股日线（东财 → 新浪 → 腾讯）')
+      const ingest = await ingestFreeSymbol({ code, tradeDate })
+      await setProgress(task.id, 90, '写入日线')
+      return {
+        code,
+        tradeDate: ingest.tradeDate,
+        bars: ingest.bars,
+        source: ingest.source,
       }
     }
     case 'akshare_ingest': {
@@ -394,6 +471,7 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       await setProgress(task.id, 15, '拉取收盘行情（Tushare 优先，免费源兜底）')
       const ingest = await ingestMarket({ tradeDate: requested })
       const warnings = [...ingest.warnings]
+      const backfillQueued = await queueWatchlistBackfills()
 
       await setProgress(task.id, 45, '抓取官方公告与政策')
       let documents = 0
@@ -422,6 +500,7 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
           breadth: ingest.breadth,
           turnover: ingest.turnover,
         },
+        backfillQueued: backfillQueued.length,
         documents,
         reportId: report.reportId,
         version: report.version,
@@ -687,7 +766,8 @@ async function finishTask(
     })
   }
   const row = await getTaskRow(task.id)
-  if (!patch.requeue && (status === 'succeeded' || status === 'failed')) {
+  // 自动补库逐只一条会刷屏；状态在自选页与任务中心可见。
+  if (!patch.requeue && task.type !== 'market_backfill' && (status === 'succeeded' || status === 'failed')) {
     const result = patch.result && typeof patch.result === 'object'
       ? patch.result as Record<string, unknown>
       : undefined

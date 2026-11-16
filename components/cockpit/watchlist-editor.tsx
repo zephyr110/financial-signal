@@ -30,7 +30,7 @@ export function WatchlistEditor() {
       }
       setCode('')
       setNote('')
-      setSuccess('已加入自选；下一次行情入库后补齐价格与走势。')
+      setSuccess('已加入自选；行情未入库时会自动排队补齐。')
       await router.replace(router.asPath)
     } catch {
       setError('网络连接失败，未写入自选。')
@@ -42,7 +42,7 @@ export function WatchlistEditor() {
   return (
     <form className="ck-card ck-form" onSubmit={(event) => void submit(event)}>
       <h2 className="ck-form-title">加入观察名单</h2>
-      <p className="ck-form-hint">只登记需要持续验证的标的；没有行情时页面会明确显示待入库，不补造价格。</p>
+      <p className="ck-form-hint">只登记需要持续验证的标的；行情未入库时自动排队补齐，页面明确显示状态，不补造价格。</p>
       <div className="ck-form-row">
         <div className="ck-field">
           <label className="ck-label" htmlFor="watch-code">股票代码</label>

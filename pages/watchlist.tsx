@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 import type { GetServerSideProps } from 'next'
 import type { SourceHealth, WatchlistItem } from '@/lib/cockpit/types'
 import { formatPrice } from '@/lib/cockpit/format'
@@ -24,6 +26,36 @@ interface WatchlistProps {
   loadError?: string
 }
 
+function backfillLabel(status: WatchlistItem['backfill']): string {
+  if (status === 'queued' || status === 'running') return '行情自动补齐中'
+  if (status === 'failed') return '上次补库失败，下次行情入库时重试'
+  return '行情待入库'
+}
+
+/** 补库开始后轮询；任务结束（成功或失败）时重新取服务端数据。 */
+function BackfillRefresh({ active }: { active: boolean }) {
+  const router = useRouter()
+  useEffect(() => {
+    if (!active) return
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          const res = await fetch('/api/cockpit/watchlist', { headers: { Accept: 'application/json' } })
+          if (!res.ok) return
+          const json = await res.json() as { data?: WatchlistItem[] }
+          const waiting = (json.data || []).some((item) =>
+            item.price === null && (item.backfill === 'queued' || item.backfill === 'running'))
+          if (!waiting) await router.replace(router.asPath)
+        } catch {
+          // 网络抖动交给下一次轮询。
+        }
+      })()
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [active, router])
+  return null
+}
+
 export const getServerSideProps: GetServerSideProps<WatchlistProps> = async () => {
   try {
     if (process.env.COCKPIT_DEMO === '1') await ensureCockpitDemoSeed()
@@ -43,6 +75,8 @@ export const getServerSideProps: GetServerSideProps<WatchlistProps> = async () =
 
 export default function WatchlistPage({ items, sourceHealth, loadError }: WatchlistProps) {
   const isDemo = items.some((item) => item.source?.id.startsWith('demo-'))
+  const backfillActive = items.some((item) =>
+    item.price === null && (item.backfill === 'queued' || item.backfill === 'running'))
 
   return (
     <>
@@ -57,9 +91,10 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
         isDemo={isDemo}
         sourceHealth={sourceHealth}
       >
+        <BackfillRefresh active={backfillActive} />
         {loadError && <div className="ck-error-banner">{loadError}</div>}
 
-        <Disclosure title="添加观察对象" hint="代码先入库，行情接入后补齐" headingLevel={2}>
+        <Disclosure title="添加观察对象" hint="加入后自动排队补齐行情" headingLevel={2}>
           <WatchlistEditor />
         </Disclosure>
 
@@ -94,13 +129,15 @@ export default function WatchlistPage({ items, sourceHealth, loadError }: Watchl
                           {item.thesisStatus && <ThesisTag status={item.thesisStatus} />}
                           <SourceChip source={item.source} link={false} />
                           {item.nextEvent && <span>下一事件：{item.nextEvent}</span>}
-                          {item.price === null && <span>行情待入库</span>}
+                          {item.price === null && <span>{backfillLabel(item.backfill)}</span>}
                         </div>
                         {item.note && <p className="ck-watch-note">{item.note}</p>}
                       </div>
                       <div className="ck-watch-side">
                         <p className={`ck-watch-price${item.price === null ? ' is-pending' : ''}`}>
-                          {item.price === null ? '待入库' : formatPrice(item.price)}
+                          {item.price === null
+                            ? (item.backfill === 'queued' || item.backfill === 'running' ? '补齐中' : '待入库')
+                            : formatPrice(item.price)}
                         </p>
                         {item.price !== null && <DeltaValue value={item.changePct} />}
                         {item.sparkline.length > 1 && (

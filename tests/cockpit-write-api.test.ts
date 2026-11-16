@@ -14,6 +14,15 @@ vi.mock('../lib/auth', () => ({
   SESSION_COOKIE: 'session',
 }))
 
+// 入队补库会真的调度 worker；接口测试只核对入队参数，不触发网络行情。
+const backfillMock = vi.hoisted(() => ({
+  enqueueMarketBackfill: vi.fn(async () => null),
+}))
+vi.mock('../lib/cockpit/tasks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/cockpit/tasks')>()
+  return { ...actual, enqueueMarketBackfill: backfillMock.enqueueMarketBackfill }
+})
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cockpit-write-api-test-'))
 
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
@@ -75,6 +84,7 @@ describe('驾驶舱写入接口', () => {
       expect(created._body.data).toEqual([
         expect.objectContaining({ code: '600519.SH', note: '关注批价' }),
       ])
+      expect(backfillMock.enqueueMarketBackfill).toHaveBeenCalledWith('600519.SH')
 
       const updated = mockRes()
       await watchlistHandler(mockReq('POST', { body: { code: 'SH600519', note: '再看一周' } }), updated)

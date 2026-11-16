@@ -140,7 +140,7 @@ export async function getTodayPayload(tradeDate?: string): Promise<TodayPayload 
 
 export async function getWatchlist(): Promise<WatchlistItem[]> {
   const db = await getDb()
-  const [itemsRes, barsRes, thesisRes, sourcesRes, symbolsRes] = await Promise.all([
+  const [itemsRes, barsRes, thesisRes, sourcesRes, symbolsRes, backfillRes] = await Promise.all([
     db.execute({ sql: 'SELECT code, note, created_at FROM watchlist_items ORDER BY created_at', args: [] }),
     db.execute({
       sql: `SELECT code, trade_date, close, source_id, fetched_at, is_demo
@@ -165,6 +165,13 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
     }),
     db.execute({ sql: 'SELECT * FROM source_registry', args: [] }),
     db.execute({ sql: 'SELECT code, name FROM symbols', args: [] }),
+    // 补库任务没有单独的状态表；取最近一批按代码去重即可。
+    db.execute({
+      sql: `SELECT params_json, status FROM tasks
+            WHERE type = 'market_backfill'
+            ORDER BY created_at DESC, rowid DESC LIMIT 500`,
+      args: [],
+    }),
   ])
 
   const barsByCode = new Map<string, Row[]>()
@@ -176,6 +183,17 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
   const sourceMap = new Map((sourcesRes.rows as unknown as Row[]).map((row) => [str(row.id), row]))
   const nameMap = new Map((symbolsRes.rows as unknown as Row[]).map((row) => [str(row.code), str(row.name)]))
   const thesisMap = new Map((thesisRes.rows as unknown as Row[]).map((row) => [str(row.code), str(row.status)]))
+  const backfillMap = new Map<string, NonNullable<WatchlistItem['backfill']>>()
+  const seenBackfill = new Set<string>()
+  for (const row of backfillRes.rows as unknown as Row[]) {
+    const code = str(parseJson<Record<string, unknown>>(row.params_json, {}).code)
+    if (!code || seenBackfill.has(code)) continue
+    seenBackfill.add(code)
+    const status = str(row.status)
+    if (status === 'queued' || status === 'running' || status === 'failed') {
+      backfillMap.set(code, status)
+    }
+  }
 
   return (itemsRes.rows as unknown as Row[]).map((item) => {
     const code = str(item.code)
@@ -194,6 +212,7 @@ export async function getWatchlist(): Promise<WatchlistItem[]> {
       note: str(item.note) || undefined,
       thesisStatus: thesisMap.get(code) as WatchlistItem['thesisStatus'],
       source: last && sourceId ? sourceRef(sourceMap.get(sourceId), sourceId, str(last.fetched_at)) : undefined,
+      backfill: backfillMap.get(code),
     }
   })
 }
