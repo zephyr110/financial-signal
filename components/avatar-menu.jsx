@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/router";
-import { ChevronRight, GitBranch, LogOut } from "lucide-react";
+import { ChevronRight, GitBranch, LogOut, Settings } from "lucide-react";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import {
   DropdownMenu,
@@ -20,12 +20,12 @@ import {
 
 /**
  * 侧栏底部头像菜单（参考 zlog admin-sidebar）：
- * 用户信息卡 + GitHub / 退出登录。
- * 主题切换归设置弹窗「外观」面板所有，这里不再放第二入口。
+ * 用户信息卡 + 设置 / GitHub / 退出登录。
+ * 设置弹窗是应用配置的唯一入口；主题切换在其「外观」面板里。
  * 折叠为 icon rail 时仅显示头像。
  * username 由 AppSidebar 统一拉取后传入(设置弹窗与头像共用一份用户信息)。
  */
-export default function AvatarMenu({ username = "" }) {
+export default function AvatarMenu({ username = "", onOpenSettings = undefined }) {
   const router = useRouter();
   const { isMobile } = useSidebar();
   const displayName = username;
@@ -89,8 +89,15 @@ export default function AvatarMenu({ username = "" }) {
 
             <DropdownMenuSeparator className="mx-0 my-2" />
 
-            {/* GitHub / 退出 */}
+            {/* 设置 / GitHub / 退出 */}
             <div className="flex flex-col gap-0.5">
+              <DropdownMenuItem
+                className="cursor-pointer gap-2.5 rounded-md px-2.5 py-2 hover:bg-accent hover:text-accent-foreground data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                onClick={() => onOpenSettings?.()}
+              >
+                <Settings size={16} className="shrink-0 opacity-60" />
+                设置
+              </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer gap-2.5 rounded-md px-2.5 py-2 hover:bg-accent hover:text-accent-foreground data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 onClick={() => window.open("https://github.com/zephyr110/financial-signal", "_blank", "noopener")}
