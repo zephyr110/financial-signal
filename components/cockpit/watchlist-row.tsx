@@ -93,12 +93,13 @@ export function WatchlistRow({ item }: { item: WatchlistItem }) {
               />
             </div>
           )}
-          <ChevronDown className={`ck-watch-chevron${open ? ' is-open' : ''}`} aria-hidden="true" />
           <span className="ck-sr-only">{open ? '收起' : '展开'}个股详情</span>
         </div>
       </button>
 
+      {/* 折叠指示与移除按钮同列，默认隐藏，悬停整行时才浮现 */}
       <div className="ck-watch-action">
+        <ChevronDown className={`ck-watch-chevron${open ? ' is-open' : ''}`} aria-hidden="true" />
         <WatchlistRemove code={item.code} name={item.name} />
       </div>
 

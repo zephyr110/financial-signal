@@ -1917,9 +1917,9 @@ a.ck-chip:hover {
 
 .ck-watch-chevron {
   display: block;
+  flex: none;
   width: 14px;
   height: 14px;
-  margin: 2px 0 0 auto;
   color: var(--ck-faint);
   transition: transform 180ms ease;
 }
@@ -2055,7 +2055,25 @@ a.ck-chip:hover {
 .ck-watch-action {
   grid-column: 1 / -1;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 4px;
+}
+
+/* 折叠指示与移除按钮默认隐去，悬停整行或键盘聚焦时才浮现。
+   触屏没有 hover，经媒体查询排除后保持常显，避免移除入口消失。 */
+@media (hover: hover) and (pointer: fine) {
+  .ck-watch-action {
+    opacity: 0;
+    transition: opacity 160ms ease;
+  }
+
+  .ck-watch-row:hover .ck-watch-action,
+  .ck-watch-row:focus-within .ck-watch-action,
+  /* 确认移除态必须可见，鼠标一移开就看不见自己在确认什么 */
+  .ck-watch-row:has(.ck-inline-actions) .ck-watch-action {
+    opacity: 1;
+  }
 }
 
 /* ---------- 个股 ---------- */
