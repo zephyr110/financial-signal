@@ -1,8 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/router'
+import { CalendarDays, ChevronDown } from 'lucide-react'
+import { zhCN } from 'date-fns/locale'
 import type { ThesisView } from '@/lib/cockpit/types'
 import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -15,6 +19,22 @@ const ACTION_OPTIONS = [
   { value: 'review', label: '复盘旧决定' },
 ]
 
+const DATE_LABEL = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+
+/** 用本地年月日构造，避免 Date 解析 UTC 字符串在非东八区把日期挪一天。 */
+function parseDateValue(value: string): Date | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return undefined
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function dateValue(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 export function JournalComposer({
   today,
   theses,
@@ -24,6 +44,7 @@ export function JournalComposer({
 }) {
   const router = useRouter()
   const [entryDate, setEntryDate] = useState(today)
+  const [calendarOpen, setCalendarOpen] = useState(false)
   const [action, setAction] = useState('watch')
   const [code, setCode] = useState('')
   const [thesisId, setThesisId] = useState('')
@@ -31,6 +52,7 @@ export function JournalComposer({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const entryDateValue = parseDateValue(entryDate)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -78,14 +100,36 @@ export function JournalComposer({
       <div className="ck-form-row">
         <div className="ck-field">
           <label className="ck-label" htmlFor="journal-date">日期</label>
-          <Input
-            className="text-base md:text-sm"
-            id="journal-date"
-            type="date"
-            value={entryDate}
-            required
-            onChange={(event) => setEntryDate(event.target.value)}
-          />
+          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+            <PopoverTrigger
+              render={
+                <Button
+                  className="w-full justify-start gap-2 text-base font-normal md:text-sm"
+                  id="journal-date"
+                  type="button"
+                  variant="outline"
+                />
+              }
+            >
+              <CalendarDays className="text-muted-foreground" />
+              {entryDateValue ? DATE_LABEL.format(entryDateValue) : '选择日期'}
+              <ChevronDown className="ml-auto text-muted-foreground" />
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-auto p-0">
+              <Calendar
+                autoFocus
+                defaultMonth={entryDateValue}
+                locale={zhCN}
+                mode="single"
+                selected={entryDateValue}
+                onSelect={(date) => {
+                  if (!date) return
+                  setEntryDate(dateValue(date))
+                  setCalendarOpen(false)
+                }}
+              />
+            </PopoverContent>
+          </Popover>
         </div>
         <div className="ck-field">
           <label className="ck-label" htmlFor="journal-action">动作</label>
