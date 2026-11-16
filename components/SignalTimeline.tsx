@@ -18,7 +18,7 @@ export default function SignalTimeline({ items, hasMore, loading, onLoadMore }: 
   }
 
   return (
-    <div>
+    <div className="max-h-[min(70vh,40rem)] overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
       <ul className="space-y-4 list-none">
         {items.map((item) => (
           <li key={item.id}><AnalysisNewsCard item={item} /></li>
