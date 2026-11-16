@@ -46,6 +46,8 @@ export { tryParseToolCall };
 
 export interface RunTurnOptions {
   sessionId?: number;
+  /** 当前登录账号；null/未提供时沿用 legacy 全局作用域 */
+  userId?: number | null;
   userMessage: string;
   /** 编辑重发：替换该消息内容并删除其后全部消息，不再追加新用户消息 */
   editingId?: number;
@@ -116,7 +118,7 @@ export async function runAgentTurn(
   // 前端拿到新 sessionId 后自动续用，用户无感。
   let opts = input;
   if (opts.sessionId != null) {
-    const exists = await agentSessionExists(opts.sessionId);
+    const exists = await agentSessionExists(opts.sessionId, opts.userId);
     if (!exists) {
       console.warn(`[agent] session ${opts.sessionId} not found, falling back to a new session`);
       opts = { ...opts, sessionId: undefined };
@@ -127,7 +129,7 @@ export async function runAgentTurn(
 
   let sessionId: number;
   try {
-    sessionId = opts.sessionId ?? (await createAgentSession(opts.userMessage.slice(0, 20)));
+    sessionId = opts.sessionId ?? (await createAgentSession(opts.userMessage.slice(0, 20), opts.userId));
     const release = await acquireAgentSessionLock(sessionId);
     let turnId: string | null = null;
     let turnStatus: 'succeeded' | 'failed' = 'failed';
@@ -228,7 +230,7 @@ export async function runAgentTurn(
       },
     });
     contextTokens = estimateContextTokens(history);
-    const memoryPrompt = await loadAgentMemoryPrompt();
+    const memoryPrompt = await loadAgentMemoryPrompt(12, opts.userId);
     const systemPrompt = buildAgentSystemPrompt(buildToolPrompt(), memoryPrompt);
 
     while (llmCalls < maxLlmCalls) {
@@ -335,7 +337,7 @@ export async function runAgentTurn(
       let resultText: string;
       let ok = true;
       try {
-        resultText = await tool.execute(toolCall.args || {}, { sessionId, turnId });
+        resultText = await tool.execute(toolCall.args || {}, { sessionId, turnId, userId: opts.userId ?? null });
         if (resultText.length > TOOL_RESULT_MAX_CHARS) {
           resultText = resultText.slice(0, TOOL_RESULT_MAX_CHARS) + '\n…(结果过长已截断)';
         }

@@ -11,6 +11,7 @@ const SOURCE_SEEDS = [
   { id: 'tushare', name: 'Tushare Pro', tier: 1, kind: 'market', base_url: 'https://tushare.pro' },
   { id: 'akshare', name: 'AKShare（东财等公开接口）', tier: 2, kind: 'market', base_url: 'https://akshare.akfamily.xyz' },
   { id: 'cboe', name: 'CBOE 延迟行情', tier: 1, kind: 'overseas', base_url: 'https://cdn-api.cboe.com' },
+  { id: 'realtime', name: '可选付费快照源', tier: 1, kind: 'market', base_url: '' },
 ] as const
 
 export async function ensureCockpitSources(): Promise<void> {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import type { GetServerSideProps } from 'next'
 import { useRouter } from 'next/router'
-import { CloudSun, Gauge, Loader2, Radar, RefreshCw, ShieldAlert, TrendingUp } from 'lucide-react'
+import { CloudSun, Gauge, Loader2, Radar, RefreshCw, ShieldAlert, Timer, TrendingUp } from 'lucide-react'
 import AppShell from '@/components/app-shell'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,7 @@ import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
 import { formatPrice, formatSignedPct } from '@/lib/cockpit/format'
 import { serializable } from '@/lib/cockpit/page-data'
 import { getDeskSnapshot, getDeskStatus } from '@/lib/desk/repo'
-import type { DeskSnapshot, DeskStatus, JudgmentView, OverseasQuoteView } from '@/lib/desk/types'
+import type { DeskSnapshot, DeskStatus, JudgmentView, OverseasQuoteView, RealtimeQuoteView } from '@/lib/desk/types'
 import { CONTENT_GUTTER } from '@/lib/layout-classes'
 
 interface DeskPageProps {
@@ -42,6 +42,7 @@ function emptySnapshot(): DeskSnapshot {
     industries: [],
     alerts: [],
     overseas: [],
+    realtime: [],
     dataQuality: [],
     isDemo: false,
     generatedAt: new Date().toISOString(),
@@ -81,6 +82,47 @@ function freshness(iso?: string | null) {
 function changeClass(value?: number | null) {
   if (value == null || value === 0) return 'text-muted-foreground'
   return value > 0 ? 'text-chart-3' : 'text-chart-2'
+}
+
+function delayLabel(seconds: number) {
+  if (seconds < 60) return `延迟 ${seconds} 秒`
+  return `延迟 ${Math.round(seconds / 60)} 分钟`
+}
+
+/** 延迟行情独立于当日判断：没有市场判断时也要能看到，且永远标注延迟。 */
+function RealtimeQuotes({ quotes }: { quotes: RealtimeQuoteView[] }) {
+  if (!quotes.length) return null
+  return (
+    <div className="border-t border-border/60">
+      <div className="flex items-center justify-between bg-muted/30 px-4 py-1.5 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1"><Timer className="size-3.5" />行情快照</span>
+        <span>{delayLabel(Math.max(...quotes.map((quote) => quote.delaySeconds)))}</span>
+      </div>
+      {quotes.map((quote) => (
+        <RealtimeRow key={`${quote.code}:${quote.tradeTime}`} quote={quote} />
+      ))}
+    </div>
+  )
+}
+
+function RealtimeRow({ quote }: { quote: RealtimeQuoteView }) {
+  return (
+    <div className="relative flex items-center justify-between gap-2 px-4 py-2 text-xs after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
+      <div className="min-w-0">
+        <p className="truncate font-medium">{quote.name || quote.code}</p>
+        {/* 延迟秒数由数据源给出，界面只用「延迟」措辞 */}
+        <p className="text-[10px] text-muted-foreground" suppressHydrationWarning>
+          {quote.code} · {delayLabel(quote.delaySeconds)} · {freshness(quote.fetchedAt)}
+        </p>
+      </div>
+      <div className="shrink-0 text-right tabular-nums">
+        <p>{formatPrice(quote.price)}</p>
+        <p className={changeClass(quote.changePct)}>
+          {quote.changePct == null ? '—' : formatSignedPct(quote.changePct)}
+        </p>
+      </div>
+    </div>
+  )
 }
 
 function OverseasRow({ quote }: { quote: OverseasQuoteView }) {
@@ -278,6 +320,11 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                 {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                 生成今日快照
               </Button>
+              {snapshot.realtime.length > 0 && (
+                <div className="mt-2 w-full max-w-md">
+                  <RealtimeQuotes quotes={snapshot.realtime} />
+                </div>
+              )}
             </div>
           ) : (
             <div className={`grid min-h-0 flex-1 auto-rows-max grid-cols-1 gap-3 overflow-y-auto py-3 md:grid-cols-2 lg:py-4 xl:auto-rows-fr xl:grid-cols-4 xl:overflow-hidden ${CONTENT_GUTTER}`}>
@@ -315,15 +362,21 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                     </button>
                     <div className="flex shrink-0 items-center justify-between bg-muted/30 px-4 py-1.5 text-[11px] text-muted-foreground">
                       <span className="flex items-center gap-1"><CloudSun className="size-3.5" />外盘隔夜</span>
-                      <span>15 分钟延迟</span>
+                      <span>{snapshot.overseas[0]?.delayMinutes ? `${snapshot.overseas[0].delayMinutes} 分钟延迟` : '延迟数据'}</span>
                     </div>
                     <div className="xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                       {snapshot.overseas.length
                         ? snapshot.overseas.map((quote) => <OverseasRow key={quote.symbol} quote={quote} />)
                         : <EmptyHint>暂无外盘行情</EmptyHint>}
+                      <RealtimeQuotes quotes={snapshot.realtime} />
                     </div>
                   </div>
-                ) : <EmptyHint>今天还没有生成市场判断，点右上角刷新。</EmptyHint>}
+                ) : (
+                  <div className="flex min-h-0 flex-col xl:flex-1">
+                    <EmptyHint>今天还没有生成市场判断，点右上角刷新。</EmptyHint>
+                    <RealtimeQuotes quotes={snapshot.realtime} />
+                  </div>
+                )}
               </DeskPanel>
 
               <DeskPanel

@@ -2,6 +2,7 @@ import { createClient } from '@libsql/client';
 import type { Client, InStatement, Transaction, TransactionMode } from '@libsql/client';
 import { industryDisplayName } from './constants';
 import { cachedRead, readCacheKey, READ_CACHE_TTL, clearReadCache } from './read-cache';
+import { ftsMatchQuery, hasFtsTable } from './search/fts';
 import crypto from 'crypto';
 import path from 'path';
 
@@ -167,6 +168,9 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 12, name: 'Agent 回合遥测/任务 lane/分享生命周期', up: migrationAgentTelemetrySchema },
   { version: 13, name: '预警深挖调查与步骤表', up: migrationDeskInvestigationSchema },
   { version: 14, name: 'Agent 记忆/研究项目/安全动作', up: migrationAgentMemorySchema },
+  { version: 15, name: 'FTS5 文档与会话消息全文检索', up: migrationFtsSearch },
+  { version: 16, name: '可选实时源快照表（必带延迟秒数）', up: migrationRealtimeQuotes },
+  { version: 17, name: 'Agent 个人数据按账号隔离', up: migrationAgentUserScope },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -795,6 +799,91 @@ async function migrationAgentMemorySchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_action_status ON agent_action(status, created_at DESC);
   `);
+}
+
+/** v15：FTS5 全文检索。trigram 分词才能命中中文连续文本；不支持 FTS5 的
+ *  引擎（Turso 新 Rust 内核）整段跳过，运行时检索自动回退 LIKE。 */
+async function migrationFtsSearch(db) {
+  try {
+    await db.executeMultiple(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(
+        doc_id UNINDEXED, title, full_text, issuer, metadata_json, tokenize='trigram'
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+        message_id UNINDEXED, session_id UNINDEXED, content, tokenize='trigram'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS source_documents_fts_ai AFTER INSERT ON source_documents BEGIN
+        INSERT INTO docs_fts (doc_id, title, full_text, issuer, metadata_json)
+        VALUES (new.id, new.title, COALESCE(new.full_text, ''), COALESCE(new.issuer, ''), COALESCE(new.metadata_json, ''));
+      END;
+      CREATE TRIGGER IF NOT EXISTS source_documents_fts_ad AFTER DELETE ON source_documents BEGIN
+        DELETE FROM docs_fts WHERE doc_id = old.id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS source_documents_fts_au AFTER UPDATE ON source_documents BEGIN
+        DELETE FROM docs_fts WHERE doc_id = old.id;
+        INSERT INTO docs_fts (doc_id, title, full_text, issuer, metadata_json)
+        VALUES (new.id, new.title, COALESCE(new.full_text, ''), COALESCE(new.issuer, ''), COALESCE(new.metadata_json, ''));
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS agent_message_fts_ai AFTER INSERT ON agent_message BEGIN
+        INSERT INTO messages_fts (message_id, session_id, content) VALUES (new.id, new.session_id, new.content);
+      END;
+      CREATE TRIGGER IF NOT EXISTS agent_message_fts_ad AFTER DELETE ON agent_message BEGIN
+        DELETE FROM messages_fts WHERE message_id = old.id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS agent_message_fts_au AFTER UPDATE ON agent_message BEGIN
+        DELETE FROM messages_fts WHERE message_id = old.id;
+        INSERT INTO messages_fts (message_id, session_id, content) VALUES (new.id, new.session_id, new.content);
+      END;
+    `)
+    // 先清空再回填：迁移中断重跑时不会留下重复索引行。
+    await db.execute('DELETE FROM docs_fts')
+    await db.execute(`INSERT INTO docs_fts (doc_id, title, full_text, issuer, metadata_json)
+      SELECT id, title, COALESCE(full_text, ''), COALESCE(issuer, ''), COALESCE(metadata_json, '') FROM source_documents`)
+    await db.execute('DELETE FROM messages_fts')
+    await db.execute(`INSERT INTO messages_fts (message_id, session_id, content)
+      SELECT id, session_id, content FROM agent_message`)
+  } catch (err) {
+    console.warn('[db] FTS5 不可用，检索将回退 LIKE:', (err as Error).message)
+  }
+}
+
+/** v16：可选付费源的行情快照。delay_seconds 非空，展示层永远带延迟标注。 */
+async function migrationRealtimeQuotes(db) {
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS realtime_quotes (
+      code TEXT NOT NULL,
+      name TEXT,
+      price REAL NOT NULL,
+      previous_close REAL,
+      change_pct REAL,
+      trade_time TEXT NOT NULL,
+      delay_seconds INTEGER NOT NULL,
+      source_id TEXT NOT NULL,
+      fetched_at TEXT NOT NULL,
+      is_demo INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (code, trade_time)
+    );
+    CREATE INDEX IF NOT EXISTS idx_realtime_quotes_time ON realtime_quotes(code, trade_time DESC);
+  `);
+}
+
+/** v17：Agent 会话/记忆/项目/动作按账号隔离。历史行 user_id 为 NULL，
+ *  查询时视为 legacy 全局可见，升级后既有数据不消失。 */
+async function migrationAgentUserScope(db) {
+  // 逐表检查：跳过 v1 基线的遗老库可能缺 agent_session，索引不能无条件建
+  const indexes: Array<[string, string]> = [
+    ['agent_session', 'CREATE INDEX IF NOT EXISTS idx_agent_session_user ON agent_session(user_id, updated_at DESC)'],
+    ['agent_memory', 'CREATE INDEX IF NOT EXISTS idx_agent_memory_user ON agent_memory(user_id, scope, status)'],
+    ['agent_project', 'CREATE INDEX IF NOT EXISTS idx_agent_project_user ON agent_project(user_id, status, updated_at DESC)'],
+    ['agent_action', 'CREATE INDEX IF NOT EXISTS idx_agent_action_user ON agent_action(user_id, status, created_at DESC)'],
+  ]
+  for (const [table, indexSql] of indexes) {
+    if (!(await tableExists(db, table))) continue
+    await addColumnIfMissing(db, table, 'user_id', 'INTEGER')
+    await db.execute(indexSql)
+  }
 }
 
 /** 表是否存在：迁移需兼容 PRAGMA 时代跳过了 v1 的库。 */
@@ -1821,25 +1910,30 @@ export async function getEventThreadById(id: number) {
 
 // ── Agent Session CRUD（研究 Agent 持久化） ──
 
-/** 会话是否存在（前端缓存了已删除会话时，发消息前校验防外键错误）。 */
-export async function agentSessionExists(sessionId: number): Promise<boolean> {
+/** 会话是否存在（前端缓存了已删除会话时，发消息前校验防外键错误）。
+ *  传 userId 时一并校验归属；历史 NULL 行视为 legacy，对所有账号可见。 */
+export async function agentSessionExists(sessionId: number, userId?: number | null): Promise<boolean> {
   const db = await getDb();
-  const r = await db.execute({ sql: 'SELECT id FROM agent_session WHERE id = ?', args: [sessionId] });
+  const scoped = userId != null;
+  const r = await db.execute({
+    sql: `SELECT id FROM agent_session WHERE id = ?${scoped ? ' AND (user_id = ? OR user_id IS NULL)' : ''}`,
+    args: scoped ? [sessionId, userId] : [sessionId],
+  });
   return r.rows.length > 0;
 }
 
 /** 创建研究会话，返回 session id。 */
-export async function createAgentSession(title = '新会话') {
+export async function createAgentSession(title = '新会话', userId?: number | null) {
   const db = await getDb();
   const result = await db.execute({
-    sql: 'INSERT INTO agent_session (title) VALUES (?)',
-    args: [title],
+    sql: 'INSERT INTO agent_session (title, user_id) VALUES (?, ?)',
+    args: [title, userId ?? null],
   });
   return rowId(result.lastInsertRowid);
 }
 
 /** 列出研究会话（倒序）。 */
-export async function listAgentSessions(limit = 20, opts: { offset?: number; query?: string } = {}) {
+export async function listAgentSessions(limit = 20, opts: { offset?: number; query?: string; userId?: number | null } = {}) {
   const page = await listAgentSessionsPage({ ...opts, limit });
   return page.sessions;
 }
@@ -1849,28 +1943,56 @@ export async function listAgentSessionsPage(opts: {
   limit?: number;
   offset?: number;
   query?: string;
+  userId?: number | null;
 } = {}) {
   const db = await getDb();
   const limit = Math.max(1, Math.min(100, Math.floor(opts.limit ?? 20)));
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const query = (opts.query || '').trim();
-  const where = query
-    ? `WHERE s.title LIKE ? OR EXISTS (
-         SELECT 1 FROM agent_message m WHERE m.session_id = s.id AND m.content LIKE ?
-       )`
-    : '';
-  const args = query ? [`%${query}%`, `%${query}%`] : [];
-  const totalRes = await db.execute({
-    sql: `SELECT COUNT(*) AS n FROM agent_session s ${where}`,
-    args,
-  });
-  const rows = await db.execute({
-    sql: `SELECT s.id, s.title, s.created_at, s.updated_at
-          FROM agent_session s ${where}
-          ORDER BY s.updated_at DESC LIMIT ? OFFSET ?`,
-    args: [...args, limit, offset],
-  });
-  return { sessions: rows.rows, total: Number(totalRes.rows[0]?.n || 0) };
+  const match = query ? ftsMatchQuery(query) : null;
+  const useFts = match != null && await hasFtsTable(db, 'messages_fts');
+
+  const page = async (fts: boolean) => {
+    const clauses: string[] = [];
+    const args: unknown[] = [];
+    if (opts.userId != null) {
+      clauses.push('(s.user_id = ? OR s.user_id IS NULL)');
+      args.push(opts.userId);
+    }
+    if (query) {
+      clauses.push(fts
+        ? `(s.title LIKE ? OR EXISTS (
+             SELECT 1 FROM messages_fts
+             JOIN agent_message m ON m.id = messages_fts.message_id
+             WHERE messages_fts MATCH ? AND m.session_id = s.id
+           ))`
+        : `(s.title LIKE ? OR EXISTS (
+             SELECT 1 FROM agent_message m WHERE m.session_id = s.id AND m.content LIKE ?
+           ))`);
+      args.push(`%${query}%`, fts ? match : `%${query}%`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const totalRes = await db.execute({
+      sql: `SELECT COUNT(*) AS n FROM agent_session s ${where}`,
+      args,
+    });
+    const rows = await db.execute({
+      sql: `SELECT s.id, s.title, s.created_at, s.updated_at
+            FROM agent_session s ${where}
+            ORDER BY s.updated_at DESC LIMIT ? OFFSET ?`,
+      args: [...args, limit, offset],
+    });
+    return { sessions: rows.rows, total: Number(totalRes.rows[0]?.n || 0) };
+  }
+
+  if (useFts) {
+    try {
+      return await page(true);
+    } catch {
+      // FTS 索引异常时保持搜索可用
+    }
+  }
+  return page(false);
 }
 
 // ── Agent 回合遥测 ──

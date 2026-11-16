@@ -61,6 +61,15 @@ describe('desk investigation', () => {
     const target = alerts.find((alert) => alert.industry) || alerts[0]
     alertId = target.id
     alertIndustry = target.industry || ''
+
+    // 反方核查的固定样本：近期负面文档，按行业标题命中
+    const db = await dbModule.getDb()
+    await db.execute({
+      sql: `INSERT INTO source_documents
+              (id, source_id, doc_type, title, published_at, full_text, metadata_json, fetched_at)
+            VALUES ('counter-test-doc', 'exchange', 'announcement', ?, ?, '业绩不及预期，股东减持', '{"note":"counter-test"}', ?)`,
+      args: [`${alertIndustry || '半导体'}样本公司业绩不及预期`, new Date().toISOString(), new Date().toISOString()],
+    })
   })
 
   beforeEach(() => {
@@ -93,10 +102,19 @@ describe('desk investigation', () => {
     expect(done.conclusion).toContain('证据引用')
     expect(done.conclusion).toContain(alertIndustry)
     expect(done.steps.some((step) => step.kind === 'evidence')).toBe(true)
+    expect(done.steps.some((step) => step.kind === 'counter')).toBe(true)
     expect(done.steps.some((step) => step.kind === 'conclusion')).toBe(true)
+    expect(done.conclusion).toContain('反方核验')
     expect(done.confidence).toBeTruthy()
     expect(done.evidenceStrength).toBeTruthy()
     expect(done.progress).toBe(100)
+    expect(mock.chatCompletion).not.toHaveBeenCalled()
+  })
+
+  it('反方证据做确定性核查，不增加模型调用', async () => {
+    const counter = await inv.collectCounterEvidence({ industry: alertIndustry || undefined })
+    expect(counter.digest).toContain('反方核查')
+    expect(counter.refs.some((ref) => ref.kind === 'counter')).toBe(true)
     expect(mock.chatCompletion).not.toHaveBeenCalled()
   })
 

@@ -12,7 +12,7 @@ Repository: [github.com/zephyr110/financial-signal](https://github.com/zephyr110
 - **Desk (`/desk`)** — the cockpit: market pulse with score / stance / confidence, ranked industry judgments, open risk alerts with one-click deep dive, and overnight overseas quotes. Full-screen, multi-panel, and designed to stay on one screen.
 - **Watchlist & portfolio (`/watchlist`, `/portfolio`)** — codes, industry exposure and your own notes; industry judgments are ordered by what you actually hold.
 - **Research notes (`/research`)** — theses, evidence and a journal of decisions with their outcomes.
-- **Research agent (`/agent`)** — ask questions over the local archive; the agent can save memories, pin evidence to projects, document watch items and queue investigations. Sessions can be shared as read-only links.
+- **Research agent (`/agent`)** — ask questions over the local archive; the agent can save memories, pin evidence to projects, document watch items and queue investigations. Sessions can be shared as read-only links. Sessions, memories, projects and action proposals are scoped to the signed-in account; rows created before this change stay visible as legacy shared data.
 - **Signal analysis (`/analysis`)** — the original news pipeline: LLM scoring, entity mapping, event threads and industry backtests.
 - **Task center (`/tasks`)** — a single worker with `core` / `interactive` lanes; each task shows progress, attempts, cost and live events.
 
@@ -45,6 +45,7 @@ CBOE delayed quotes ─────► overnight context            └─► ev
 | Tushare Pro | T1 | Daily bars, trading calendar (`TUSHARE_TOKEN`) |
 | AKShare | T2 | Supplementary market data via public endpoints |
 | CBOE delayed quotes | T1 | Overnight S&P 500 / NASDAQ 100 / Dow, 15-minute delay |
+| Optional paid snapshot | T1 | Quotes/news with per-item `delaySeconds` (`REALTIME_SOURCE_URL`); disabled by default, items without a delay label are dropped |
 | Sina / 10jqka / Wallstreetcn | news | 7×24 flash news for the signal pipeline |
 
 - Every displayed judgment carries its evidence, source name and timestamp.

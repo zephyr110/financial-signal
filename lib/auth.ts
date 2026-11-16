@@ -132,15 +132,20 @@ export async function login(username: string, password: string): Promise<string 
   return token;
 }
 
-/** token 有效且未过期 → 返回账号名；否则 null。
+export interface SessionIdentity {
+  username: string;
+  userId: number;
+}
+
+/** token 有效且未过期 → 返回账号名与账号 id；否则 null。
  * 滑动续期节流：仅当剩余有效期不足 1/3 时才延长 expires_at（原实现每次请求
  * 都 UPDATE 写库——每请求一次写放大）；顺带概率性清理过期会话（防表无限膨胀）。 */
-export async function getSessionUser(token: string | undefined | null): Promise<string | null> {
+export async function getSessionIdentity(token: string | undefined | null): Promise<SessionIdentity | null> {
   if (!token) return null;
   const db = await getAuthDb();
   const h = hashToken(token);
   const row = await db.execute({
-    sql: 'SELECT a.username, s.expires_at FROM app_session s JOIN app_account a ON a.id = s.user_id WHERE s.token = ? LIMIT 1',
+    sql: 'SELECT a.id, a.username, s.expires_at FROM app_session s JOIN app_account a ON a.id = s.user_id WHERE s.token = ? LIMIT 1',
     args: [h],
   });
   if (row.rows.length === 0) return null;
@@ -168,7 +173,14 @@ export async function getSessionUser(token: string | undefined | null): Promise<
       });
     } catch { /* 清理失败不影响主流程 */ }
   }
-  return String(acc.username);
+  const userId = Number(acc.id);
+  if (!Number.isInteger(userId) || userId <= 0) return null;
+  return { username: String(acc.username), userId };
+}
+
+/** 保留旧签名：只关心账户名的调用方不必解构。 */
+export async function getSessionUser(token: string | undefined | null): Promise<string | null> {
+  return (await getSessionIdentity(token))?.username ?? null;
 }
 
 export async function logout(token: string | undefined | null): Promise<void> {

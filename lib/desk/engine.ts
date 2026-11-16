@@ -4,6 +4,7 @@ import { dateShanghai, formatTime } from '../cockpit/format'
 import type { IndustryDailyView, DeskEvidence, DeskRefreshResult, DeskSeverity } from './types'
 import { personalIndustrySet } from './personal'
 import { refreshOverseasQuotes } from './overseas'
+import { refreshRealtimeFeed } from '../cockpit/sources/realtime'
 import { getOverseasQuotes } from './repo'
 
 type Row = Record<string, unknown>
@@ -691,6 +692,17 @@ export async function refreshDesk(options: {
     warnings.push(`外盘行情未更新：${err instanceof Error ? err.message : String(err)}`)
   }
 
+  // 未配置时零网络请求；配置后失败只记告警，不影响主刷新。
+  await options.onProgress?.(30, '拉取付费快照源')
+  let realtimeCount = 0
+  try {
+    const realtime = await refreshRealtimeFeed({ fetchImpl: options.fetchImpl })
+    realtimeCount = realtime.quotes + realtime.news
+    warnings.push(...realtime.warnings)
+  } catch (err) {
+    warnings.push(`付费快照源未更新：${err instanceof Error ? err.message : String(err)}`)
+  }
+
   const marketInputs = await loadMarketInputs(tradeDate)
   const market = marketJudgment(marketInputs, tradeDate, industryData.sourceMap)
 
@@ -844,6 +856,7 @@ export async function refreshDesk(options: {
     events: industryData.events.length,
     evaluations,
     overseas: overseasCount,
+    realtime: realtimeCount,
     warnings,
     isDemo,
   }

@@ -8,6 +8,7 @@ import { chatCompletion } from '../llm/client'
 import { getEffectiveLlmConfig, PRICING } from '../llm/config'
 import { tryParseToolCall } from '../agent/tool-call'
 import { todayShanghai } from '../cockpit/format'
+import { searchSourceDocuments } from '../search/fts'
 import { getOverseasQuotes } from './repo'
 import type {
   DeskConfidence,
@@ -25,6 +26,8 @@ export const AUTO_BUDGET: InvestigationBudget = { maxSteps: 6, timeoutMs: 45_000
 
 const AUTO_MIN_SCORE = 3
 const MAX_CONCLUSION_CHARS = 700
+const COUNTER_WINDOW_DAYS = 14
+const COUNTER_KEYWORDS = ['下滑', '不及预期', '减持', '处罚', '诉讼', '终止', '下调', '亏损', '违约', '风险']
 
 interface EvidenceRef {
   ref: string
@@ -197,21 +200,99 @@ export async function collectEvidence(input: {
   }
 }
 
+/**
+ * 反方证据：不额外调用模型，在主证据收集后做一次确定性反查。
+ * 引用同样落到证据引用号，但置信度只用正向证据计算。
+ */
+export async function collectCounterEvidence(input: {
+  industry?: string
+  symbolCode?: string
+}): Promise<EvidenceBundle> {
+  const db = await getDb()
+  const refs: EvidenceRef[] = []
+  const lines: string[] = []
+  const keywordSql = COUNTER_KEYWORDS.map(() => '(d.title LIKE ? OR d.full_text LIKE ?)').join(' OR ')
+  const args: unknown[] = COUNTER_KEYWORDS.flatMap((word) => [`%${word}%`, `%${word}%`])
+  const filters: string[] = []
+  if (input.symbolCode) {
+    filters.push("(json_extract(d.metadata_json, '$.code') = ? OR d.metadata_json LIKE ?)")
+    args.push(input.symbolCode, `%${input.symbolCode}%`)
+  }
+  if (input.industry) {
+    filters.push('(s.industry_l1 = ? OR d.metadata_json LIKE ? OR d.title LIKE ?)')
+    args.push(input.industry, `%${input.industry}%`, `%${input.industry}%`)
+  }
+  const filterSql = filters.length ? `AND (${filters.join(' OR ')})` : ''
+  const docs = await db.execute({
+    sql: `SELECT DISTINCT d.id, d.title, d.source_id, d.published_at
+          FROM source_documents d
+          LEFT JOIN symbols s ON s.code = json_extract(d.metadata_json, '$.code')
+          WHERE d.published_at >= datetime('now', ?)
+            AND (${keywordSql})
+            ${filterSql}
+          ORDER BY d.published_at DESC LIMIT 4`,
+    args: [`-${COUNTER_WINDOW_DAYS} days`, ...args],
+  })
+  for (const row of docs.rows as unknown as Row[]) {
+    const ref = `doc:${str(row.id)}`
+    refs.push({
+      ref,
+      kind: 'counter',
+      label: `反方：${str(row.title)}`,
+      value: `${str(row.source_id)} ${str(row.published_at)}`,
+    })
+    lines.push(`反方文档：${ref}｜${str(row.published_at)}｜${str(row.title)}`)
+  }
+
+  let industryHit = 0
+  if (input.industry) {
+    const res = await db.execute({
+      sql: 'SELECT * FROM industry_daily WHERE industry = ? ORDER BY trade_date DESC LIMIT 5',
+      args: [input.industry],
+    })
+    for (const row of res.rows as unknown as Row[]) {
+      const weak = num(row.avg_pct) < 0 || num(row.breadth) < 50 || num(row.momentum_5d) < 0
+      if (!weak) continue
+      industryHit++
+      const ref = `industry:${str(row.industry)}:${str(row.trade_date)}`
+      refs.push({
+        ref,
+        kind: 'counter',
+        label: `反方行业：${str(row.industry)} ${str(row.trade_date)}`,
+        value: `涨跌均值 ${num(row.avg_pct)}%，广度 ${num(row.breadth)}%，5日动量 ${num(row.momentum_5d)}%`,
+      })
+      lines.push(`反方行业：${ref}｜均值 ${num(row.avg_pct)}%｜广度 ${num(row.breadth)}%｜5日动量 ${num(row.momentum_5d)}%`)
+    }
+  }
+
+  let overseasHit = 0
+  if (input.industry) {
+    for (const quote of await getOverseasQuotes()) {
+      if ((quote.changePct ?? 0) >= 0) continue
+      overseasHit++
+      const ref = `overseas:${quote.symbol}:${quote.tradeTime}`
+      refs.push({ ref, kind: 'counter', label: `反方外盘：${quote.symbol}`, value: `${quote.changePct}%` })
+      lines.push(`反方外盘：${ref}｜${quote.symbol} ${quote.changePct}%（延迟 ${quote.delayMinutes ?? '?'} 分钟）`)
+      if (overseasHit >= 2) break
+    }
+  }
+
+  const summary = `反方核查：最近 ${COUNTER_WINDOW_DAYS} 天按「${COUNTER_KEYWORDS.join('/')}」检索命中 ${docs.rows.length} 条文档`
+    + `；行业弱势 ${industryHit} 条；外盘下跌 ${overseasHit} 条。`
+  lines.unshift(summary)
+  if (!refs.length) lines.push('未找到反方证据（已核对文档、行业广度与外盘方向），数据缺口仍需在结论中说明。')
+  return { refs, digest: lines.join('\n'), lines }
+}
+
 async function searchDocuments(args: Record<string, unknown>): Promise<ToolResult> {
   const query = String(args.query || '').trim()
   if (query.length < 2) return { text: 'query 至少 2 个字符', refs: [] }
   const days = Math.max(1, Math.min(30, num(args.days, 14)))
   const db = await getDb()
-  const res = await db.execute({
-    sql: `SELECT id, title, source_id, published_at FROM source_documents
-          WHERE published_at >= datetime('now', ?)
-            AND (title LIKE ? OR full_text LIKE ? OR metadata_json LIKE ?)
-          ORDER BY published_at DESC LIMIT 8`,
-    args: [`-${days} days`, `%${query}%`, `%${query}%`, `%${query}%`],
-  })
-  if (!res.rows.length) return { text: '没有匹配文档。', refs: [] }
+  const rows = await searchSourceDocuments(db, query, { days, limit: 8 })
+  if (!rows.length) return { text: '没有匹配文档。', refs: [] }
   const refs: EvidenceRef[] = []
-  const lines = (res.rows as unknown as Row[]).map((row) => {
+  const lines = rows.map((row) => {
     const ref = `doc:${str(row.id)}`
     refs.push({ ref, kind: 'document', label: str(row.title), value: `${str(row.source_id)} ${str(row.published_at)}` })
     return `${ref}｜${str(row.published_at)}｜${str(row.title)}｜来源 ${str(row.source_id)}`
@@ -270,16 +351,18 @@ function buildSystemPrompt(budget: InvestigationBudget): string {
 
 准则：
 - 先核实预警是否成立，再给出可能的影响路径与验证条件
+- 初始证据已包含“反方核查”，必须单列反方证据；没有命中时说明已核查的方向与数据缺口，不得静默忽略
 - 最终回答用中文 markdown，600 字以内，必须引用证据引用号（如 doc:12、industry:半导体:2026-11-14）
 - 明确区分已确认事实、推测与数据缺口；不得出现买入/卖出/加仓/目标价等交易指令`
 }
 
-function fallbackConclusion(bundle: EvidenceBundle, question: string): string {
+function fallbackConclusion(bundle: EvidenceBundle, counter: EvidenceBundle, question: string): string {
   const industryLines = bundle.refs.filter((ref) => ref.kind === 'industry').slice(0, 3)
   const docLines = bundle.refs.filter((ref) => ref.kind === 'document').slice(0, 3)
   const parts = [`针对「${question}」，本次共收集 ${bundle.refs.length} 条可核对证据。`]
   if (docLines.length) parts.push(`相关文档：${docLines.map((ref) => `${ref.ref}（${ref.label}）`).join('；')}。`)
   if (industryLines.length) parts.push(`行业信号：${industryLines.map((ref) => `${ref.ref}（${ref.value}）`).join('；')}。`)
+  parts.push(`反方核验：${counter.digest}`)
   parts.push('结论：证据不足以形成高置信判断，建议继续观察后续公告与行业广度变化，待更多同向证据再确认。')
   return parts.join('\n\n')
 }
@@ -388,9 +471,14 @@ export async function runInvestigation(
       industry: industry || undefined,
       symbolCode: symbolCode || undefined,
     })
+    const counter = await collectCounterEvidence({
+      industry: industry || undefined,
+      symbolCode: symbolCode || undefined,
+    })
     refs = bundle.refs
     await addStep({ kind: 'evidence', digest: bundle.digest, refs: bundle.refs })
-    await mark(15, `整理 ${bundle.refs.length} 条证据`)
+    await addStep({ kind: 'counter', digest: counter.digest, refs: counter.refs })
+    await mark(20, `整理 ${bundle.refs.length} 条证据，反方命中 ${counter.refs.length} 条`)
 
     const cfg = await getEffectiveLlmConfig()
     let conclusion = ''
@@ -401,7 +489,7 @@ export async function runInvestigation(
         { role: 'system', content: buildSystemPrompt(budget) },
         {
           role: 'user',
-          content: `深挖问题：${str(row.question)}\n\n初始证据：\n${bundle.digest}`,
+          content: `深挖问题：${str(row.question)}\n\n初始证据：\n${bundle.digest}\n\n${counter.digest}`,
         },
       ]
       try {
@@ -457,12 +545,14 @@ export async function runInvestigation(
         await addStep({ kind: 'fallback', digest: `模型深挖中断，改用证据摘要：${(err as Error).message}`, ok: false })
       }
     }
-    if (!conclusion) conclusion = fallbackConclusion(bundle, str(row.question))
+    if (!conclusion) conclusion = fallbackConclusion(bundle, counter, str(row.question))
 
-    refs = dedupeRefs(refs)
+    // 反方引用进入结论引文，但不参与置信度/证据强度计算
+    const positiveRefs = dedupeRefs(refs)
+    refs = dedupeRefs([...refs, ...counter.refs])
     const finalConclusion = withCitations(conclusion, refs)
-    const confidence = confidenceOf(refs)
-    const evidenceStrength = strengthOf(refs)
+    const confidence = confidenceOf(positiveRefs)
+    const evidenceStrength = strengthOf(positiveRefs)
     await addStep({ kind: 'conclusion', digest: finalConclusion, refs })
     await mark(90, '生成结论')
 
