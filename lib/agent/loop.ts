@@ -25,7 +25,7 @@ import { getEffectiveLlmConfig, PRICING } from '../llm/config';
 import type { AgentTurnResult } from './types';
 import { getTool, buildToolPrompt } from './tools';
 import { loadAgentContext, estimateContextTokens, loadAgentMemoryPrompt } from './session';
-import { looksLikeJson, parseJsonLike, formatFinalAnswer, stripToolProtocolFromAnswer, validateToolArgs } from './format';
+import { looksLikeJson, parseJsonLike, formatFinalAnswer, hasToolProtocolTokens, stripToolProtocolFromAnswer, validateToolArgs } from './format';
 import { getAgentMaxSteps, MAX_CORRECTION_STEPS } from './limits';
 import { AGENT_SYSTEM_PROMPT, buildAgentSystemPrompt } from './prompts';
 import { acquireAgentSessionLock } from './lock';
@@ -252,6 +252,8 @@ export async function runAgentTurn(
         onDelta: (text: string) => {
           stepBuffer += text;
           if (looksLikeJson(stepBuffer.trim())) return;
+          // 工具标记不逐字透出；正文若有前置说明，之前的 delta 已正常发出
+          if (hasToolProtocolTokens(stepBuffer)) return;
           emit({ type: 'delta', text });
         },
       });
@@ -275,8 +277,29 @@ export async function runAgentTurn(
           await appendAgentMessage(sessionId, 'system', feedback);
           continue;
         }
-        // 最终回答：剥离误附的工具 JSON → 截断检测 → markdown 修复
-        const formatted = formatFinalAnswer(stripToolProtocolFromAnswer(contentText));
+        // 原生工具标记（如 <| DSLM | calls>）被当正文输出：剥离后无可读内容则回喂纠错，
+        // 否则用户只会看到工具块、没有回答。
+        const stripped = stripToolProtocolFromAnswer(contentText);
+        if (hasToolProtocolTokens(contentText) && !stripped.trim()) {
+          corrections++;
+          if (corrections > MAX_CORRECTION_STEPS) {
+            reply = '模型这次没有返回可展示的回答，请重试或换个问法。';
+            await appendAgentMessage(sessionId, 'assistant', reply, turnId ? { turnId } : undefined);
+            await touchAgentSession(sessionId);
+            turnStatus = 'succeeded';
+            stats.contextTokens = contextTokens;
+            stats.compacted = compacted;
+            emit({ type: 'done', sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: false, userMessageId, stats });
+            return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: false, userMessageId, stats };
+          }
+          const feedback =
+            '【格式错误】你把工具协议标记（如 <| DSLM | ...>）当作正文输出了，用户看不到这类内容。需要调用工具时只输出严格 JSON：{"tool":"<工具名>","args":{...}}；不再调用工具时，请直接用中文 markdown 总结给用户。';
+          turnMessages.push({ role: 'user', content: feedback });
+          await appendAgentMessage(sessionId, 'system', feedback);
+          continue;
+        }
+        // 最终回答：剥离误附的工具协议 → 截断检测 → markdown 修复
+        const formatted = formatFinalAnswer(stripped);
         // 硬交易指令仍拒绝；研究层面的“建议关注/等待验证”不拦。先给一次改写机会。
         const violatesTradePolicy = findActionableTradeInstruction(formatted.text);
         if (violatesTradePolicy && corrections < MAX_CORRECTION_STEPS) {
@@ -384,6 +407,7 @@ export async function runAgentTurn(
       onDelta: (text: string) => {
         synthBuffer += text;
         if (looksLikeJson(synthBuffer.trim())) return;
+        if (hasToolProtocolTokens(synthBuffer)) return;
         emit({ type: 'delta', text });
       },
     });

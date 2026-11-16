@@ -215,6 +215,27 @@ describe('stripToolProtocolFromAnswer', () => {
     const raw = '好的，模型输出了 {"tool":"search_news","args":{"query":"存储"}}，但显示异常。';
     expect(stripToolProtocolFromAnswer(raw)).toBe(raw);
   });
+
+  it('剥离原生工具标记块，保留前置正文', () => {
+    const raw =
+      '我先查一下事件和行业热度。\n<| DSLM | calls> <| DSLM | invoke name="watch_event"> <| DSLM | parameter name="eventId" string="false">1019</| DSLM | parameter> <| DSLM | invoke name="get_industry_heatmap"> <| DSLM | parameter name="hoursBack" string="false">168</| DSLM | parameter> </| DSLM | invoke> </| DSLM | calls>';
+    expect(stripToolProtocolFromAnswer(raw)).toBe('我先查一下事件和行业热度。');
+  });
+
+  it('纯原生工具标记返回空', () => {
+    const raw =
+      '<| DSLM | calls> <| DSLM | invoke name="watch_event"> </| DSLM | invoke> </| DSLM | calls>';
+    expect(stripToolProtocolFromAnswer(raw)).toBe('');
+  });
+
+  it('流式半截的原生标记从首个标记处截断', () => {
+    expect(stripToolProtocolFromAnswer('先说结论。\n<| DSLM | calls> <| DSLM | invoke name="watch_')).toBe('先说结论。');
+  });
+
+  it('普通文本不误伤', () => {
+    const raw = '行业景气度回升，关注 <存储> 与 | 分隔符。';
+    expect(stripToolProtocolFromAnswer(raw)).toBe(raw);
+  });
 });
 
 describe('formatFinalAnswer', () => {

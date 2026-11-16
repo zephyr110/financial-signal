@@ -306,10 +306,29 @@ function isToolProtocolJson(text: string): boolean {
   return !!(parsed && typeof parsed === 'object' && typeof (parsed as { tool?: unknown }).tool === 'string');
 }
 
-/** 从用户可见回答中剥离工具协议 JSON（纯 JSON、末行 JSON、末尾围栏块） */
+// 模型偶发把原生工具标记（如 <| DSLM | calls>…）当正文输出；这些标记只属于协议层。
+const DSLM_MARKER = /<\|\s*DSLM\s*\|/i;
+const DSLM_CALLS_BLOCK = /<\|\s*DSLM\s*\|\s*calls\s*>[\s\S]*?<\/\|\s*DSLM\s*\|\s*calls\s*>/gi;
+const DSLM_INVOKE_BLOCK = /<\|\s*DSLM\s*\|\s*invoke\b[\s\S]*?<\/\|\s*DSLM\s*\|\s*invoke\s*>/gi;
+
+/** 是否含原生工具协议标记（循环据此判断是否需要回喂纠错）。 */
+export function hasToolProtocolTokens(text: string): boolean {
+  return DSLM_MARKER.test(text || '');
+}
+
+/** 剥离原生工具协议标记：完整块整段删除；流式半截从首个残留标记截断（协议总在尾部）。 */
+export function stripToolProtocolTokens(text: string): string {
+  if (!text || !DSLM_MARKER.test(text)) return text;
+  let s = text.replace(DSLM_CALLS_BLOCK, '').replace(DSLM_INVOKE_BLOCK, '');
+  const idx = s.search(DSLM_MARKER);
+  if (idx >= 0) s = s.slice(0, idx);
+  return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+}
+
+/** 从用户可见回答中剥离工具协议（JSON 与原生标记两类） */
 export function stripToolProtocolFromAnswer(text: string): string {
   if (!text) return '';
-  let s = text.trimEnd();
+  let s = stripToolProtocolTokens(text).trimEnd();
 
   const fenceRe = /\n?```(?:json)?\s*\n[\s\S]*?"tool"\s*:[\s\S]*?\n```\s*$/;
   const fenceMatch = s.match(fenceRe);
