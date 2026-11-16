@@ -17,7 +17,7 @@ export function JudgmentSheet({
 }) {
   return (
     <Sheet open={Boolean(judgment)} onOpenChange={(next) => { if (!next) onClose() }}>
-      <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+      <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[clamp(36rem,36vw,52rem)]">
         {judgment && (
           <>
             <SheetHeader className="relative shrink-0 px-5 py-4 after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
