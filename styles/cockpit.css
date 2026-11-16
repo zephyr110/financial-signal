@@ -1250,6 +1250,12 @@ a.ck-chip:hover {
   margin-top: 7px;
 }
 
+/* 与同行的来源/论点标签保持同一字号，避免正文链接显得突兀 */
+.ck-impact-meta .ck-link {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* ---------- 文档 ---------- */
 
 .ck-doc-list {
