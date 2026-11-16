@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   CalendarRange,
+  CloudDownload,
   Database,
   FileText,
   ListChecks,
@@ -14,6 +15,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Disclosure, closeDisclosure } from './bits'
+
+const SOURCE_LABEL: Record<string, string> = {
+  tushare: 'Tushare',
+  eastmoney: '东方财富',
+  sina: '新浪财经',
+  tencent: '腾讯财经',
+  mixed: '免费源混合',
+  akshare: 'AKShare 侧车',
+}
 
 const TYPE_LABEL: Record<string, string> = {
   daily_brief: '收盘简报',
@@ -68,6 +78,13 @@ const QUICK_ACTIONS: Array<{
     hint: 'AKShare 侧车 · 不覆盖 T0/T1',
     icon: Database,
   },
+  {
+    type: 'market_ingest',
+    params: { prefer: 'free' },
+    title: '免费源补行情',
+    hint: '东财 → 新浪 → 腾讯',
+    icon: CloudDownload,
+  },
 ]
 
 function warningsText(value: unknown): string {
@@ -94,24 +111,30 @@ function resultView(task: TaskRecord): TaskResultView | null {
       const ingest = result.ingest && typeof result.ingest === 'object'
         ? result.ingest as Record<string, unknown>
         : {}
+      const source = String(ingest.source ?? '')
       return {
         title: `简报 v${String(result.version ?? '—')} · ${String(result.tradeDate ?? '')}`,
         body: [
           result.claim ? String(result.claim) : '',
-          `行情 ${String(ingest.bars ?? 0)} 根日线 · 公告 ${String(result.documents ?? 0)} 条`,
+          `行情 ${String(ingest.bars ?? 0)} 根日线 · 公告 ${String(result.documents ?? 0)} 条`
+            + (source ? ` · ${SOURCE_LABEL[source] || source}` : ''),
           warningsText(result.warnings),
         ].filter(Boolean).join('\n'),
       }
     }
-    case 'market_ingest':
+    case 'market_ingest': {
+      const source = String(result.source ?? '')
       return {
-        title: `行情入库 ${String(result.tradeDate ?? '')}`,
+        title: `行情入库 ${String(result.tradeDate ?? '')} · ${SOURCE_LABEL[source] || source || '未知来源'}`,
         body: [
-          `${String(result.bars ?? 0)} 根日线 · ${String(result.indices ?? 0)} 个指数`,
+          `${String(result.bars ?? 0)} 根日线 · ${String(result.indices ?? 0)} 个指数 · ${String(result.universe ?? 0)} 个研究标的`,
+          result.limitPoolWritten ? `涨停池 ${String(result.limitPoolWritten)} 条` : '',
           result.limitUpDownAvailable === false ? '涨跌停统计不可用' : '',
+          result.fallbackFromTushare === true ? 'Tushare 不可用，已自动降级到免费源' : '',
           warningsText(result.warnings),
         ].filter(Boolean).join('\n'),
       }
+    }
     case 'akshare_ingest':
       return {
         title: `T2 补充入库 ${String(result.tradeDate ?? '')}`,
