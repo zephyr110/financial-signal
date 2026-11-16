@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Zap, AlertCircle, CalendarDays, History, Flame, TrendingUp, ExternalLink } from "lucide-react";
 import AppShell from "../../components/app-shell";
+import FocusStocks from "../../components/FocusStocks";
 import SignalBadge from "../../components/SignalBadge";
 import ErrorBanner from "../../components/ErrorBanner";
 import WatchlistButton from "../../components/WatchlistButton";
@@ -115,6 +116,11 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
   // P2.4 四段叙事：起因 = 最早信号；时间线 = 成员信号正序（DB 已按 published_at ASC）
   const origin = thread?.signals?.[0] || null;
   const signals = thread?.signals || [];
+  const hasFocusStocks =
+    (thread?.focus_stocks?.bullish?.length || 0) +
+      (thread?.focus_stocks?.bearish?.length || 0) +
+      (thread?.focus_stocks?.watch?.length || 0) >
+    0;
 
   return (
     <>
@@ -390,22 +396,30 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
               </div>
 
               {/* ── 段④ 后续关注 ── */}
-              {thread.watch_points?.length > 0 && (
+              {(thread.watch_points?.length > 0 || hasFocusStocks) && (
                 <div className="bg-card border rounded-xl p-4 sm:p-6">
                   <h3 className="text-sm font-semibold text-foreground mb-3">
                     后续关注
                   </h3>
-                  <ul className="space-y-1.5">
-                    {thread.watch_points.map((p: string, i: number) => (
-                      <li
-                        key={i}
-                        className="text-sm text-muted-foreground flex items-start gap-2"
-                      >
-                        <span className="text-primary mt-1">•</span>
-                        {p}
-                      </li>
-                    ))}
-                  </ul>
+                  {thread.watch_points?.length > 0 && (
+                    <ul className="space-y-1.5">
+                      {thread.watch_points.map((p: string, i: number) => (
+                        <li
+                          key={i}
+                          className="text-sm text-muted-foreground flex items-start gap-2"
+                        >
+                          <span className="text-primary mt-1">•</span>
+                          {p}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {hasFocusStocks && (
+                    <div className="mt-3">
+                      <span className="text-xs text-muted-foreground">重点个股</span>
+                      <FocusStocks stocks={thread.focus_stocks} className="mt-1.5" />
+                    </div>
+                  )}
                 </div>
               )}
             </>

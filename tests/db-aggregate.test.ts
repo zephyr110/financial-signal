@@ -85,6 +85,75 @@ describe('SQL 聚合读路径', () => {
     expect(signal?.event_thread?.title).toBe('半导体景气');
   });
 
+  it('getEventThreads 按成员新闻情绪给出看涨/看跌个股', async () => {
+    const db = await mod.getDb();
+    await db.execute({
+      sql: 'INSERT INTO symbols (code, name, exchange, industry_l1, source_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: ['688981.SH', '中芯国际', 'SH', '半导体', 'test', new Date().toISOString()],
+    });
+    await db.execute({
+      sql: `INSERT INTO event_threads (title, news_ids, narrative, stage, confidence, dedup_key, created_at)
+            VALUES ('重点个股', ?, 'n', 'early', 'high', '重点个股', datetime('now'))`,
+      args: [JSON.stringify([1, 2])],
+    });
+
+    const thread = (await mod.getEventThreads(24)).find((t) => t.title === '重点个股');
+    // 中芯国际：利多 4 分 vs 利空 5 分，按信号分加权后归为看跌
+    expect(thread?.focus_stocks.bullish).toEqual([]);
+    expect(thread?.focus_stocks.bearish).toEqual([
+      { name: '中芯国际', code: '688981.SH' },
+      { name: '长电科技', code: null },
+    ]);
+  });
+
+  it('同一公司多空都有时按信号分权重决胜', async () => {
+    const db = await mod.getDb();
+    await db.execute({
+      sql: 'INSERT INTO news_archive (id, source, source_id, title, content, published_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [3, 'test', 'n3', 't3', 'c3', new Date().toISOString()],
+    });
+    await db.execute({
+      sql: `INSERT INTO analysis_result (id, news_id, signal_score, category, impact_level, industries, companies, sentiment, summary)
+            VALUES (3, 3, 5, 'industry', 'critical', ?, ?, 'positive', 's3')`,
+      args: [JSON.stringify(['半导体']), JSON.stringify(['中芯国际'])],
+    });
+    await db.execute({
+      sql: `INSERT INTO event_threads (title, news_ids, narrative, stage, confidence, dedup_key, created_at)
+            VALUES ('权重决胜', ?, 'n', 'early', 'high', '权重决胜', datetime('now'))`,
+      args: [JSON.stringify([1, 2, 3])],
+    });
+
+    const thread = (await mod.getEventThreads(24)).find((t) => t.title === '权重决胜');
+    // 利多 4+5 > 利空 5
+    expect(thread?.focus_stocks.bullish.map((s) => s.name)).toEqual(['中芯国际']);
+    expect(thread?.focus_stocks.bearish.map((s) => s.name)).toEqual(['长电科技']);
+  });
+
+  it('混合/中性情绪不参与个股方向判断', async () => {
+    const db = await mod.getDb();
+    await db.execute({
+      sql: 'INSERT INTO news_archive (id, source, source_id, title, content, published_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [4, 'test', 'n4', 't4', 'c4', new Date().toISOString()],
+    });
+    await db.execute({
+      sql: `INSERT INTO analysis_result (id, news_id, signal_score, category, impact_level, industries, companies, sentiment, summary)
+            VALUES (4, 4, 5, 'industry', 'critical', ?, ?, 'mixed', 's4')`,
+      args: [JSON.stringify(['半导体']), JSON.stringify(['方向不明公司'])],
+    });
+    await db.execute({
+      sql: `INSERT INTO event_threads (title, news_ids, narrative, stage, confidence, dedup_key, created_at)
+            VALUES ('分歧事件', ?, 'n', 'early', 'medium', '分歧事件', datetime('now'))`,
+      args: [JSON.stringify([4])],
+    });
+
+    const thread = (await mod.getEventThreads(24)).find((t) => t.title === '分歧事件');
+    expect(thread?.focus_stocks).toEqual({
+      bullish: [],
+      bearish: [],
+      watch: [{ name: '方向不明公司', code: null }],
+    });
+  });
+
   it('getEventThreadById 关联表缺失时回退 news_ids', async () => {
     const db = await mod.getDb();
     await db.execute({

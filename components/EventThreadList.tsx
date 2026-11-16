@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ChevronDown, TrendingUp, AlertCircle, Zap, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/track";
+import FocusStocks from "@/components/FocusStocks";
 
 const stageLabels = {
   early: "早期",
@@ -46,6 +47,11 @@ export default function EventThreadList({ threads }) {
 function EventThreadCard({ thread }) {
   const [open, setOpen] = useState(false);
   const ConfidenceIcon = confidenceIcons[thread.confidence]?.icon || AlertCircle;
+  const hasFocusStocks =
+    (thread.focus_stocks?.bullish?.length || 0) +
+      (thread.focus_stocks?.bearish?.length || 0) +
+      (thread.focus_stocks?.watch?.length || 0) >
+    0;
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -108,17 +114,27 @@ function EventThreadCard({ thread }) {
               ))}
             </div>
           )}
-          {thread.watch_points?.length > 0 && (
+          {(thread.watch_points?.length > 0 || hasFocusStocks) && (
             <div>
-              <span className="text-xs text-muted-foreground">后续关注：</span>
-              <ul className="mt-1 space-y-0.5">
-                {thread.watch_points.map((p: string, i: number) => (
-                  <li key={i} className="text-xs text-muted-foreground flex items-start gap-1">
-                    <span className="text-primary mt-0.5">•</span>
-                    {p}
-                  </li>
-                ))}
-              </ul>
+              {thread.watch_points?.length > 0 && (
+                <>
+                  <span className="text-xs text-muted-foreground">后续关注：</span>
+                  <ul className="mt-1 space-y-0.5">
+                    {thread.watch_points.map((p: string, i: number) => (
+                      <li key={i} className="text-xs text-muted-foreground flex items-start gap-1">
+                        <span className="text-primary mt-0.5">•</span>
+                        {p}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {hasFocusStocks && (
+                <div className="mt-1.5">
+                  <span className="text-xs text-muted-foreground">重点个股：</span>
+                  <FocusStocks stocks={thread.focus_stocks} className="mt-1" />
+                </div>
+              )}
             </div>
           )}
           {thread.id != null && (

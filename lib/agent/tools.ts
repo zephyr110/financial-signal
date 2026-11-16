@@ -17,6 +17,15 @@ function summarizeList(rows, fields, limit = 10) {
   return rows.slice(0, limit).map((r) => fields.map((f) => r[f]).join(' | ')).join('\n');
 }
 
+/** 事件线索重点个股（数据层已按成员新闻情绪加权），无方向时明确说无。 */
+function focusStocksLine(thread) {
+  const names = (list) => (list || []).map((s) => s.name).join('、') || '无';
+  const focus = thread?.focus_stocks;
+  if (!focus) return '重点个股: 无';
+  const watch = (focus.watch || []).length > 0 ? `；待观察 ${names(focus.watch)}` : '';
+  return `重点个股: 看涨 ${names(focus.bullish)}；看跌 ${names(focus.bearish)}${watch}`;
+}
+
 /** 数字参数安全转换：undefined/null/空串 → 默认值；NaN → 默认值；合法数字原样返回。
  *  不用 `Number(x) || fallback`——`Number("0")` 为 0（falsy）会被误吞为默认值。 */
 export function numArg(v: unknown, fallback: number): number {
@@ -79,7 +88,8 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       return threads.map((t) =>
         `#${t.id} [${t.stage}] ${t.title}（置信度:${t.confidence}，涉及行业:${(t.industries || []).join('/')}，` +
         `关联信号:${(t.news_ids || []).length}条）\n${t.narrative}` +
-        (t.watch_points?.length ? `\n关注点: ${t.watch_points.join('；')}` : '')
+        (t.watch_points?.length ? `\n关注点: ${t.watch_points.join('；')}` : '') +
+        `\n${focusStocksLine(t)}`
       ).join('\n\n');
     },
   },
@@ -158,6 +168,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
         `叙事: ${thread.narrative}`,
         `涉及行业: ${(thread.industries || []).join('/') || '无'}`,
         `关注点: ${(thread.watch_points || []).join('；') || '无'}`,
+        focusStocksLine(thread),
         `\n关联信号（${thread.signals.length}条）:\n${signalLines || '无'}`,
       ].join('\n');
     },
