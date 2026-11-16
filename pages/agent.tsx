@@ -35,6 +35,7 @@ import { Button } from "../components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "../components/ui/alert";
 import { Textarea } from "../components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { CONTENT_GUTTER } from "@/lib/layout-classes";
 
 interface SessionSummary {
   id: number;
@@ -619,6 +620,8 @@ export default function AgentPage() {
         {/* 消息流（自身滚动，输入区贴底） */}
         <div className="agent-scroll min-h-0 flex-1 overflow-y-auto">
             <style jsx global>{`
+              /* 滚动条占 6px 布局宽；stable 保证无滚动条时也不跳，输入区右侧据此补 6px */
+              .agent-scroll { scrollbar-gutter: stable; }
               .agent-scroll::-webkit-scrollbar { width: 6px; }
               .agent-scroll::-webkit-scrollbar-thumb {
                 background: var(--border);
@@ -627,10 +630,11 @@ export default function AgentPage() {
               .agent-scroll::-webkit-scrollbar-track { background: transparent; }
             `}</style>
 
-            {/* 内容列宽度随分辨率阶梯放大；空对话时整列垂直居中提示块 */}
+            {/* 内容区与投研台同宽；空对话时整列垂直居中提示块 */}
             <div
               className={cn(
-                "mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px] px-4 sm:px-6 py-6",
+                "w-full py-6",
+                CONTENT_GUTTER,
                 (isEmpty || loadingHistory) && "flex min-h-full flex-col items-center justify-center"
               )}
             >
@@ -709,7 +713,7 @@ export default function AgentPage() {
                   return (
                     <div key={m.id} className="group flex items-start gap-3">
                       <AgentAvatar />
-                      <div className="flex min-w-0 max-w-[85%] flex-col gap-2.5">
+                      <div className="flex min-w-0 max-w-[85%] flex-col gap-2.5 xl:max-w-[960px]">
                         {showProcessing && processing && (
                           <AgentProcessingBlock processing={processing} />
                         )}
@@ -842,7 +846,7 @@ export default function AgentPage() {
                     key={m.id}
                     className="group flex justify-end gap-3"
                   >
-                    <div className="flex max-w-[85%] flex-col items-end gap-1 text-sm">
+                    <div className="flex max-w-[85%] flex-col items-end gap-1 text-sm xl:max-w-[960px]">
                       <div className="leading-relaxed rounded-tl-2xl rounded-bl-2xl rounded-br-2xl rounded-tr-none bg-primary px-3 py-2 text-primary-foreground shadow-sm">
                         {isEditing ? (
                           <div className="flex flex-col">
@@ -946,37 +950,35 @@ export default function AgentPage() {
               )}
               <div ref={bottomRef} />
               </div>{/* space-y-5 消息列表 */}
-              </div>{/* max-w 消息流容器 */}
+              </div>{/* 消息流内容列 */}
             </div>{/* agent-scroll 滚动区 */}
 
-            {/* 输入区：水平边距与消息流对齐，收紧内层留白 */}
-            <div className="shrink-0 bg-background px-4 pb-4 pt-3 sm:px-6 sm:pb-5">
-              <div className="mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px]">
-                <div className="flex items-end gap-1.5 rounded-2xl border bg-card py-2 pl-3 pr-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
-                  <Textarea
-                    ref={inputRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={onKeyDown}
-                    placeholder="询问政策影响、行业趋势、事件进展…（Enter 发送，Shift+Enter 换行）"
-                    rows={1}
-                    maxLength={2000}
-                    className="max-h-[200px] min-h-9 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-1.5 shadow-none focus-visible:ring-0"
-                  />
-                  <Button
-                    size="icon"
-                    className="mb-0.5 h-9 w-9 shrink-0 rounded-xl"
-                    onClick={send}
-                    disabled={loading || loadingHistory || !input.trim()}
-                    aria-label="发送"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-                <p className="mt-2.5 px-1 text-center text-xs text-muted-foreground">
-                  AI 输出基于历史信号数据整理，仅供参考，不构成投资建议
-                </p>
+            {/* 输入区：与消息流内容列对齐；右侧多 6px 抵掉滚动条占位 */}
+            <div className="shrink-0 bg-background pb-4 pl-3 pr-[18px] pt-3 sm:pb-5 lg:pl-4 lg:pr-[22px]">
+              <div className="flex items-end gap-1.5 rounded-2xl border bg-card py-2 pl-3 pr-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                <Textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  placeholder="询问政策影响、行业趋势、事件进展…（Enter 发送，Shift+Enter 换行）"
+                  rows={1}
+                  maxLength={2000}
+                  className="max-h-[200px] min-h-9 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-1.5 shadow-none focus-visible:ring-0"
+                />
+                <Button
+                  size="icon"
+                  className="mb-0.5 h-9 w-9 shrink-0 rounded-xl"
+                  onClick={send}
+                  disabled={loading || loadingHistory || !input.trim()}
+                  aria-label="发送"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
               </div>
+              <p className="mt-2.5 px-1 text-center text-xs text-muted-foreground">
+                AI 输出基于历史信号数据整理，仅供参考，不构成投资建议
+              </p>
             </div>
       </AppShell>
     </>

@@ -11,6 +11,7 @@ import { Clock, RefreshCw } from "lucide-react";
 import { TodayTabs } from "../components/TodayTabs";
 import { getNewsByDate, getAvailableDates, getDb } from "../lib/db";
 import { todayKey } from "../lib/format";
+import { CONTENT_GUTTER } from "@/lib/layout-classes";
 
 const PULL_THRESHOLD = 56;
 
@@ -262,8 +263,8 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
           </span>
         </div>
 
-        {/* 内容列宽度随分辨率阶梯放大，与 agent/analysis 一致 */}
-        <div className="mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px] px-4 sm:px-6 pb-12">
+        {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
+        <div className={`w-full pb-12 ${CONTENT_GUTTER}`}>
           {/* Hero */}
           <div className="pt-6 pb-6 flex items-end justify-between gap-4 flex-wrap">
             <div className="min-w-0">

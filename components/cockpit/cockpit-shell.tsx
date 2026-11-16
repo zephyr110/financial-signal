@@ -4,6 +4,7 @@ import { ArrowRight, Database } from 'lucide-react'
 import type { DataQualityItem, SourceHealth } from '@/lib/cockpit/types'
 import { briefQualityHint, formatTime, sourceHealthHint } from '@/lib/cockpit/format'
 import AppShell from '@/components/app-shell'
+import { CONTENT_GUTTER } from '@/lib/layout-classes'
 import { BriefQualityList, DemoBanner, Disclosure, SourceHealthRail } from './bits'
 
 
@@ -43,8 +44,9 @@ export function CockpitShell({
 
   return (
     <AppShell title={title} actions={actions}>
-      <div className="mx-auto w-full max-w-[960px] px-4 pb-10 sm:px-6 sm:pb-14">
-        <main className="min-w-0" id="ck-main">
+      {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
+      <div className={`w-full pb-10 sm:pb-14 ${CONTENT_GUTTER}`}>
+        <div className="min-w-0" id="ck-main">
           <header className="flex flex-wrap items-start justify-between gap-3 pb-5 pt-6 sm:pt-7">
             <div className="min-w-0">
               <h1 className="sr-only">{title}</h1>
@@ -87,7 +89,7 @@ export function CockpitShell({
               </div>
             </footer>
           </div>
-        </main>
+        </div>
       </div>
     </AppShell>
   )

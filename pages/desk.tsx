@@ -16,6 +16,7 @@ import { formatPrice, formatSignedPct } from '@/lib/cockpit/format'
 import { serializable } from '@/lib/cockpit/page-data'
 import { getDeskSnapshot, getDeskStatus } from '@/lib/desk/repo'
 import type { DeskSnapshot, DeskStatus, JudgmentView, OverseasQuoteView, RealtimeQuoteView } from '@/lib/desk/types'
+import { CONTENT_GUTTER } from '@/lib/layout-classes'
 
 interface DeskPageProps {
   snapshot: DeskSnapshot
@@ -326,7 +327,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
               )}
             </div>
           ) : (
-            <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-1 gap-3 overflow-y-auto p-3 md:grid-cols-2 lg:p-4 xl:auto-rows-fr xl:grid-cols-4 xl:overflow-hidden">
+            <div className={`grid min-h-0 flex-1 auto-rows-max grid-cols-1 gap-3 overflow-y-auto py-3 md:grid-cols-2 lg:py-4 xl:auto-rows-fr xl:grid-cols-4 xl:overflow-hidden ${CONTENT_GUTTER}`}>
               <DeskPanel
                 icon={<Gauge />}
                 title="市场脉搏"

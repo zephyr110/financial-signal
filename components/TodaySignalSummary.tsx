@@ -37,7 +37,7 @@ export default function TodaySignalSummary({ items }: TodaySignalSummaryProps) {
   return (
     <Link
       href="/analysis"
-      className="block mx-auto max-w-[760px] lg:max-w-[880px] xl:max-w-[960px] 2xl:max-w-[1120px] px-4 sm:px-6 mb-6 no-underline"
+      className="block mb-6 pl-6 no-underline"
     >
       <div className="group flex items-center gap-3 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10 transition-all hover:shadow-md hover:ring-primary/40">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
