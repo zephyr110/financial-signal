@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, Minus } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, Inbox, Minus } from 'lucide-react'
 import type {
   Confidence,
   DataQualityItem,
@@ -312,6 +312,7 @@ export function EmptyState({
 }) {
   return (
     <div className="ck-empty">
+      <Inbox className="mx-auto mb-2.5 size-6 text-muted-foreground/60" aria-hidden="true" />
       <p className="ck-empty-title">{title}</p>
       {children && <p className="ck-empty-text">{children}</p>}
       {actions && <div className="ck-empty-actions">{actions}</div>}

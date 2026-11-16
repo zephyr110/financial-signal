@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ChevronDown, TrendingUp, AlertCircle, Zap, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/track";
+import EmptyData from "@/components/EmptyData";
 import FocusStocks from "@/components/FocusStocks";
 
 const stageLabels = {
@@ -28,9 +29,7 @@ export default function EventThreadList({ threads }) {
   return (
     <div className="bg-card border rounded-xl p-4 sm:p-5 mb-6">
       {!threads || threads.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-8">
-          暂无事件线索，数据分析完成后自动生成
-        </p>
+        <EmptyData message="暂无事件线索，数据分析完成后自动生成" className="min-h-40" />
       ) : (
         <div className="max-h-80 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
           <div className="space-y-3">

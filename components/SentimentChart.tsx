@@ -12,6 +12,7 @@ import {
   summarizeOverallSentiment,
   type SentimentBreakdownRow,
 } from "@/lib/sentiment";
+import EmptyData from "@/components/EmptyData";
 import { CHART_TOOLTIP_CURSOR, chartTooltipContent } from "@/components/chart-tooltip";
 
 // A股惯例：红涨绿跌 → 看多红、看空绿
@@ -48,11 +49,7 @@ interface SentimentChartProps {
  */
 export default function SentimentChart({ data, sampleNote }: SentimentChartProps) {
   if (!data || data.length === 0) {
-    return (
-      <div className="text-center py-8 text-[11px] sm:text-xs text-muted-foreground">
-        暂无情感数据
-      </div>
-    );
+    return <EmptyData className="h-[220px]" />;
   }
 
   const chartData = data.map((d) => ({

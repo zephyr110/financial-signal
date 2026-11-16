@@ -1102,7 +1102,7 @@ export default function AgentPage() {
 
             {/* 输入区：与消息流内容列对齐；右侧多 6px 抵掉滚动条占位 */}
             <div className="shrink-0 bg-background pb-4 pl-3 pr-[18px] pt-3 sm:pb-5 lg:pl-4 lg:pr-[22px]">
-              <div className="rounded-2xl border bg-card p-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+              <div className="mx-auto w-1/2 rounded-2xl border bg-card p-2 shadow-sm transition-all focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                 <Textarea
                   ref={inputRef}
                   value={input}

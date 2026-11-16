@@ -3014,9 +3014,41 @@ a.ck-chip:hover {
   margin-top: 10px;
 }
 
+/* 数据视图：8 列在窄卡片里不再挤压——表格保底宽度，容器内横向滚动 */
+.ck-index-table table {
+  min-width: 620px;
+  font-size: 12px;
+}
+
+.ck-index-table table th,
+.ck-index-table table td {
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
 .ck-index-table table th:first-child,
 .ck-index-table table td:first-child {
+  padding-left: 14px;
   text-align: left;
+}
+
+.ck-index-table table th:last-child,
+.ck-index-table table td:last-child {
+  padding-right: 14px;
+}
+
+.ck-index-table table th.ck-num,
+.ck-index-table table td.ck-num {
+  text-align: right;
+}
+
+.ck-index-table thead th {
+  background: color-mix(in srgb, var(--ck-surface-2) 55%, transparent);
+}
+
+.ck-index-table tbody tr:hover th,
+.ck-index-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--ck-surface-2) 45%, transparent);
 }
 
 @media (max-width: 640px) {

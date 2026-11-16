@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { TrendingUp, TrendingDown, Loader2, Building2, Hash, ArrowUp, ArrowDown, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import EmptyData from "@/components/EmptyData";
 import { Hint } from "@/components/ui/hint";
 import { getBacktestTier, shouldShowNumbers, tierProgress, type BacktestTier } from "@/lib/backtest";
 
@@ -102,11 +103,14 @@ export default function BacktestPanel() {
           <span className="text-xs">加载中…</span>
         </div>
       ) : !hasData ? (
-        <div className="text-center py-8 text-xs text-muted-foreground">
-          {pending > 0
-            ? `已入库 ${pending} 条信号，等待后续交易日行情回填 T+1 / T+3 / T+7 收益后自动生成`
-            : "暂无数据，信号和行情积累后自动生成"}
-        </div>
+        <EmptyData
+          message={
+            pending > 0
+              ? `已入库 ${pending} 条信号，等待后续交易日行情回填 T+1 / T+3 / T+7 收益后自动生成`
+              : undefined
+          }
+          className="min-h-40"
+        />
       ) : (
         <>
           {/* Tab switcher */}

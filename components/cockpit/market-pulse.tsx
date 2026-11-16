@@ -251,8 +251,8 @@ export function MarketPulse({
                 <thead>
                   <tr>
                     <th scope="col">指数</th>
-                    <th scope="col">最新收盘</th>
-                    <th scope="col">涨跌幅</th>
+                    <th scope="col" className="ck-num">最新收盘</th>
+                    <th scope="col" className="ck-num">涨跌幅</th>
                     {Array.from({ length: 5 }, (_, position) => (
                       <th scope="col" className="ck-num" key={position}>T-{4 - position}</th>
                     ))}
