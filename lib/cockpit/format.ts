@@ -99,6 +99,23 @@ export function taskStatusLabel(status: string): string {
   }[status] || status
 }
 
+const TASK_TYPE_LABELS: Record<string, string> = {
+  daily_brief: '收盘简报',
+  daily_close: '收盘全链路',
+  market_ingest: '行情入库',
+  akshare_ingest: 'T2 补充入库',
+  thesis_review: '论点复核',
+  ask: '向简报提问',
+  weekly_review: '周度复盘',
+  symbol_deep_dive: '个股深挖',
+  desk_tick: '投研台刷新',
+  desk_investigation: '事件调查',
+}
+
+export function taskTypeLabel(type: string): string {
+  return TASK_TYPE_LABELS[type] || type
+}
+
 export function formatCost(micros: number): string {
   if (!micros) return '¥0.0000'
   return `¥${(micros / 1e6).toFixed(4)}`

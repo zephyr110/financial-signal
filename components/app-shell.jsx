@@ -4,6 +4,7 @@ import { SidebarInset, SidebarProvider } from "./ui/sidebar";
 import AppSidebar from "./app-sidebar";
 import AppTopbar from "./app-topbar";
 import { MobileBottomNav } from "./mobile-bottom-nav";
+import { CommandPalette } from "./command-palette";
 
 // 内容滚动容器 ref——首页下拉刷新读 scrollTop、区块导航 IntersectionObserver 传 root
 const AppShellScrollContext = createContext(null);
@@ -55,7 +56,7 @@ export default function AppShell({
   }, []);
 
   return (
-    <SidebarProvider className="flex h-dvh min-h-0 w-full overflow-hidden">
+    <SidebarProvider defaultOpen={false} className="flex h-dvh min-h-0 w-full overflow-hidden">
       <a
         href="#app-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:text-primary-foreground"
@@ -88,6 +89,7 @@ export default function AppShell({
         </AppShellScrollContext.Provider>
       </SidebarInset>
       <MobileBottomNav />
+      <CommandPalette />
     </SidebarProvider>
   );
 }

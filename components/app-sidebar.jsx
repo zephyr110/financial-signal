@@ -19,6 +19,7 @@ import AvatarMenu from "./avatar-menu";
 import SettingsDialog from "./settings-dialog";
 import { cn } from "@/lib/utils";
 import { SIDEBAR_GROUPS } from "@/lib/nav";
+import { track } from "@/lib/track";
 import {
   SIDEBAR_FOOTER_ICON_ITEM,
   SIDEBAR_ICON_RAIL_MENU,
@@ -43,6 +44,14 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
     setSettingsOpen(true);
   };
 
+  // 命令面板打开设置：事件只触发一次打开，不需要随渲染重新绑定
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const openFromPalette = () => openSettings();
+    window.addEventListener("app:open-settings", openFromPalette);
+    return () => window.removeEventListener("app:open-settings", openFromPalette);
+  }, []);
+
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
@@ -62,7 +71,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
                 size="lg"
                 tooltip="财经信号"
                 className="h-auto min-h-12 gap-2.5 rounded-lg px-2 py-1.5 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:items-center"
-                render={<Link href="/today" aria-label="财经信号" className="no-underline" />}
+                render={<Link href="/" aria-label="财经信号 · 驾驶舱" className="no-underline" />}
               >
                 <BrandLogo className="size-7 group-data-[collapsible=icon]:size-6" />
                 <span className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
@@ -101,7 +110,10 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
                         }
                         isActive={active}
                         tooltip={item.label}
-                        onClick={closeOnMobile}
+                        onClick={() => {
+                          track("nav_click", { from: router.pathname, to: item.href, surface: "sidebar" });
+                          closeOnMobile();
+                        }}
                         className="h-9 gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors duration-150 hover:bg-sidebar-accent/70 data-active:!bg-sidebar-primary/10 data-active:!text-sidebar-primary"
                       >
                         <item.icon />

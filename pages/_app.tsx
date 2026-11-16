@@ -12,9 +12,9 @@ export default function App({ Component, pageProps }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <DynamicFavicon />
-      {/* key=asPath:客户端导航时强制 remount 页面组件。否则 /signal/1 → /signal/2
-          复用同一实例,useState 保留旧 id 的 ssgData,详情页显示旧数据(串页)。 */}
-      <Component key={router.asPath} {...pageProps} />
+      {/* 只按路径重挂载：/signal/1 → /signal/2 要换实例避免串页，
+          但驾驶舱的 ?symbol= 是选中态，query 变化不能重置整个页面。 */}
+      <Component key={router.asPath.split('?')[0]} {...pageProps} />
       {vercelInsights ? <SpeedInsights /> : null}
     </ThemeProvider>
   );

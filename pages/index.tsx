@@ -1,381 +1,315 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import Head from "next/head";
-import NewsList from "../components/NewsList";
-import AppShell, { useAppShellScroll } from "../components/app-shell";
-import { TopbarRefreshButton } from "../components/app-topbar";
-import ErrorBanner from "../components/ErrorBanner";
-import EmptyState from "../components/EmptyState";
-import TodaySignalSummary from "../components/TodaySignalSummary";
-import WelcomeScreen from "../components/WelcomeScreen";
-import { Clock, RefreshCw } from "lucide-react";
-import { TodayTabs } from "../components/TodayTabs";
-import { getNewsByDate, getAvailableDates, getDb } from "../lib/db";
-import { todayKey } from "../lib/format";
-import { CONTENT_GUTTER } from "@/lib/layout-classes";
+import { useCallback, useEffect, useRef, useState } from 'react'
+import Head from 'next/head'
+import type { GetServerSidePropsContext } from 'next'
+import { AlertTriangle, LayoutGrid, RefreshCw } from 'lucide-react'
+import AppShell from '@/components/app-shell'
+import { TopbarRefreshButton } from '@/components/app-topbar'
+import WelcomeScreen from '@/components/WelcomeScreen'
+import { CopilotDock } from '@/components/cockpit/copilot-dock'
+import { InspectorDrawer } from '@/components/cockpit/inspector-drawer'
+import {
+  BriefPanel,
+  PortfolioPanel,
+  PulsePanel,
+  TasksPanel,
+  WatchlistPanel,
+} from '@/components/cockpit/home-panels'
+import { CockpitSelectionProvider, useCockpitSelection } from '@/components/cockpit/selection-context'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useDesktopWelcome } from '@/hooks/use-desktop-welcome'
+import {
+  COCKPIT_PANELS,
+  COCKPIT_PANEL_KEYS,
+  isPanelKey,
+  loadPanelKeys,
+  savePanelKeys,
+  togglePanelKey,
+  type CockpitPanelKey,
+} from '@/lib/cockpit-panels'
+import { formatTime } from '@/lib/cockpit/format'
+import type { DashboardPayload } from '@/lib/dashboard/aggregate'
+import { track } from '@/lib/track'
 
-const PULL_THRESHOLD = 56;
+const POLL_INTERVAL_MS = 60_000
 
-export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today: ssgTodayStr, error: ssgError }) {
-  // AppShell 内容滚动容器——下拉刷新守卫读 scrollTop（替代原 window.scrollY）
-  const scrollRef = useAppShellScroll();
-  const [todayItems, setTodayItems] = useState(ssgToday || []);
-  const [pastDates, setPastDates] = useState(ssgDates || []);
-  const [error, setError] = useState(ssgError ?? null);
-  const [fetching, setFetching] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [mounted, setMounted] = useState(false);
-
-  // ---- 首次启动引导（仅桌面端、userData 无 db 时展示）----
-  const [showWelcome, setShowWelcome] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
-  // getInfo 判定完成前不自动拉数据:挂载即 fetch /api/news 会让 server 侧
-  // getDb() 抢先建出空库(abort 只能断客户端连接,救不回服务端已创建的
-  // 文件),getInfo 的 imported 判定随后恒 true → 欢迎页永不出现。
-  const [welcomeChecked, setWelcomeChecked] = useState(false);
-
-  useEffect(() => {
-    const win = (window as any).desktop;
-    if (win?.getInfo) {
-      win
-        .getInfo()
-        .then((info: any) => {
-          setWelcomeChecked(true);
-          if (!info.imported) setShowWelcome(true);
-        })
-        .catch(() => {
-          // getInfo 失败(IPC 异常等):按【未导入】处理展示欢迎页——不能按已导入
-          // 放行自动刷新,/api/news 会触发 server 侧 getDb() 抢先建出空库,
-          // 下次启动 getInfo 的 imported 判定恒 true → 欢迎页永远不再出现。
-          // 用户仍可通过欢迎页手动导入/全新开始。
-          setWelcomeChecked(true);
-          setShowWelcome(true);
-        });
-    } else {
-      setWelcomeChecked(true); // web 模式无 IPC,直接放行自动刷新
-    }
-  }, []);
-
-  const handleDbAction = async (action: "import" | "fresh") => {
-    const win = (window as any).desktop;
-    if (!win) return;
-    const failMsg = action === "import" ? "导入失败，请重试" : "创建数据库失败，请重试";
-    setImporting(true);
-    setImportError(null);
-    try {
-      const r =
-        action === "import"
-          ? await win.selectAndImportDb()
-          : await win.createFreshDb();
-      if (r?.ok) setShowWelcome(false);
-      else if (action === "import" && r?.canceled) return;
-      else setImportError(r?.error || failMsg);
-    } catch (e) {
-      // IPC 异常(如对话框在应用退出时被销毁):按钮卡死在"导入中…"的 bug 来源,
-      // 必须兜底复位
-      console.error(`handleDbAction(${action}) failed:`, e);
-      setImportError(failMsg);
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const handleImport = () => handleDbAction("import");
-  const handleSkip = () => handleDbAction("fresh");
-
-  // ---- pull-to-refresh ----
-  const [pullDist, setPullDist] = useState(0);
-  const pullDistRef = useRef(0);
-  const fetchingRef = useRef(false);
-  const touchY0 = useRef(0);
-  const pulling = useRef(false);
-
-  useEffect(() => {
-    fetchingRef.current = fetching;
-  }, [fetching]);
-
-  const abortRef = useRef(null);
-
-  const doRefresh = useCallback(async () => {
-    if (fetchingRef.current) return;
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setFetching(true);
-    fetchingRef.current = true;
-    setError(null);
-    try {
-      const res = await fetch("/api/news", { signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setTodayItems(data.todayItems || []);
-      setPastDates(data.pastDates || []);
-      setLastUpdated(new Date());
-    } catch (e) {
-      if (e.name === "AbortError") return;
-      console.error("Refresh failed:", e);
-      setError("数据更新失败，请稍后重试");
-    } finally {
-      setFetching(false);
-      fetchingRef.current = false;
-      setPullDist(0);
-      pullDistRef.current = 0;
-      if (abortRef.current === controller) abortRef.current = null;
-    }
-  }, []);
-
-  // Set mounted flag and initial timestamp client-side only (avoid hydration mismatch)
-  useEffect(() => {
-    setMounted(true);
-    if (ssgToday && ssgToday.length > 0) {
-      setLastUpdated(new Date());
-    }
-  }, [ssgToday]);
-
-  // Only auto-refresh if SSG returned no data (cold start)
-  // 欢迎页展示期间不拉取数据:fetch /api/news 会触发 server 侧 getDb() 建库,
-  // 与 getInfo 的 imported 判定竞态(抢先建出的空库使欢迎页永不出现)。
-  // welcomeChecked 前置:挂载期 getInfo 判定完成前不发请求(abort 救不回
-  // 服务端已建出的库文件),判定 imported=false 后 welcome 常驻、永不拉取。
-  useEffect(() => {
-    if (showWelcome) return;
-    if (!welcomeChecked) return;
-    if (!ssgToday || ssgToday.length === 0) {
-      doRefresh();
-    }
-    return () => {
-      if (abortRef.current) abortRef.current.abort();
-    };
-  }, [doRefresh, ssgToday, showWelcome, welcomeChecked]);
-
-  // ---- touch handlers ----
-  const onTouchStart = useCallback((e) => {
-    pulling.current = false;
-    if ((scrollRef?.current?.scrollTop ?? 0) <= 0 && !fetchingRef.current) {
-      touchY0.current = e.touches[0].clientY;
-      pulling.current = true;
-    }
-  }, [scrollRef]);
-
-  const onTouchMove = useCallback((e) => {
-    if (!pulling.current) return;
-    const dy = e.touches[0].clientY - touchY0.current;
-    if (dy > 0) {
-      e.preventDefault();
-      const d = Math.min(dy * 0.45, 120);
-      pullDistRef.current = d;
-      setPullDist(d);
-    } else {
-      pullDistRef.current = 0;
-      setPullDist(0);
-    }
-  }, []);
-
-  const onTouchEnd = useCallback(() => {
-    pulling.current = false;
-    if (pullDistRef.current >= PULL_THRESHOLD && !fetchingRef.current) {
-      doRefresh();
-    } else {
-      setPullDist(0);
-      pullDistRef.current = 0;
-    }
-  }, [doRefresh]);
-
-  const onTouchCancel = useCallback(() => {
-    pulling.current = false;
-    setPullDist(0);
-    pullDistRef.current = 0;
-  }, []);
-
-  // React 合成 onTouchMove 在根节点以 passive 方式注册,preventDefault 无效且告警,
-  // 移动端下拉刷新会被系统滚动打断。必须用原生非 passive 监听才能阻止滚动。
-  const pullAreaRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = pullAreaRef.current;
-    if (!el) return;
-    const handler = (e: TouchEvent) => onTouchMove(e);
-    el.addEventListener("touchmove", handler, { passive: false });
-    return () => el.removeEventListener("touchmove", handler);
-  }, [onTouchMove]);
-
-  const pullProgress = Math.min(pullDist / PULL_THRESHOLD, 1);
-
-  // 首次启动且未导入/创建 db 时,整页替换为欢迎引导(web 模式 window.desktop 不存在,恒 false)
-  if (showWelcome) {
-    return (
-      <WelcomeScreen
-        onImport={handleImport}
-        onSkip={handleSkip}
-        importing={importing}
-        error={importError}
-      />
-    );
+function safeStorage(): Storage | null {
+  try {
+    return window.localStorage
+  } catch {
+    return null
   }
+}
+
+/**
+ * 驾驶舱首页：市场怎样 / 持仓怎样 / 今天要处理什么。
+ * 数据统一走 /api/dashboard（区块级失败隔离）；桌面首次启动必须先完成 welcome
+ * 判定再发请求，否则服务端会先建空库，导入引导永远不出现。
+ */
+export default function CockpitPage() {
+  const { showWelcome, checked: welcomeChecked, importing, importError, handleImport, handleSkip } = useDesktopWelcome()
+  const [payload, setPayload] = useState<DashboardPayload | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [visibleKeys, setVisibleKeys] = useState<CockpitPanelKey[]>([...COCKPIT_PANEL_KEYS])
+  const inFlightRef = useRef<AbortController | null>(null)
+  const viewTrackedRef = useRef(false)
+
+  useEffect(() => {
+    setVisibleKeys(loadPanelKeys(safeStorage()))
+  }, [])
+
+  const refresh = useCallback(async (mode: 'initial' | 'manual' | 'poll') => {
+    if (inFlightRef.current) return
+    const controller = new AbortController()
+    inFlightRef.current = controller
+    if (mode === 'initial') setLoading(true)
+    if (mode === 'manual') setRefreshing(true)
+    if (mode !== 'poll') setError('')
+
+    try {
+      const res = await fetch('/api/dashboard', {
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error?.message || `数据刷新失败（HTTP ${res.status}）`)
+      if (!body?.data?.sections) throw new Error('返回的数据格式不正确')
+      setPayload(body.data as DashboardPayload)
+      setLastUpdated(new Date())
+      setError('')
+      if (!viewTrackedRef.current) {
+        viewTrackedRef.current = true
+        track('cockpit_view')
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return
+      setError(err instanceof Error ? err.message : '数据刷新失败，请稍后重试')
+    } finally {
+      if (inFlightRef.current === controller) inFlightRef.current = null
+      if (!controller.signal.aborted) {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!welcomeChecked || showWelcome) return
+    void refresh('initial')
+    return () => {
+      inFlightRef.current?.abort()
+      inFlightRef.current = null
+    }
+  }, [welcomeChecked, showWelcome, refresh])
+
+  // 60s 轻量轮询；页面不可见时跳过，回到前台由下一次轮询补齐。
+  useEffect(() => {
+    if (!welcomeChecked || showWelcome) return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh('poll')
+    }, POLL_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [welcomeChecked, showWelcome, refresh])
+
+  const manualRefresh = useCallback(() => { void refresh('manual') }, [refresh])
+  const retry = useCallback(() => { void refresh('manual') }, [refresh])
+
+  const togglePanel = useCallback((key: CockpitPanelKey) => {
+    track('cockpit_panel_toggle', { key })
+    setVisibleKeys((current) => {
+      const next = togglePanelKey(current, key)
+      savePanelKeys(safeStorage(), next)
+      return next
+    })
+  }, [])
+
+  // 命令面板只发事件，页面自己决定能做什么；换页后自然失效。
+  useEffect(() => {
+    const onTogglePanel = (event: Event) => {
+      const key = (event as CustomEvent<{ key?: unknown }>).detail?.key
+      if (isPanelKey(key)) togglePanel(key)
+    }
+    const onRefresh = () => manualRefresh()
+    window.addEventListener('app:toggle-panel', onTogglePanel)
+    window.addEventListener('app:refresh-data', onRefresh)
+    return () => {
+      window.removeEventListener('app:toggle-panel', onTogglePanel)
+      window.removeEventListener('app:refresh-data', onRefresh)
+    }
+  }, [manualRefresh, togglePanel])
+
+  if (showWelcome) {
+    return <WelcomeScreen onImport={handleImport} onSkip={handleSkip} importing={importing} error={importError} />
+  }
+
+  const sections = payload?.sections
 
   return (
     <>
       <Head>
-        <title>新闻线索 · 财经信号</title>
+        <title>驾驶舱 · 财经信号</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta
-          name="description"
-          content="7×24 财经快讯与信号筛选，个人收盘研究用途"
-        />
-        <link
-          rel="alternate"
-          type="application/rss+xml"
-          title="Recent Entries"
-          href="/api/rss.xml"
-        />
+        <meta name="description" content="个人 A 股投研驾驶舱：市场、持仓、任务与证据" />
       </Head>
 
       <AppShell
-        title="今日"
-        actions={<TopbarRefreshButton onClick={doRefresh} refreshing={fetching} />}
+        title="驾驶舱"
+        actions={<TopbarRefreshButton onClick={manualRefresh} refreshing={refreshing} />}
       >
-      <div
-        ref={pullAreaRef}
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchCancel}
-        className="bg-background"
-      >
-        {/* Pull-to-refresh indicator */}
-        <div
-          className="flex items-center justify-center gap-2 overflow-hidden"
-          style={{ height: pullDist, opacity: pullProgress }}
-        >
-          <RefreshCw
-            className={`h-4 w-4 text-muted-foreground ${fetching ? "animate-spin" : ""}`}
-            style={{
-              transform: !fetching && pullDist > 0
-                ? `rotate(${pullProgress * 360}deg)`
-                : undefined,
-            }}
-          />
-          <span className="text-xs text-muted-foreground">
-            {fetching
-              ? "更新中…"
-              : pullDist >= PULL_THRESHOLD
-                ? "释放刷新"
-                : "下拉刷新"}
-          </span>
-        </div>
-
-        {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
-        <div className={`w-full pb-12 ${CONTENT_GUTTER}`}>
-          {/* Hero */}
-          <div className="pt-6 pb-6 flex items-end justify-between gap-4 flex-wrap">
-            <div className="min-w-0">
-              <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">
-                新闻线索
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                7×24 全球快讯 · AI 辅助筛选值得跟进的线索
-              </p>
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock className="size-3.5" aria-hidden="true" />
-                {lastUpdated ? (
-                  <>
-                    更新于{" "}
-                    {lastUpdated.toLocaleTimeString("zh-CN", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
+        <CockpitSelectionProvider>
+          <div className="flex min-h-full flex-col xl:h-full">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-3 pt-3 md:px-4">
+              <div className="min-w-0">
+                <h1 className="text-lg font-semibold tracking-tight">驾驶舱</h1>
+                <p className="text-[11px] text-muted-foreground">市场怎样 · 持仓怎样 · 今天要处理什么</p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] tabular-nums text-muted-foreground" aria-live="polite">
+                  {lastUpdated ? `更新于 ${formatTime(lastUpdated.toISOString())}` : '加载中…'}
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2 text-xs">
+                        <LayoutGrid className="size-3.5" aria-hidden="true" />
+                        面板
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuLabel className="px-1.5" inset={false}>显示面板</DropdownMenuLabel>
+                    <DropdownMenuSeparator className="my-1" />
+                    {COCKPIT_PANELS.map((panel) => {
+                      const shown = visibleKeys.includes(panel.key)
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={panel.key}
+                          className="text-xs"
+                          inset={false}
+                          checked={shown}
+                          closeOnClick={false}
+                          disabled={shown && visibleKeys.length === 1}
+                          onCheckedChange={() => togglePanel(panel.key)}
+                        >
+                          {panel.label}
+                        </DropdownMenuCheckboxItem>
+                      )
                     })}
-                  </>
-                ) : (
-                  <>7×24 快讯 · 下拉或点右上角刷新</>
-                )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
-            <TodayTabs />
+
+            {error && (
+              <div
+                role="alert"
+                className="mx-3 mt-2 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive md:mx-4"
+              >
+                <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{error}{payload ? ' · 当前显示上次数据' : ''}</span>
+                <button
+                  type="button"
+                  onClick={retry}
+                  className="flex shrink-0 items-center gap-1 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <RefreshCw className="size-3" aria-hidden="true" />重试
+                </button>
+              </div>
+            )}
+
+            <SelectionChip />
+
+            <div className="grid min-h-0 grid-cols-1 gap-3 p-3 md:grid-cols-2 md:p-4 xl:flex-1 xl:grid-cols-4 xl:grid-rows-2">
+              {visibleKeys.includes('brief') && (
+                <BriefPanel
+                  section={sections?.brief}
+                  loading={loading}
+                  refreshing={refreshing}
+                  onRetry={retry}
+                  onRefresh={manualRefresh}
+                />
+              )}
+              {visibleKeys.includes('pulse') && (
+                <PulsePanel
+                  section={sections?.pulse}
+                  loading={loading}
+                  refreshing={refreshing}
+                  onRetry={retry}
+                  onRefresh={manualRefresh}
+                />
+              )}
+              {visibleKeys.includes('watchlist') && (
+                <WatchlistPanel
+                  section={sections?.watchlist}
+                  loading={loading}
+                  refreshing={refreshing}
+                  onRetry={retry}
+                  onRefresh={manualRefresh}
+                />
+              )}
+              {visibleKeys.includes('portfolio') && (
+                <PortfolioPanel
+                  section={sections?.portfolio}
+                  loading={loading}
+                  refreshing={refreshing}
+                  onRetry={retry}
+                  onRefresh={manualRefresh}
+                />
+              )}
+              {visibleKeys.includes('tasks') && (
+                <TasksPanel
+                  section={sections?.tasks}
+                  loading={loading}
+                  refreshing={refreshing}
+                  onRetry={retry}
+                  onRefresh={manualRefresh}
+                />
+              )}
+            </div>
           </div>
 
-          <ErrorBanner message={error} />
-
-          <TodaySignalSummary items={todayItems} />
-
-          {todayItems.length > 0 ? (
-            <NewsList todayItems={todayItems} pastDates={pastDates} />
-          ) : (
-            !error && <EmptyState onRefresh={doRefresh} refreshing={fetching} />
-          )}
-        </div>
-      </div>
+          <InspectorDrawer />
+          <CopilotDock />
+        </CockpitSelectionProvider>
       </AppShell>
     </>
-  );
+  )
 }
 
-export async function getStaticProps() {
-  try {
-    // 直连 DB 组装首页数据(与 /api/news 同构,但不在构建/ISR 时自回环 HTTP,
-    // 避免未配 NEXT_PUBLIC_BASE_URL 时构建期必失败;客户端刷新按钮仍走 /api/news 拿实时补数据)
-    const today = todayKey();
-    const todayRows = await getNewsByDate(today, 200);
-    const todayItems = todayRows.map((row: any) => ({
-      id: row.id,
-      rich_text: row.content,
-      published_at: row.published_at,
-      source: row.source,
-      title: row.title,
-    }));
-    await attachSignalData(todayItems);
-
-    const allDates = await getAvailableDates(7);
-    const pastDates = allDates.filter((d) => d !== today);
-
-    return {
-      props: {
-        todayItems,
-        pastDates,
-        today,
-        error: null,
-      },
-      revalidate: 300,
-    };
-  } catch (e) {
-    console.error("Failed to load news:", e);
-    return {
-      props: { todayItems: [], pastDates: [], today: '', error: "暂时无法获取最新新闻，请稍后刷新页面" },
-      revalidate: 60,
-    };
-  }
+function SelectionChip() {
+  const { symbol, thread, clear } = useCockpitSelection()
+  if (!symbol && !thread) return null
+  return (
+    <div className="mx-3 mt-2 flex items-center gap-2 md:mx-4" aria-live="polite">
+      <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-2 py-0.5 text-[11px]">
+        <span className="text-muted-foreground">已选中</span>
+        <span className="font-medium tabular-nums">{symbol || `线索 #${thread}`}</span>
+      </span>
+      <button
+        type="button"
+        onClick={clear}
+        className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        清除
+      </button>
+    </div>
+  )
 }
 
-/** 为带 DB id 的条目附加分析信号信息(LEFT JOIN analysis_result)。 */
-async function attachSignalData(items: any[]) {
-  const ids = items
-    .map((item: any) => item.id)
-    .filter((id: any) => typeof id === 'number' && id > 0);
-  if (ids.length === 0) return;
-
-  const db = await getDb();
-  const placeholders = ids.map(() => '?').join(',');
-  const result = await db.execute({
-    sql: `
-      SELECT a.id as analysis_id, a.news_id, a.signal_score, a.category
-      FROM analysis_result a
-      WHERE a.news_id IN (${placeholders})
-    `,
-    args: ids,
-  });
-
-  const signalMap = new Map<number, any>();
-  for (const row of result.rows) {
-    const r = row as any;
-    signalMap.set(r.news_id, {
-      id: r.analysis_id,
-      signal_score: r.signal_score,
-      category: r.category,
-    });
+/** `?layout=classic` 或环境变量回退到旧新闻首页，方便线上比对与回滚。 */
+export async function getServerSideProps(context: GetServerSidePropsContext) {
+  if (context.query.layout === 'classic' || process.env.COCKPIT_HOME_CLASSIC === '1') {
+    return { redirect: { destination: '/news', permanent: false } }
   }
-
-  for (const item of items) {
-    if (item.id > 0 && signalMap.has(item.id)) {
-      item.analysis = signalMap.get(item.id);
-    }
-  }
+  return { props: {} }
 }

@@ -19,6 +19,13 @@ const ALLOWED_EVENT_NAMES = new Set([
   'watchlist_add',
   'watchlist_remove',
   'search_query',
+  'nav_click',
+  'cockpit_view',
+  'cockpit_panel_toggle',
+  'cockpit_selection_open',
+  'copilot_open',
+  'copilot_send',
+  'command_palette_open',
 ]);
 
 /** 清理节流：每小时至多一次。 */

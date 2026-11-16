@@ -1,9 +1,10 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { MOBILE_ITEMS } from '@/lib/nav'
+import { track } from '@/lib/track'
 import { cn } from '@/lib/utils'
 
-/** 手机端常驻五个主入口；新闻线索在“今日”页内切换。 */
+/** 手机端常驻五个主入口；新闻线索与简报从驾驶舱顶部进入。 */
 export function MobileBottomNav() {
   const router = useRouter()
   return (
@@ -21,6 +22,7 @@ export function MobileBottomNav() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => track('nav_click', { from: router.pathname, to: item.href, surface: 'mobile' })}
               aria-current={active ? (current ? 'page' : 'true') : undefined}
               className={cn(
                 'relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] transition-colors duration-150',

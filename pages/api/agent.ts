@@ -25,7 +25,9 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Forbidden origin' });
   }
 
-  const { sessionId, message, stream, editingId, regenerateFromId } = req.body || {};
+  const { sessionId, message, stream, editingId, regenerateFromId, context } = req.body || {};
+  // 驾驶舱 Copilot 传入选中的界面上下文，只用于消解「这只」等指代
+  const uiContext = typeof context === 'string' ? context.trim().slice(0, 300) : undefined;
   const text = typeof message === 'string' ? message.trim() : '';
   if (regenerateFromId == null && !text) {
     return res.status(400).json({ error: 'message 必填' });
@@ -72,6 +74,7 @@ export default async function handler(req, res) {
         userMessage: text,
         editingId: eid,
         regenerateFromId: rid,
+        context: uiContext,
         userId,
       });
       return res.status(200).json(result);
@@ -108,6 +111,7 @@ export default async function handler(req, res) {
       userMessage: text,
       editingId: eid,
       regenerateFromId: rid,
+      context: uiContext,
       userId,
       onEvent: (e) => {
         if (e.type === 'context_compact_start') {

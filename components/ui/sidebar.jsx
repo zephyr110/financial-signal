@@ -24,6 +24,7 @@ import {
 import { PanelLeftIcon } from "lucide-react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
+const SIDEBAR_STORAGE_KEY = "sidebar:open"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
@@ -65,9 +66,31 @@ function SidebarProvider({
       _setOpen(openState)
     }
 
-    // This sets the cookie to keep the sidebar state.
+    // localStorage 是主存储，cookie 保留兼容旧会话。
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, openState ? "1" : "0")
+    } catch {
+      /* 隐私模式等场景只影响下次默认状态 */
+    }
     document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
   }, [setOpenProp, open])
+
+  // 桌面默认收起；读过上次展开状态后恢复。水合后再改，避免 server/client 结构不一致。
+  React.useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY)
+      const cookie = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith(`${SIDEBAR_COOKIE_NAME}=`))
+        ?.split("=")[1]
+      // 旧版 cookie 写的是 true/false，迁移期一并识别。
+      const value = stored ?? cookie
+      if (value === "1" || value === "true") _setOpen(true)
+      else if (value === "0" || value === "false") _setOpen(false)
+    } catch {
+      /* 存储不可用时用默认收起 */
+    }
+  }, [])
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {

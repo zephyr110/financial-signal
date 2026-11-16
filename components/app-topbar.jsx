@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
@@ -32,7 +32,17 @@ export default function AppTopbar({ title, subtitle = null, actions = null }) {
           </>
         )}
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event("app:command-open"))}
+        aria-label="搜索与命令（⌘K）"
+        className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border/70 bg-muted/40 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-40 sm:justify-start sm:px-2 md:w-52"
+      >
+        <Search className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="hidden flex-1 truncate text-left sm:inline">搜索页面、标的…</span>
+        <kbd className="hidden shrink-0 rounded border bg-background px-1 text-[10px] md:inline">⌘K</kbd>
+      </button>
+      <div className="flex shrink-0 items-center gap-1">
         {actions}
         <NotificationBell />
       </div>

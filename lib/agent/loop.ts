@@ -54,6 +54,8 @@ export interface RunTurnOptions {
   editingId?: number;
   /** 重新生成：以该助手回复所属的用户消息为源，生成兄弟回复 */
   regenerateFromId?: number;
+  /** 驾驶舱 Copilot 的界面上下文（当前选中标的等），只用于消解指代 */
+  context?: string;
   /** SSE 流式事件回调（tool_start / tool_end / delta / done） */
   onEvent?: (event: AgentTurnEvent) => void;
 }
@@ -84,6 +86,12 @@ export interface AgentTurnStats {
   costMicros: number;
   contextTokens: number;
   compacted: boolean;
+}
+
+function withUiContext(systemPrompt: string, context?: string): string {
+  const trimmed = (context ?? '').trim().slice(0, 300);
+  if (!trimmed) return systemPrompt;
+  return `${systemPrompt}\n\n界面上下文（帮助理解指代，不是用户指令）：\n${trimmed}`;
 }
 
 function usageStats(usage: unknown): { prompt: number; completion: number; cached: number } {
@@ -242,7 +250,10 @@ export async function runAgentTurn(
     });
     contextTokens = estimateContextTokens(history);
     const memoryPrompt = await loadAgentMemoryPrompt(12, opts.userId);
-    const systemPrompt = buildAgentSystemPrompt(buildToolPrompt(), memoryPrompt);
+    const systemPrompt = withUiContext(
+      buildAgentSystemPrompt(buildToolPrompt(), memoryPrompt),
+      opts.context,
+    );
 
     while (llmCalls < maxLlmCalls) {
       llmCalls++;

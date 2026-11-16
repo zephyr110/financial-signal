@@ -8,23 +8,12 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { TaskRecord } from '@/lib/cockpit/types'
-import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
+import { formatCost, formatTime, taskStatusLabel, taskTypeLabel, thesisStatusLabel } from '@/lib/cockpit/format'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Disclosure, closeDisclosure } from './bits'
-
-const TYPE_LABEL: Record<string, string> = {
-  daily_brief: '收盘简报',
-  daily_close: '收盘全链路',
-  market_ingest: '行情入库',
-  akshare_ingest: 'T2 补充入库',
-  thesis_review: '论点复核',
-  ask: '向简报提问',
-  weekly_review: '周度复盘',
-  symbol_deep_dive: '个股深挖',
-}
 
 const QUICK_ACTIONS: Array<{
   type: string
@@ -443,7 +432,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                   key={task.id}
                 >
                   <div className="ck-task-head">
-                    <span className="ck-task-type">{TYPE_LABEL[task.type] || task.type}</span>
+                    <span className="ck-task-type">{taskTypeLabel(task.type)}</span>
                     <Badge
                       variant="outline"
                       className={`ck-task-status is-${task.status}`}
@@ -460,7 +449,7 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                       <div
                         className="ck-task-progress"
                         role="progressbar"
-                        aria-label={`${TYPE_LABEL[task.type] || task.type}进度`}
+                        aria-label={`${taskTypeLabel(task.type)}进度`}
                         aria-valuemin={0}
                         aria-valuemax={100}
                         aria-valuenow={progress}
