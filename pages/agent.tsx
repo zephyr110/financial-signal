@@ -1,36 +1,22 @@
-import { useState, useEffect, useRef, useCallback, isValidElement } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Head from "next/head";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X, BookOpen, ThumbsUp, ThumbsDown } from "lucide-react";
+import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X, BookOpen, ThumbsUp, ThumbsDown, RefreshCw } from "lucide-react";
 import { getToolLabel } from "@/lib/agent/tool-labels";
 import AppShell from "../components/app-shell";
 import SessionSidebarGroup from "../components/SessionSidebarGroup";
-import AgentCodeBlock from "../components/agent-code-block";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { AgentMarkdown } from "@/components/agent-markdown";
 import { AgentProcessingBlock } from "@/components/AgentProcessingBlock";
+import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { looksLikeJson, stripToolProtocolFromAnswer } from "@/lib/agent/format";
+import {
+  AgentStreamError,
+  AGENT_STREAM_ERROR_COPY,
+  consumeAgentEventStream,
+  toAgentStreamError,
+} from "@/lib/agent/sse";
 import { historyToChatItems, type ChatItem } from "@/types/agent-chat";
 import { useAutosizeTextarea } from "@/hooks/use-autosize-textarea";
-
-// ReactMarkdown v10：components/remarkPlugins 引用变化会触发全部 markdown 重新解析。
-// 提升为模块级常量，避免父组件每次 render（如输入框击键）都重建引用导致重解析
-const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
-const MARKDOWN_COMPONENTS = {
-  // 链接新开页，避免打断对话
-  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
-  // 代码块：参考 zlog CodeBlock——顶栏（语言标签 + 复制）+ 圆角容器
-  pre: ({ node: _node, children }) => {
-    const codeEl = isValidElement(children) ? children : null;
-    const cls = (codeEl?.props as { className?: string } | undefined)?.className ?? "";
-    const lang = (cls.match(/language-([\w-]+)/) || [])[1] || "";
-    return (
-      <AgentCodeBlock lang={lang}>
-        {(codeEl?.props as { children?: unknown } | undefined)?.children ?? children}
-      </AgentCodeBlock>
-    );
-  },
-};
 import { Button } from "../components/ui/button";
 import { Alert, AlertTitle, AlertDescription } from "../components/ui/alert";
 import { Textarea } from "../components/ui/textarea";
@@ -62,7 +48,9 @@ export default function AgentPage() {
   const [messages, setMessages] = useState<ChatItem[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<AgentStreamError | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionTotal, setSessionTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -74,6 +62,13 @@ export default function AgentPage() {
   const [editingDraft, setEditingDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // 分支切换后恢复滚动位置：切换会重载整条可见路径，不能自动甩到底部
+  const pendingScrollTopRef = useRef<number | null>(null);
+  const skipAutoScrollRef = useRef(false);
+  // runTurn 需要撤销乐观消息时的快照，不能依赖异步 state
+  const messagesRef = useRef<ChatItem[]>([]);
+  const lastTurnRef = useRef<{ text: string; editingId?: string; regenerateFromId?: string } | null>(null);
   // 会话列表请求序号：快速输入时旧请求晚到，不能覆盖新搜索结果
   const sessionReqRef = useRef(0);
 
@@ -138,8 +133,24 @@ export default function AgentPage() {
   }, []);
 
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    if (skipAutoScrollRef.current) return;
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // 分支切换重载完成后，把滚动位置还给用户
+  useEffect(() => {
+    if (pendingScrollTopRef.current == null) return;
+    const top = pendingScrollTopRef.current;
+    pendingScrollTopRef.current = null;
+    requestAnimationFrame(() => {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = top;
+      skipAutoScrollRef.current = false;
+    });
+  }, [messages]);
 
   const persistSession = useCallback((id: number | null) => {
     try {
@@ -178,13 +189,18 @@ export default function AgentPage() {
     }
   }, [loadingMore, query, sessions.length, refreshSessions]);
 
-  // 加载某会话的全部消息（不切换会话 id 时用 restore）
+  // 加载某会话当前可见分支；silent 用于分支切换后原地刷新
   const loadSession = useCallback(
-    async (id: number) => {
-      setLoadingHistory(true);
+    async (id: number, opts?: { silent?: boolean }) => {
+      const silent = Boolean(opts?.silent);
+      if (!silent) {
+        setLoadingHistory(true);
+        setMessages([]);
+        setEditingId(null);
+        setEditingDraft("");
+      }
       setError(null);
-      // 切换会话时清空旧消息，避免与加载指示叠加显示
-      setMessages([]);
+      setStreamError(null);
       try {
         const res = await fetch(`/api/agent-sessions?id=${id}`);
         // 会话不存在（已被删除/数据库重建）：清掉残留缓存，回到新会话状态，避免
@@ -193,18 +209,18 @@ export default function AgentPage() {
           setSessionId(null);
           persistSession(null);
           setMessages([]);
-          setLoadingHistory(false);
+          if (!silent) setLoadingHistory(false);
           return;
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        setMessages(historyToChatItems(data.messages || [], data.turns || []));
+        setMessages(historyToChatItems(data.messages || [], data.turns || [], data.versions || {}));
         setSessionId(id);
         persistSession(id);
       } catch {
         setError("历史会话加载失败，请稍后重试");
       } finally {
-        setLoadingHistory(false);
+        if (!silent) setLoadingHistory(false);
       }
     },
     [persistSession]
@@ -231,30 +247,40 @@ export default function AgentPage() {
   }, [refreshSessions, loadSession]);
 
   const submitMessage = useCallback(
-    async (textOverride?: string, opts?: { editingId?: string }) => {
+    async (
+      textOverride?: string,
+      opts?: { editingId?: string; regenerateFromId?: string },
+    ) => {
       const text = (textOverride ?? input).trim();
-      if (!text || loading) return;
+      const editing = opts?.editingId ?? null;
+      const regenerating = opts?.regenerateFromId ?? null;
+      if ((!text && !regenerating) || loading || switching) return;
+      lastTurnRef.current = { text, ...(opts || {}) };
       setInput("");
       setError(null);
+      setStreamError(null);
       setLoading(true);
 
-      // 编辑重发：不追加新用户消息（本地已截断并更新内容），服务端同样处理
-      const editing = opts?.editingId ?? null;
+      const snapshot = messagesRef.current;
       const optimisticId = `local-${Date.now()}`;
       const turnMsgId = `turn-${Date.now()}`;
-      if (!editing) {
-        setMessages((prev) => [...prev, { id: optimisticId, role: "user", content: text }]);
-      }
-      // 单条助手消息：思考块 + 正文共用同一气泡列，避免「回复两次」
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: turnMsgId,
-          role: "assistant" as const,
-          content: "",
-          processing: { tools: [], active: true, thinking: true },
-        },
-      ]);
+      setMessages((prev) => {
+        let next = prev;
+        // 重新生成：先隐藏旧回复，新分支生成后由服务端路径决定显示哪条
+        if (regenerating) next = next.filter((m) => m.id !== regenerating);
+        else if (!editing) next = [...next, { id: optimisticId, role: "user", content: text }];
+        // 单条助手消息：思考块 + 正文共用同一气泡列，避免「回复两次」
+        return [
+          ...next,
+          {
+            id: turnMsgId,
+            role: "assistant" as const,
+            content: "",
+            streaming: true,
+            processing: { tools: [], active: true, thinking: true },
+          },
+        ];
+      });
 
       try {
         const res = await fetch("/api/agent", {
@@ -265,6 +291,9 @@ export default function AgentPage() {
             message: text,
             stream: true,
             editingId: editing ? Number(editing.replace("hist-", "")) : undefined,
+            regenerateFromId: regenerating
+              ? Number(regenerating.replace("hist-", ""))
+              : undefined,
           }),
         });
 
@@ -281,19 +310,26 @@ export default function AgentPage() {
           } else {
             setError(data.error || `请求失败（HTTP ${res.status}）`);
           }
-          // 移除乐观渲染消息；编辑重发失败时同样清理本轮助手占位
-          setMessages((prev) =>
-            prev.filter((m) => m.id !== turnMsgId && (editing || m.id !== optimisticId))
-          );
+          // 移除乐观渲染消息；编辑/重新生成失败时清理本轮助手占位
+          if (regenerating) setMessages(snapshot);
+          else {
+            setMessages((prev) =>
+              prev.filter((m) => m.id !== turnMsgId && (editing || m.id !== optimisticId))
+            );
+          }
           return;
         }
 
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("text/event-stream")) {
+          throw new AgentStreamError("protocol");
+        }
+
         // ── SSE 流式读取：单条 turn 消息承载 processing + 正文 ──
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
         let streamText = "";
         let doneSessionId: number | null = null;
+        let doneUserMessageId: number | null = null;
+        let doneAssistantMessageId: number | null = null;
 
         const updateTurn = (updater: (m: ChatItem) => ChatItem) => {
           setMessages((prev) => prev.map((m) => (m.id === turnMsgId ? updater(m) : m)));
@@ -380,6 +416,7 @@ export default function AgentPage() {
             updateTurn((m) => ({
               ...m,
               content: display,
+              streaming: true,
               processing: m.processing
                 ? {
                     ...m.processing,
@@ -390,6 +427,8 @@ export default function AgentPage() {
             }));
           } else if (event === "done") {
             doneSessionId = payload.sessionId;
+            doneUserMessageId = payload.userMessageId ?? null;
+            doneAssistantMessageId = payload.assistantMessageId ?? null;
             const reply = stripToolProtocolFromAnswer(payload.reply || streamText || "");
             const toolLogs: NonNullable<ChatItem["toolLog"]> = payload.toolLog || [];
 
@@ -407,7 +446,11 @@ export default function AgentPage() {
               const hasProcessing = tools.length > 0 || compaction;
               return {
                 ...m,
+                ...(doneAssistantMessageId && (reply || toolLogs.length)
+                  ? { id: `hist-${doneAssistantMessageId}` }
+                  : {}),
                 content: reply,
+                streaming: false,
                 truncated: Boolean(payload.truncated),
                 ...(payload.turnId ? { turnId: payload.turnId } : {}),
                 ...(payload.stats ? { stats: payload.stats } : {}),
@@ -430,90 +473,114 @@ export default function AgentPage() {
                 return prev.filter((m) => m.id !== turnMsgId);
               });
             }
-
-            if (!editing && payload.userMessageId) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === optimisticId
-                    ? { ...m, id: `hist-${payload.userMessageId}` }
-                    : m
-                )
-              );
-            }
-          } else if (event === "error") {
-            setError(payload.error || "研究助手暂时不可用，请稍后再试");
-            updateTurn((m) =>
-              m.processing
-                ? { ...m, processing: { ...m.processing, active: false, thinking: false } }
-                : m
-            );
           }
         };
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const blocks = buffer.split("\n\n");
-          buffer = blocks.pop() || "";
-          for (const block of blocks) {
-            let evt = "";
-            let data = "";
-            for (const line of block.split("\n")) {
-              if (line.startsWith("event:")) evt = line.slice(6).trim();
-              else if (line.startsWith("data:")) data = line.slice(5).trim();
-            }
-            if (!evt || !data) continue;
-            try {
-              handleEvent(evt, JSON.parse(data));
-            } catch {
-              // 忽略无法解析的事件块
-            }
-          }
-        }
+        await consumeAgentEventStream(res.body, handleEvent);
 
-        if (doneSessionId) {
-          setSessionId(doneSessionId);
-          persistSession(doneSessionId);
-          void refreshSessions(query, 0);
-        } else {
-          updateTurn((m) =>
-            m.processing
-              ? { ...m, processing: { ...m.processing, active: false, thinking: false } }
-              : m
+        if (!doneSessionId) throw new AgentStreamError("interrupted");
+
+        setSessionId(doneSessionId);
+        persistSession(doneSessionId);
+
+        // 编辑/重新生成后从服务端重载当前分支：版本号与可见路径以树为准
+        if (editing || regenerating) {
+          await loadSession(doneSessionId, { silent: true });
+        } else if (doneUserMessageId) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === optimisticId ? { ...m, id: `hist-${doneUserMessageId}` } : m
+            )
           );
         }
+        void refreshSessions(query, 0);
       } catch (e) {
-        console.error("Agent request failed:", e);
-        setError("网络错误，请稍后重试");
-        setMessages((prev) =>
-          prev.filter((m) => m.id !== turnMsgId && (editing || m.id !== optimisticId))
-        );
+        const failure = toAgentStreamError(e);
+        console.error("Agent request failed:", failure);
+        setStreamError(failure);
+        if (regenerating) setMessages(snapshot);
+        else {
+          setMessages((prev) =>
+            prev.filter((m) => m.id !== turnMsgId && (editing || m.id !== optimisticId))
+          );
+        }
       } finally {
         setLoading(false);
         inputRef.current?.focus();
       }
     },
-    [input, loading, sessionId, persistSession, refreshSessions, query]
+    [input, loading, switching, sessionId, persistSession, refreshSessions, query, loadSession]
   );
 
   // 编辑用户消息重发：本地截断该条之后的全部消息 → 更新内容 → 走编辑重发接口
   const sendEdit = useCallback(
     async (m: ChatItem, draft: string) => {
       const text = draft.trim();
-      if (!text || loading) return;
+      if (!text || loading || switching) return;
       setEditingId(null);
       setEditingDraft("");
       setMessages((prev) => {
         const idx = prev.findIndex((x) => x.id === m.id);
         if (idx < 0) return prev;
-        // 保留该条及其之前的消息，更新内容，清除之后所有回复
+        // 本地先切到新分支视图；服务端成功后按树重载，旧分支仍可切回
         return [...prev.slice(0, idx), { ...prev[idx], content: text }];
       });
       await submitMessage(text, { editingId: m.id });
     },
-    [loading, submitMessage]
+    [loading, switching, submitMessage]
   );
+
+  // 重新生成最后一条回复：以它所属的用户消息为源，生成兄弟分支
+  const regenerateReply = useCallback(
+    (m: ChatItem) => {
+      if (!m.id.startsWith("hist-") || loading || switching) return;
+      void submitMessage("", { regenerateFromId: m.id });
+    },
+    [loading, switching, submitMessage]
+  );
+
+  // 切换消息版本：服务端改选中分支，前端原地重载当前可见路径
+  const switchVersion = useCallback(
+    async (targetId: string) => {
+      if (!sessionId || loading || switching || !targetId.startsWith("hist-")) return;
+      setSwitching(true);
+      setError(null);
+      setStreamError(null);
+      pendingScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? null;
+      skipAutoScrollRef.current = true;
+      try {
+        const res = await fetch("/api/agent-branches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            messageId: Number(targetId.replace("hist-", "")),
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `切换失败（HTTP ${res.status}）`);
+        }
+        await loadSession(sessionId, { silent: true });
+      } catch (e) {
+        pendingScrollTopRef.current = null;
+        skipAutoScrollRef.current = false;
+        setError(e instanceof Error && e.message ? e.message : "切换消息版本失败，请稍后重试");
+      } finally {
+        setSwitching(false);
+      }
+    },
+    [sessionId, loading, switching, loadSession]
+  );
+
+  const retryLastTurn = useCallback(() => {
+    const last = lastTurnRef.current;
+    if (!last || loading || switching) return;
+    void submitMessage(last.text, {
+      editingId: last.editingId,
+      regenerateFromId: last.regenerateFromId,
+    });
+  }, [loading, switching, submitMessage]);
 
   const send = useCallback(() => {
     void submitMessage();
@@ -524,6 +591,8 @@ export default function AgentPage() {
     persistSession(null);
     setMessages([]);
     setError(null);
+    setStreamError(null);
+    lastTurnRef.current = null;
     inputRef.current?.focus();
   }, [persistSession]);
 
@@ -587,6 +656,10 @@ export default function AgentPage() {
   );
 
   const isEmpty = messages.length === 0 && !loading && !loadingHistory;
+  const lastAssistantIndex = messages.reduce(
+    (last, m, index) => (m.role === "assistant" ? index : last),
+    -1
+  );
 
   return (
     <>
@@ -618,7 +691,7 @@ export default function AgentPage() {
         }
       >
         {/* 消息流（自身滚动，输入区贴底） */}
-        <div className="agent-scroll min-h-0 flex-1 overflow-y-auto">
+        <div ref={scrollContainerRef} className="agent-scroll min-h-0 flex-1 overflow-y-auto">
             <style jsx global>{`
               /* 滚动条占 6px 布局宽；stable 保证无滚动条时也不跳，输入区右侧据此补 6px */
               .agent-scroll { scrollbar-gutter: stable; }
@@ -645,6 +718,29 @@ export default function AgentPage() {
                 </Alert>
               )}
 
+              {streamError && (
+                <Alert variant="destructive" className="mb-5">
+                  <AlertTitle>{AGENT_STREAM_ERROR_COPY[streamError.kind].title}</AlertTitle>
+                  <AlertDescription>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        {streamError.detail || AGENT_STREAM_ERROR_COPY[streamError.kind].description}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={retryLastTurn}
+                        disabled={loading || switching}
+                      >
+                        <RefreshCw />
+                        重试
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="space-y-5">
               {loadingHistory && (
                 <div className="flex items-center justify-center text-muted-foreground">
@@ -668,7 +764,7 @@ export default function AgentPage() {
                         key={q}
                         type="button"
                         onClick={() => void submitMessage(q)}
-                        disabled={loading}
+                        disabled={loading || switching}
                         className={cn(
                           "rounded-full border bg-background px-3 py-1.5 text-xs text-muted-foreground",
                           "transition-colors hover:text-foreground hover:border-primary/50 hover:bg-accent",
@@ -682,7 +778,7 @@ export default function AgentPage() {
                 </div>
               )}
 
-              {messages.map((m) => {
+              {messages.map((m, index) => {
                 if (m.role === "system") {
                   return (
                     <div key={m.id} className="text-center text-xs text-muted-foreground py-1">
@@ -719,14 +815,7 @@ export default function AgentPage() {
                         )}
                         {hasContent && (
                           <>
-                            <div className="markdown-body text-sm leading-7 text-foreground">
-                              <ReactMarkdown
-                                remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-                                components={MARKDOWN_COMPONENTS}
-                              >
-                                {m.content}
-                              </ReactMarkdown>
-                            </div>
+                            <AgentMarkdown content={m.content} streaming={Boolean(m.streaming)} />
                             {(() => {
                               const sources = (processing?.tools ?? []).filter(
                                 (tool) => tool.status === "done" || tool.status === "error"
@@ -751,7 +840,7 @@ export default function AgentPage() {
                                 </details>
                               );
                             })()}
-                            {m.truncated && !loading && (
+                            {m.truncated && !loading && !switching && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -763,6 +852,14 @@ export default function AgentPage() {
                               </Button>
                             )}
                             <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover-none:opacity-100">
+                              {m.versions && (
+                                <BranchSwitcher
+                                  versions={m.versions}
+                                  disabled={loading || switching}
+                                  onSelect={(id) => void switchVersion(id)}
+                                  className="mr-1"
+                                />
+                              )}
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -782,6 +879,21 @@ export default function AgentPage() {
                                   </>
                                 )}
                               </Button>
+                              {index === lastAssistantIndex &&
+                                m.id.startsWith("hist-") &&
+                                !m.streaming && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={() => regenerateReply(m)}
+                                    disabled={loading || switching}
+                                    aria-label="重新生成回复"
+                                  >
+                                    <RefreshCw />
+                                    重新生成
+                                  </Button>
+                                )}
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -897,6 +1009,14 @@ export default function AgentPage() {
                       </div>
                       {!isEditing && (
                         <div className="flex flex-row items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover-none:opacity-100">
+                          {m.versions && (
+                            <BranchSwitcher
+                              versions={m.versions}
+                              disabled={loading || switching}
+                              onSelect={(id) => void switchVersion(id)}
+                              className="mr-1"
+                            />
+                          )}
                           {editable && (
                             <Button
                               type="button"
@@ -906,7 +1026,7 @@ export default function AgentPage() {
                                 setEditingDraft(m.content);
                                 setEditingId(m.id);
                               }}
-                              disabled={loading}
+                              disabled={loading || switching}
                               aria-label="编辑消息"
                             >
                               <Pencil />
@@ -970,7 +1090,7 @@ export default function AgentPage() {
                   size="icon"
                   className="mb-0.5 h-9 w-9 shrink-0 rounded-xl"
                   onClick={send}
-                  disabled={loading || loadingHistory || !input.trim()}
+                  disabled={loading || loadingHistory || switching || !input.trim()}
                   aria-label="发送"
                 >
                   <Send className="h-4 w-4" />

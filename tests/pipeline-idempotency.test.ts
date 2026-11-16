@@ -1,8 +1,12 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import fs from 'node:fs';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 
-// 用真实内存库（file::memory:）验证 SQL 约束语义——mock execute 无法验证 UNIQUE/ON CONFLICT
-vi.hoisted(() => {
-  process.env.NEWS_DB_PATH = ':memory:';
+// 用真实临时文件库验证 SQL 约束语义——mock execute 无法验证 UNIQUE/ON CONFLICT。
+// 不用 :memory:：libsql 在 transaction() 后重开连接，新连接会拿到空的内存库。
+const dbPath = vi.hoisted(() => {
+  const p = `${process.env.TMPDIR || '/tmp'}/test-pipeline-idem-${process.pid}-${Date.now()}.db`;
+  process.env.NEWS_DB_PATH = p;
+  return p;
 });
 
 import {
@@ -18,7 +22,8 @@ import {
   getEventMetrics,
   createAgentSession,
   appendAgentMessage,
-  editAgentMessage,
+  forkAgentUserMessage,
+  getAgentMessages,
   createAgentShare,
   getSharedSession,
   deleteAgentSession,
@@ -30,6 +35,10 @@ const iso = (offsetH = 0) => new Date(Date.now() - offsetH * 3600 * 1000).toISOS
 
 beforeAll(async () => {
   await getDb(); // 触发 schema 初始化
+});
+
+afterAll(() => {
+  fs.rmSync(dbPath, { force: true });
 });
 
 describe('fetch 幂等（UNIQUE(source, source_id) + INSERT OR IGNORE）', () => {
@@ -316,22 +325,24 @@ describe('agent 会话分享（公开只读链接）', () => {
     expect(shared!.messages[0].content).toBe('你好');
   });
 
-  it('编辑重发：替换内容并截断其后消息；跨会话/不存在返回 false', async () => {
+  it('编辑重发：新增兄弟分支且旧分支保留；跨会话/不存在返回 null', async () => {
     const db = await getDb();
     const sid = await createAgentSession('编辑测试');
     const m1 = await appendAgentMessage(sid, 'user', '旧问题');
-    const m2 = await appendAgentMessage(sid, 'assistant', '旧回答');
+    await appendAgentMessage(sid, 'assistant', '旧回答');
     await appendAgentMessage(sid, 'assistant', '后续内容');
 
-    const ok = await editAgentMessage(sid, m1, '新问题');
-    expect(ok).toBe(true);
-    const rows = await db.execute({ sql: 'SELECT id, content FROM agent_message WHERE session_id = ? ORDER BY id ASC', args: [sid] });
-    expect(rows.rows.length).toBe(1); // 编辑消息后的全部消息被截断
-    expect(rows.rows[0].content).toBe('新问题');
+    const forked = await forkAgentUserMessage(sid, m1, '新问题');
+    expect(forked).toBeTruthy();
+    // 旧消息不删除，但可见路径只剩新分支的首条用户消息
+    const rows = await db.execute({ sql: 'SELECT id FROM agent_message WHERE session_id = ?', args: [sid] });
+    expect(rows.rows.length).toBe(4);
+    const visible = await getAgentMessages(sid);
+    expect(visible.map((m) => m.content)).toEqual(['新问题']);
 
-    expect(await editAgentMessage(sid, 99999, '不存在')).toBe(false);
+    expect(await forkAgentUserMessage(sid, 99999, '不存在')).toBeNull();
     const sid2 = await createAgentSession('另一会话');
-    expect(await editAgentMessage(sid2, m1, '越权编辑')).toBe(false);
+    expect(await forkAgentUserMessage(sid2, m1, '越权编辑')).toBeNull();
   });
 
   it('无效 token → null；删除会话后分享链接失效', async () => {

@@ -53,12 +53,13 @@ describe('loadAgentContext 压缩回调', () => {
   it('落库后重载时压缩摘要排在保留消息之前', async () => {
     const sid = await createAgentSession('compact-order')
     try {
-      const id1 = await appendAgentMessage(sid, 'user', 'old-1')
-      const id2 = await appendAgentMessage(sid, 'assistant', 'old-2')
+      await appendAgentMessage(sid, 'user', 'old-1')
+      await appendAgentMessage(sid, 'assistant', 'old-2')
       const id3 = await appendAgentMessage(sid, 'user', 'recent-user')
       await appendAgentMessage(sid, 'assistant', 'recent-assistant')
       const { compactAgentMessages } = await import('../db')
-      await compactAgentMessages(sid, id2, '（历史对话已压缩）摘要内容', {
+      // 保留从 recent-user 起的消息,旧的两条折进摘要
+      await compactAgentMessages(sid, id3, '（历史对话已压缩）摘要内容', {
         contextCompact: true,
         summarizedCount: 2,
       })
@@ -70,8 +71,6 @@ describe('loadAgentContext 压缩回调', () => {
         expect.arrayContaining([expect.any(Number)]),
       )
       expect(history.length).toBe(3)
-      void id1
-      void id3
     } finally {
       await deleteAgentSession(sid)
     }

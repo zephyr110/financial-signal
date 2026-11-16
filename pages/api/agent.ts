@@ -25,11 +25,12 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Forbidden origin' });
   }
 
-  const { sessionId, message, stream, editingId } = req.body || {};
-  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+  const { sessionId, message, stream, editingId, regenerateFromId } = req.body || {};
+  const text = typeof message === 'string' ? message.trim() : '';
+  if (regenerateFromId == null && !text) {
     return res.status(400).json({ error: 'message 必填' });
   }
-  if (message.trim().length > 2000) {
+  if (text.length > 2000) {
     return res.status(400).json({ error: '消息过长（限 2000 字）' });
   }
 
@@ -48,6 +49,18 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: '编辑重发需要 sessionId' });
   }
 
+  // 重新生成：必须有 sessionId 与合法助手消息 id；与编辑互斥
+  const rid = regenerateFromId != null ? Number(regenerateFromId) : undefined;
+  if (regenerateFromId != null && (!Number.isInteger(rid) || (rid as number) <= 0)) {
+    return res.status(400).json({ error: 'regenerateFromId 非法' });
+  }
+  if (rid != null && sid == null) {
+    return res.status(400).json({ error: '重新生成需要 sessionId' });
+  }
+  if (rid != null && eid != null) {
+    return res.status(400).json({ error: '不能同时编辑与重新生成' });
+  }
+
   const wantsStream = stream === true;
   // 未登录（桌面本地）时为 null，沿用 legacy 全局作用域
   const userId = await requestUserId(req);
@@ -56,8 +69,9 @@ export default async function handler(req, res) {
     try {
       const result = await runAgentTurn({
         sessionId: sid,
-        userMessage: message.trim(),
+        userMessage: text,
         editingId: eid,
+        regenerateFromId: rid,
         userId,
       });
       return res.status(200).json(result);
@@ -91,8 +105,9 @@ export default async function handler(req, res) {
   try {
     const result = await runAgentTurn({
       sessionId: sid,
-      userMessage: message.trim(),
+      userMessage: text,
       editingId: eid,
+      regenerateFromId: rid,
       userId,
       onEvent: (e) => {
         if (e.type === 'context_compact_start') {
@@ -115,6 +130,7 @@ export default async function handler(req, res) {
             toolLog: e.toolLog,
             truncated: e.truncated,
             userMessageId: e.userMessageId,
+            assistantMessageId: e.assistantMessageId,
             stats: e.stats,
           });
         }
