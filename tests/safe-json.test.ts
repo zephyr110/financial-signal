@@ -27,6 +27,24 @@ describe('sanitizeErrorMessage', () => {
   it('大写主机名同样脱敏', () => {
     expect(sanitizeErrorMessage('API.TUSHARE.PRO timeout')).toBe('（接口地址已隐藏） timeout')
   })
+
+  it('非 http scheme 与带端口/路径的主机名同样不泄漏', () => {
+    expect(sanitizeErrorMessage('connect libsql://mydb.turso.io failed'))
+      .toBe('connect （接口地址已隐藏） failed')
+    expect(sanitizeErrorMessage('ws://mac-mini.local:3010 拒绝连接'))
+      .toBe('（接口地址已隐藏） 拒绝连接')
+    expect(sanitizeErrorMessage('api.example.sh:443 timeout'))
+      .toBe('（接口地址已隐藏） timeout')
+    expect(sanitizeErrorMessage('123456.com 无法解析'))
+      .toBe('（接口地址已隐藏） 无法解析')
+  })
+
+  it('异常类名、汇率对与港股代码不被误伤', () => {
+    expect(sanitizeErrorMessage('sqlite3.OperationalError: no such table'))
+      .toBe('sqlite3.OperationalError: no such table')
+    expect(sanitizeErrorMessage('USD.CNY 汇率缺失')).toBe('USD.CNY 汇率缺失')
+    expect(sanitizeErrorMessage('00700.HK 行情缺失')).toBe('00700.HK 行情缺失')
+  })
 })
 
 describe('sanitizeToolSummary', () => {

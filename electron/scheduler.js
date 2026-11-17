@@ -1,35 +1,55 @@
 'use strict';
 const http = require('http');
 const fs = require('fs');
-const { buildJobSequence, isLlmConfigured, COCKPIT_DAILY_JOB } = require('./scheduler-core');
+const {
+  buildJobSequence, isLlmConfigured, COCKPIT_DAILY_JOB, DEFAULT_INTERVAL_MS, MIN_INTERVAL_MS,
+} = require('./scheduler-core');
 const { loadConfig } = require('./store');
 const { getSettings: getAppSettings } = require('./app-settings');
 
-const DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
-// 防御下限:config.json 被手动写坏(0/负数)时避免 setInterval 空转烧 LLM 额度。
-// 与设置页校验的 5 分钟下限保持一致，避免手动改成 1 分钟后主进程照跑。
-const MIN_INTERVAL_MS = 5 * 60 * 1000;
 // 启动后延迟首轮:崩溃重启/换库后立刻全量跑会与旧实例在途轮次重叠,
 // 对同一批未分析新闻重复发起 LLM 调用。托盘"立即抓取"不受此延迟影响。
 const FIRST_RUN_DELAY_MS = 15 * 1000;
 
+/** 非数值/0/负数间隔回退默认值,否则 Math.max 会得到 NaN,setInterval 按 ~1ms 连轴跑。 */
+function normalizeIntervalMs(raw, minIntervalMs = MIN_INTERVAL_MS) {
+  const n = Number(raw);
+  return Math.max(minIntervalMs, Number.isFinite(n) && n > 0 ? n : DEFAULT_INTERVAL_MS);
+}
+
 function getJson(url, { timeoutMs = 5000 } = {}) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
     const req = http.get(url, { headers: { Origin: new URL(url).origin } }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => {
-        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`GET ${url} -> ${res.statusCode}`));
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return finish(reject, new Error(`GET ${url} -> ${res.statusCode}`));
+        }
         try {
-          resolve(body ? JSON.parse(body) : null);
+          finish(resolve, body ? JSON.parse(body) : null);
         } catch (err) {
-          reject(err);
+          finish(reject, err);
         }
       });
+      // 响应头已到但连接中途断开时,req 不会再报错/超时;不监听这里 promise 会永挂。
+      res.on('error', (err) => finish(reject, err));
+      res.on('close', () => {
+        if (!res.complete) finish(reject, new Error(`GET ${url} aborted`));
+      });
     });
-    req.on('error', reject);
-    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error(`GET ${url} timeout`)); });
+    req.on('error', (err) => finish(reject, err));
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      finish(reject, new Error(`GET ${url} timeout`));
+    });
   });
 }
 
@@ -67,7 +87,7 @@ function createScheduler({
   firstRunDelayMs = FIRST_RUN_DELAY_MS, minIntervalMs = MIN_INTERVAL_MS,
 }) {
   const cfg = getConfig(configFile, { intervalMs: DEFAULT_INTERVAL_MS, notifyLastRunAt: null });
-  const interval = Math.max(minIntervalMs, cfg.intervalMs);
+  const interval = normalizeIntervalMs(cfg.intervalMs, minIntervalMs);
   let timer = null;
   let firstRunTimer = null;
   let running = false;
@@ -149,4 +169,11 @@ function createScheduler({
   return { start, stop, runOnce };
 }
 
-module.exports = { createScheduler, callCron, fetchLlmConfigured, DEFAULT_INTERVAL_MS, MIN_INTERVAL_MS };
+module.exports = {
+  createScheduler,
+  callCron,
+  fetchLlmConfigured,
+  normalizeIntervalMs,
+  DEFAULT_INTERVAL_MS,
+  MIN_INTERVAL_MS,
+};

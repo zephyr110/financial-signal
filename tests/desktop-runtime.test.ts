@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import handler from '../pages/api/desktop/runtime'
-import { getAllSettings } from '../lib/settings'
+import { getEffectiveLlmConfig } from '../lib/llm/config'
 
-vi.mock('../lib/settings', () => ({
-  getAllSettings: vi.fn(),
-  SETTING_KEYS: { LLM_API_KEY: 'llm_api_key' },
+// key 解析与环境变量回退由 tests/llm-config.test.ts 覆盖；这里只测路由的门卫与映射。
+vi.mock('../lib/llm/config', () => ({
+  getEffectiveLlmConfig: vi.fn(),
 }))
 
 function mockReq(method = 'GET', headers: Record<string, string> = {}) {
@@ -24,23 +24,22 @@ function mockRes() {
 }
 
 const localHeaders = { origin: 'http://127.0.0.1:3010', host: '127.0.0.1:3010' }
+const emptyConfig = { apiKey: '', baseUrl: '', model: '' }
 
 describe('/api/desktop/runtime', () => {
   beforeEach(() => {
-    vi.mocked(getAllSettings).mockReset()
+    vi.mocked(getEffectiveLlmConfig).mockReset()
   })
 
   afterEach(() => {
     vi.unstubAllEnvs()
-    delete process.env.LLM_API_KEY
-    delete process.env.DEEPSEEK_API_KEY
   })
 
   it('非桌面模式 → 404（不暴露内部状态）', async () => {
     const res = mockRes()
     await handler(mockReq('GET', localHeaders), res)
     expect(res._status).toBe(404)
-    expect(getAllSettings).not.toHaveBeenCalled()
+    expect(getEffectiveLlmConfig).not.toHaveBeenCalled()
   })
 
   it('桌面模式但 Origin 非本机 → 403', async () => {
@@ -48,7 +47,7 @@ describe('/api/desktop/runtime', () => {
     const res = mockRes()
     await handler(mockReq('GET', { origin: 'https://evil.example', host: '127.0.0.1:3010' }), res)
     expect(res._status).toBe(403)
-    expect(getAllSettings).not.toHaveBeenCalled()
+    expect(getEffectiveLlmConfig).not.toHaveBeenCalled()
   })
 
   it('桌面模式只接受 GET → 405', async () => {
@@ -59,9 +58,9 @@ describe('/api/desktop/runtime', () => {
     expect(res._headers.Allow).toEqual(['GET'])
   })
 
-  it('以数据库中的 LLM key 为准', async () => {
+  it('配置了 key → true', async () => {
     vi.stubEnv('DESKTOP_MODE', '1')
-    vi.mocked(getAllSettings).mockResolvedValue({ llm_api_key: 'sk-db' } as any)
+    vi.mocked(getEffectiveLlmConfig).mockResolvedValue({ ...emptyConfig, apiKey: 'sk-db' })
     const res = mockRes()
     await handler(mockReq('GET', localHeaders), res)
     expect(res._status).toBe(200)
@@ -69,16 +68,25 @@ describe('/api/desktop/runtime', () => {
     expect(res._headers['Cache-Control']).toBe('no-store')
   })
 
-  it('未配置 key → false，环境变量可兜底', async () => {
+  it('没有 key → false', async () => {
     vi.stubEnv('DESKTOP_MODE', '1')
-    vi.mocked(getAllSettings).mockResolvedValue({} as any)
-    const first = mockRes()
-    await handler(mockReq('GET', localHeaders), first)
-    expect(first._body).toEqual({ llmConfigured: false })
+    vi.mocked(getEffectiveLlmConfig).mockResolvedValue(emptyConfig)
+    const res = mockRes()
+    await handler(mockReq('GET', localHeaders), res)
+    expect(res._status).toBe(200)
+    expect(res._body).toEqual({ llmConfigured: false })
+  })
 
-    vi.stubEnv('DEEPSEEK_API_KEY', 'sk-env')
-    const second = mockRes()
-    await handler(mockReq('GET', localHeaders), second)
-    expect(second._body).toEqual({ llmConfigured: true })
+  it('解析配置失败 → 500（调度器据此降级为只抓取）', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1')
+    vi.mocked(getEffectiveLlmConfig).mockRejectedValue(new Error('db down'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = mockRes()
+      await handler(mockReq('GET', localHeaders), res)
+      expect(res._status).toBe(500)
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })

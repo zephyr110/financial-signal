@@ -82,8 +82,18 @@ export function isRemoteDbConfigured(
 export function writeDbConfig(config: StoredDbConfig, file: string = dbConfigPath()): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  try {
+    fs.writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    // 临时文件里有明文 token，失败时不能留在仓库目录。
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // 清理失败不应覆盖原始错误
+    }
+    throw error;
+  }
   try {
     fs.chmodSync(file, 0o600);
   } catch {

@@ -3,6 +3,7 @@ const { ipcMain, dialog, shell, app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { importDbFile, validateDbFile } = require('./import-db');
+const { DEFAULT_INTERVAL_MS } = require('./scheduler-core');
 
 const isDev = !app.isPackaged;
 
@@ -53,8 +54,8 @@ function enqueueRestart(task, label) {
 function registerIpc({
   getDbPath, onImported, onFreshDb, onFetchNow,
   isRemoteDb = () => false,
-  getSchedulerConfig = () => ({ enabled: true, intervalMs: 30 * 60 * 1000 }),
-  setSchedulerConfig = () => ({ enabled: true, intervalMs: 30 * 60 * 1000 }),
+  getSchedulerConfig = () => ({ enabled: true, intervalMs: DEFAULT_INTERVAL_MS }),
+  setSchedulerConfig = () => ({ enabled: true, intervalMs: DEFAULT_INTERVAL_MS }),
 }) {
   ipcMain.handle('app:select-and-import-db', async (event) => {
     if (denyUntrusted(event)) return { ok: false, error: 'Forbidden' };

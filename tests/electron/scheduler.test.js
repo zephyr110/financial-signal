@@ -3,7 +3,10 @@ import http from 'http'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { createScheduler, callCron, fetchLlmConfigured, MIN_INTERVAL_MS } from '../../electron/scheduler'
+import {
+  createScheduler, callCron, fetchLlmConfigured, normalizeIntervalMs,
+  DEFAULT_INTERVAL_MS, MIN_INTERVAL_MS,
+} from '../../electron/scheduler'
 import { PIPELINE_JOBS } from '../../electron/scheduler-core'
 import { findFreePort } from '../../electron/server-utils'
 
@@ -107,11 +110,27 @@ describe('fetchLlmConfigured', () => {
     const { port } = await startServer((req, res) => { res.statusCode = 500; res.end('{}') })
     await expect(fetchLlmConfigured(`http://127.0.0.1:${port}`)).rejects.toThrow(/500/)
   })
+
+  it('响应头后连接中断 → reject，而不是永久挂起', async () => {
+    const { port } = await startServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.write('{"llmConfigured":')
+      setTimeout(() => res.destroy(), 10)
+    })
+    await expect(fetchLlmConfigured(`http://127.0.0.1:${port}`)).rejects.toThrow()
+  })
 })
 
 describe('createScheduler', () => {
   it('最小间隔与设置页的 5 分钟下限一致', () => {
     expect(MIN_INTERVAL_MS).toBe(5 * 60 * 1000)
+  })
+
+  it('非数值/非正间隔回退默认值，不会得到 NaN', () => {
+    expect(normalizeIntervalMs('30m')).toBe(DEFAULT_INTERVAL_MS)
+    expect(normalizeIntervalMs(0)).toBe(DEFAULT_INTERVAL_MS)
+    expect(normalizeIntervalMs(-1)).toBe(DEFAULT_INTERVAL_MS)
+    expect(normalizeIntervalMs(60_000, 10)).toBe(60_000)
   })
 
   function makeScheduler({

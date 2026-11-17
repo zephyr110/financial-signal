@@ -1,10 +1,37 @@
 import { getSessionUser, SESSION_COOKIE } from '../../lib/auth';
 import { getAllSettings, setSettings, SETTING_KEYS } from '../../lib/settings';
 import { getActiveDbTarget } from '../../lib/db';
-import { describeDbStorage, isDbBackendLocked, readDbConfig, writeDbConfig, type StoredDbConfig } from '../../lib/db-config';
+import { describeDbStorage, isDbBackendLocked, readDbConfig, writeDbConfig, type DbStorageStatus, type StoredDbConfig } from '../../lib/db-config';
 import { isLocalOrigin } from '../../lib/cronAuth';
 import { probeTurso } from '../../lib/turso-probe';
 import { sanitizeErrorMessage } from '../../lib/safe-json';
+
+function sameDbConfig(a: StoredDbConfig | null, b: StoredDbConfig | null): boolean {
+  if (!a || !b) return a === b;
+  return a.backend === b.backend
+    && (a.tursoUrl ?? '') === (b.tursoUrl ?? '')
+    && (a.tursoToken ?? '') === (b.tursoToken ?? '');
+}
+
+/** 存储状态只读配置文件，不应因连接失败而让整个设置页不可用。 */
+function readStorageStatus(): DbStorageStatus {
+  try {
+    return describeDbStorage(process.env, readDbConfig(), getActiveDbTarget());
+  } catch (error) {
+    console.error('[api/settings] storage status failed:', error);
+    const active = getActiveDbTarget();
+    // 解析配置都抛错时通常来自坏掉的环境变量；锁住切换，避免把配置写得更坏。
+    return {
+      backend: 'local',
+      source: 'default',
+      locked: true,
+      urlSet: false,
+      tokenSet: false,
+      activeBackend: active && !active.url.startsWith('file:') ? 'turso' : 'local',
+      restartRequired: false,
+    };
+  }
+}
 
 /**
  * 运行设置：
@@ -25,20 +52,27 @@ export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'GET') {
-    const all = await getAllSettings();
-    const has = (key: string) => Boolean(all[key]);
+    let all: Record<string, string> | null = null;
+    try {
+      all = await getAllSettings();
+    } catch (error) {
+      // 远端库连不上时仍要给出存储状态，否则用户没有入口切回本地库。
+      console.error('[api/settings] read settings failed:', error);
+    }
+    const has = (key: string) => Boolean(all?.[key]);
     res.status(200).json({
+      settingsUnavailable: all === null,
       llm: {
-        model: all[SETTING_KEYS.LLM_MODEL] ?? '',
-        baseUrl: all[SETTING_KEYS.LLM_BASE_URL] ?? '',
+        model: all?.[SETTING_KEYS.LLM_MODEL] ?? '',
+        baseUrl: all?.[SETTING_KEYS.LLM_BASE_URL] ?? '',
         apiKeySet: has(SETTING_KEYS.LLM_API_KEY),
       },
-      storage: describeDbStorage(process.env, readDbConfig(), getActiveDbTarget()),
+      storage: readStorageStatus(),
       tushare: {
         tokenSet: has(SETTING_KEYS.TUSHARE_TOKEN),
       },
       webSearch: {
-        provider: all[SETTING_KEYS.WEB_SEARCH_PROVIDER] ?? '',
+        provider: all?.[SETTING_KEYS.WEB_SEARCH_PROVIDER] ?? '',
         apiKeySet: has(SETTING_KEYS.WEB_SEARCH_API_KEY),
       },
       cronSecretSet: has(SETTING_KEYS.CRON_SECRET),
@@ -54,7 +88,8 @@ export default async function handler(req: any, res: any) {
     } = req.body || {};
 
     let nextDbConfig: StoredDbConfig | null = null;
-    if (storageBackend != null) {
+    const storageRequested = storageBackend != null;
+    if (storageRequested) {
       if (isDbBackendLocked(process.env)) {
         return res.status(400).json({ error: '数据库后端由环境变量控制，无法在设置中切换' });
       }
@@ -62,8 +97,8 @@ export default async function handler(req: any, res: any) {
       if (backend !== 'local' && backend !== 'turso') {
         return res.status(400).json({ error: '数据库后端只能是 local 或 turso' });
       }
+      const before = readDbConfig();
       if (backend === 'turso') {
-        const before = readDbConfig();
         const url = String(tursoUrl ?? '').trim() || before?.tursoUrl || '';
         if (!url) return res.status(400).json({ error: '使用 Turso 需要填写数据库 URL' });
         if (!/^(libsql|https?):\/\//i.test(url)) {
@@ -73,23 +108,35 @@ export default async function handler(req: any, res: any) {
         let token = before?.tursoToken;
         if (tursoToken === null) token = undefined;
         else if (typeof tursoToken === 'string' && tursoToken.trim()) token = tursoToken.trim();
-        // 写盘前先验证地址/token：保存后必须重启，连不上就没有机会在 UI 里改回来。
-        try {
-          await probeTurso(url, token);
-        } catch (error) {
-          return res.status(400).json({
-            error: `无法连接 Turso：${sanitizeErrorMessage(error instanceof Error ? error.message : String(error))}`,
-          });
+        const candidate: StoredDbConfig = {
+          backend: 'turso',
+          tursoUrl: url,
+          ...(token ? { tursoToken: token } : {}),
+        };
+        if (!sameDbConfig(before, candidate)) {
+          // 写盘前先验证地址/token：保存后必须重启，连不上就没有机会在 UI 里改回来。
+          // 显式清除 token 且地址未变时无凭据可探，直接落盘——否则永远删不掉。
+          const clearingToken = tursoToken === null && before?.tursoUrl === url;
+          if (!clearingToken) {
+            try {
+              await probeTurso(url, token);
+            } catch (error) {
+              return res.status(400).json({
+                error: `无法连接 Turso：${sanitizeErrorMessage(error instanceof Error ? error.message : String(error))}`,
+              });
+            }
+          }
+          nextDbConfig = candidate;
         }
-        nextDbConfig = { backend: 'turso', tursoUrl: url, ...(token ? { tursoToken: token } : {}) };
       } else {
-        const before = readDbConfig();
-        // 切回本地时保留 Turso 凭据，再次切换无需重新输入。
-        nextDbConfig = {
+        // 切回本地时保留 Turso 凭据，再次切换无需重新输入；显式 null 才清除。
+        const keepToken = tursoToken === null ? undefined : before?.tursoToken;
+        const candidate: StoredDbConfig = {
           backend: 'local',
           ...(before?.tursoUrl ? { tursoUrl: before.tursoUrl } : {}),
-          ...(before?.tursoToken ? { tursoToken: before.tursoToken } : {}),
+          ...(keepToken ? { tursoToken: keepToken } : {}),
         };
+        if (!sameDbConfig(before, candidate)) nextDbConfig = candidate;
       }
     }
 
@@ -111,18 +158,24 @@ export default async function handler(req: any, res: any) {
       patch[SETTING_KEYS.WEB_SEARCH_API_KEY] = webSearchApiKey === '' ? null : String(webSearchApiKey).trim();
     }
     if (Object.keys(patch).length === 0 && !nextDbConfig) {
+      // 存储配置没有变化也是成功保存，不能报"没有需要保存的配置"。
+      if (storageRequested) return res.status(200).json({ ok: true });
       return res.status(400).json({ error: '没有需要保存的配置' });
     }
 
+    let restartRequired = false;
     try {
       if (Object.keys(patch).length > 0) await setSettings(patch);
-      if (nextDbConfig) writeDbConfig(nextDbConfig);
+      if (nextDbConfig) {
+        writeDbConfig(nextDbConfig);
+        // DB 客户端在首次 getDb() 时已固定；只有实际连接与落盘配置不一致才需重启。
+        restartRequired = describeDbStorage(process.env, nextDbConfig, getActiveDbTarget()).restartRequired;
+      }
     } catch (error) {
       console.error('[api/settings] Error:', error);
       return res.status(500).json({ error: '保存失败，请稍后重试' });
     }
-    // 后端/凭据变了就必须重启：DB 客户端在首次 getDb() 时已固定，不能热切
-    res.status(200).json({ ok: true, ...(nextDbConfig ? { restartRequired: true } : {}) });
+    res.status(200).json({ ok: true, ...(restartRequired ? { restartRequired: true } : {}) });
     return;
   }
 

@@ -47,6 +47,14 @@ describe('read/writeDbConfig', () => {
     }
   })
 
+  it('写入失败时清理含 token 的临时文件', () => {
+    const file = path.join(tempDir(), 'db-config.json')
+    fs.mkdirSync(file) // 目标是目录 → rename 必然失败
+    expect(() => writeDbConfig({ backend: 'turso', tursoUrl: 'libsql://x', tursoToken: 'secret' }, file))
+      .toThrow()
+    expect(fs.readdirSync(path.dirname(file)).filter((name) => name.endsWith('.tmp'))).toHaveLength(0)
+  })
+
   it('缺失/损坏/无 URL 的 Turso 配置 → null（回退默认本地库）', () => {
     const dir = tempDir()
     const missing = path.join(dir, 'missing.json')

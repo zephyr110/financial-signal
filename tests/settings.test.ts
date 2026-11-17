@@ -3,7 +3,8 @@ import path from 'path'
 import os from 'os'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import handler from '../pages/api/settings'
-import { getSessionUser, SESSION_COOKIE } from '../lib/auth'
+import { getSessionUser } from '../lib/auth'
+import { getAllSettings } from '../lib/settings'
 import { probeTurso } from '../lib/turso-probe'
 
 // 隔离 DB:settings 写入不能落在共享的项目 DB(并行 worker 会互相污染/锁冲突)
@@ -19,6 +20,12 @@ vi.mock('../lib/auth', () => ({
 
 // 不真的连远端：连通性探测本身由 lib/turso-probe 负责
 vi.mock('../lib/turso-probe', () => ({ probeTurso: vi.fn() }))
+
+// 保留真实实现，个别用例模拟远端库读取失败
+vi.mock('../lib/settings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/settings')>()
+  return { ...actual, getAllSettings: vi.fn(actual.getAllSettings) }
+})
 
 function mockReq(method = 'GET', { cookies = {}, headers = {}, body }: {
   cookies?: Record<string, string>
@@ -44,6 +51,7 @@ describe('/api/settings', () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
     vi.mocked(getSessionUser).mockReset()
+    vi.mocked(getAllSettings).mockClear()
     vi.mocked(probeTurso).mockReset().mockResolvedValue(undefined)
     process.env.DB_CONFIG_PATH = dbConfigFile
     fs.rmSync(dbConfigFile, { force: true })
@@ -141,12 +149,23 @@ describe('/api/settings', () => {
     })
   })
 
-  it('POST 明确切回本地库 → 写配置并提示重启', async () => {
+  it('GET 在设置表不可读时仍 200，存储状态可用以切回本地', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    vi.mocked(getAllSettings).mockRejectedValueOnce(new Error('turso down'))
+    const res = mockRes()
+    await handler(mockReq('GET'), res)
+    expect(res._status).toBe(200)
+    expect(res._body.settingsUnavailable).toBe(true)
+    expect(res._body.llm).toBeDefined()
+    expect(res._body.storage).toMatchObject({ backend: 'local', locked: false })
+  })
+
+  it('POST 明确切回本地库 → 写配置；当前已连本地库时无需重启', async () => {
     vi.mocked(getSessionUser).mockResolvedValue('admin')
     const res = mockRes()
     await handler(mockReq('POST', { body: { storageBackend: 'local' } }), res)
     expect(res._status).toBe(200)
-    expect(res._body).toEqual({ ok: true, restartRequired: true })
+    expect(res._body).toEqual({ ok: true })
     expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({ backend: 'local' })
   })
 
@@ -186,6 +205,40 @@ describe('/api/settings', () => {
     expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({
       backend: 'turso',
       tursoUrl: 'libsql://db2.turso.io',
+    })
+    // 清除 token 且地址未变时没有凭据可探测，直接落盘
+    expect(vi.mocked(probeTurso)).toHaveBeenCalledTimes(2)
+  })
+
+  it('存储配置未变化 → 不探测、不重写、不提示重启', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    await handler(mockReq('POST', {
+      body: { storageBackend: 'turso', tursoUrl: 'libsql://db.turso.io', tursoToken: 'tok' },
+    }), mockRes())
+    const before = fs.readFileSync(dbConfigFile, 'utf8')
+    vi.mocked(probeTurso).mockClear()
+
+    const res = mockRes()
+    await handler(mockReq('POST', {
+      body: { storageBackend: 'turso', tursoUrl: 'libsql://db.turso.io', tursoToken: 'tok' },
+    }), res)
+    expect(res._status).toBe(200)
+    expect(res._body).toEqual({ ok: true })
+    expect(probeTurso).not.toHaveBeenCalled()
+    expect(fs.readFileSync(dbConfigFile, 'utf8')).toBe(before)
+  })
+
+  it('切回本地并显式清除 Token → 保留 URL、删除凭据', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    await handler(mockReq('POST', {
+      body: { storageBackend: 'turso', tursoUrl: 'libsql://db.turso.io', tursoToken: 'tok' },
+    }), mockRes())
+    const res = mockRes()
+    await handler(mockReq('POST', { body: { storageBackend: 'local', tursoToken: null } }), res)
+    expect(res._status).toBe(200)
+    expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({
+      backend: 'local',
+      tursoUrl: 'libsql://db.turso.io',
     })
   })
 

@@ -7,6 +7,10 @@ const PIPELINE_JOBS = ['fetch', 'analyze', 'deep-analyze', 'event-threads', 'fet
 /** 财经信号每日链路。路由自身按交易日、报告是否已发布和任务幂等键节流。 */
 const COCKPIT_DAILY_JOB = 'cockpit-daily';
 
+// 调度间隔的唯一来源：scheduler/main/ipc 都从这里取，避免默认值和下限各自漂移。
+const DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
+const MIN_INTERVAL_MS = 5 * 60 * 1000;
+
 /** 未配 LLM key 时只抓取不分析。 */
 function buildJobSequence({ llmConfigured }) {
   return llmConfigured ? [...PIPELINE_JOBS] : ['fetch'];
@@ -21,4 +25,11 @@ function isLlmConfigured(settings) {
   );
 }
 
-module.exports = { PIPELINE_JOBS, COCKPIT_DAILY_JOB, buildJobSequence, isLlmConfigured };
+module.exports = {
+  PIPELINE_JOBS,
+  COCKPIT_DAILY_JOB,
+  DEFAULT_INTERVAL_MS,
+  MIN_INTERVAL_MS,
+  buildJobSequence,
+  isLlmConfigured,
+};
