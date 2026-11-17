@@ -44,6 +44,13 @@ describe('sanitizeToolSummary', () => {
     expect(sanitizeToolSummary('industry:半导体:2026-11-14 均值 1.2%')).toBe('均值 1.2%');
     expect(sanitizeToolSummary('引用信号ID 1019 与事件线索ID 7')).toBe('引用信号 与事件线索');
   });
+
+  it('去掉冒号链预警/判断编号，不留残片', () => {
+    expect(sanitizeToolSummary('#alert:2026-11-17:market:abc123 [important] 锂价异动'))
+      .toBe('[important] 锂价异动');
+    expect(sanitizeToolSummary('#j:2026-11-17:industry:9f3c1d [行业] 半导体看多'))
+      .toBe('[行业] 半导体看多');
+  });
 });
 
 describe('sanitizeAnswerText', () => {
@@ -52,6 +59,32 @@ describe('sanitizeAnswerText', () => {
     const text = `## 结论\n\n- 财联社 2026-11-17（doc:12）\n- 调查 alert:${uuid} 已完成\n\n信号 #1019 值得关注`;
     expect(sanitizeAnswerText(text))
       .toBe('## 结论\n\n- 财联社 2026-11-17\n- 调查 已完成\n\n信号 值得关注');
+  });
+
+  it('保留代码块缩进、嵌套列表与 GFM 表格', () => {
+    const code = '```python\ndef f():\n    if True:\n        return 1\n```';
+    expect(sanitizeAnswerText(code)).toBe(code);
+    expect(sanitizeAnswerText('- 主项\n  - 子项\n    - 孙项'))
+      .toBe('- 主项\n  - 子项\n    - 孙项');
+    const table = '| | 涨跌幅 | 成交额 |\n| --- | --- | --- |\n| 半导体 | 1.2% | 300亿 |';
+    expect(sanitizeAnswerText(table)).toBe(table);
+  });
+
+  it('不误删股票代码、颜色、URL 锚点与百分数', () => {
+    expect(sanitizeAnswerText('贵州茅台 #600519 今日上涨')).toBe('贵州茅台 #600519 今日上涨');
+    expect(sanitizeAnswerText('颜色 #1a2b3c 与 #fff')).toBe('颜色 #1a2b3c 与 #fff');
+    expect(sanitizeAnswerText('见 https://e.com/doc#2 第 2 节')).toBe('见 https://e.com/doc#2 第 2 节');
+    expect(sanitizeAnswerText('涨幅 #12.5% 居前')).toBe('涨幅 #12.5% 居前');
+  });
+
+  it('不把代码或正文里的 alert:high 当引用编号', () => {
+    expect(sanitizeAnswerText("{'level':'alert:high','doc':12}"))
+      .toBe("{'level':'alert:high','doc':12}");
+    expect(sanitizeAnswerText('当前状态为 alert:high，请关注')).toBe('当前状态为 alert:high，请关注');
+  });
+
+  it('清理半角空括号', () => {
+    expect(sanitizeAnswerText('见 (doc:12) 的公告')).toBe('见 的公告');
   });
 });
 
@@ -73,5 +106,22 @@ describe('sanitizeErrorMessage', () => {
 
   it('空文本给出兜底文案', () => {
     expect(sanitizeErrorMessage('   ')).toBe('任务执行失败，请稍后重试');
+    expect(sanitizeErrorMessage(undefined)).toBe('任务执行失败，请稍后重试');
+  });
+
+  it('URL 后紧跟中文时不吞掉失败原因', () => {
+    expect(sanitizeErrorMessage('拉取https://example.com/data失败'))
+      .toBe('拉取（接口地址已隐藏）失败');
+  });
+
+  it('隐藏无 scheme 的接口主机，但不误伤股票代码', () => {
+    expect(sanitizeErrorMessage('getaddrinfo ENOTFOUND api.tushare.pro'))
+      .toBe('getaddrinfo ENOTFOUND （接口地址已隐藏）');
+    expect(sanitizeErrorMessage('查不到 600519.SH')).toBe('查不到 600519.SH');
+  });
+
+  it('支持 JSON 形态的 request_id', () => {
+    expect(sanitizeErrorMessage('{"error":{"request_id":"6f1c2b9e"}}'))
+      .toBe('{"error":{"}}');
   });
 });

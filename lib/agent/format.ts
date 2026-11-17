@@ -1,4 +1,5 @@
 import { getBacktestTier, shouldShowNumbers, TIER_LABELS, tierProgress } from '../backtest';
+import { evidenceKindLabel } from '../constants';
 
 /**
  * 研究 Agent — 输出质量保障层（确定性格式化引擎）
@@ -416,13 +417,6 @@ export function validateToolArgs(
   return null;
 }
 
-const EVIDENCE_KIND_LABELS: Record<string, string> = {
-  fact: '事实',
-  inference: '推断',
-  counter: '反证',
-  conclusion: '结论',
-};
-
 function clipText(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…（已截断）` : text;
 }
@@ -446,7 +440,7 @@ export function formatEvidenceLines(
   if (!items || items.length === 0) return '';
   const shown = items.slice(0, max);
   const lines = shown.map((item) => {
-    const kind = item.kind ? `[${EVIDENCE_KIND_LABELS[item.kind] || item.kind}] ` : '';
+    const kind = item.kind ? `[${evidenceKindLabel(item.kind)}] ` : '';
     const value = item.value && !item.label.includes(item.value) ? `（${item.value}）` : '';
     const detail = item.detail ? `：${clipText(item.detail, 180)}` : '';
     const sourceName = item.source?.name || item.sourceName;

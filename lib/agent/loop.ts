@@ -32,7 +32,7 @@ import { getAgentMaxSteps, MAX_CORRECTION_STEPS } from './limits';
 import { AGENT_SYSTEM_PROMPT, buildAgentSystemPrompt } from './prompts';
 import { acquireAgentSessionLock } from './lock';
 import { findActionableTradeInstruction } from '../cockpit/validators';
-import { sanitizeToolSummary } from '../safe-json';
+import { sanitizeErrorMessage, sanitizeToolSummary } from '../safe-json';
 
 export { AGENT_SYSTEM_PROMPT } from './prompts';
 
@@ -391,7 +391,9 @@ export async function runAgentTurn(
         }
       } catch (err) {
         ok = false;
-        resultText = `工具执行失败: ${(err as Error).message}`;
+        const message = err instanceof Error ? err.message : String(err);
+        // 摘要会展示在「来源与工具记录」，错误文本同样不能带接口地址与请求 ID。
+        resultText = `工具执行失败: ${sanitizeErrorMessage(message)}`;
       }
       toolSteps++;
       const summary = sanitizeToolSummary(resultText.split('\n')[0]).slice(0, 100);

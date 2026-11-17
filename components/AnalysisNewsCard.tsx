@@ -17,7 +17,8 @@ import { track } from "@/lib/track";
 const SENTIMENT_BADGE: Record<string, string> = {
   positive: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
   negative: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  neutral: "border-border bg-muted text-muted-foreground",
+  // 不加 bg-muted：#6b7280 落在 #f3f4f6 上只有 4.39:1，11px 文字要 4.5。
+  neutral: "border-border text-muted-foreground",
   mixed: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
 };
 

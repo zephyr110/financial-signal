@@ -6,7 +6,7 @@ describe('agent reply eval', () => {
   it('引用来源并说明验证条件的回答通过', () => {
     const result = evaluateAgentReply({
       question: '存储涨价到哪一步了？',
-      reply: '信号 #42 与事件 #7 指向存储涨价处于扩散阶段，但能否延续仍需观察下游开工率，置信度中等。',
+      reply: '据财联社 2026-11-17 的报道，存储涨价处于扩散阶段，但能否延续仍需观察下游开工率，置信度中等。',
       toolLog: [{ name: 'search_news', ok: true }],
     })
     expect(result.passed).toBe(true)

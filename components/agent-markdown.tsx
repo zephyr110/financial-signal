@@ -1,4 +1,4 @@
-import { isValidElement } from "react";
+import { isValidElement, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentCodeBlock from "./agent-code-block";
@@ -24,7 +24,9 @@ const MARKDOWN_COMPONENTS = {
 
 /** 助手 Markdown 正文；流式生成时按渲染耗时节流，完成后立即显示全文 */
 export function AgentMarkdown({ content, streaming = false }: { content: string; streaming?: boolean }) {
-  const rendered = useThrottledMarkdown(sanitizeAnswerText(content), streaming);
+  // 清洗是十几条正则，父组件每敲一个字都跑一遍太浪费；只在正文变化时重算。
+  const cleaned = useMemo(() => sanitizeAnswerText(content), [content]);
+  const rendered = useThrottledMarkdown(cleaned, streaming);
   return (
     <div className="markdown-body text-sm leading-7 text-foreground">
       <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>

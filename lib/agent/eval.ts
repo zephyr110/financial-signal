@@ -23,7 +23,8 @@ export interface AgentEvalResult {
 }
 
 const UNCERTAINTY = /可能|待验证|不确定|置信度|推测|条件|尚需|观察|缺口/;
-const CITATION = /#\d+|信号\s*id|事件\s*id|条信号|来源|截至|今日|上周|月/;
+// 内部编号不再算引用：用户看不到 #42 指的是什么，只认来源名与时间。
+const CITATION = /来源|截至|今日|上周|月|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}月\d{1,2}日/;
 
 export function evaluateAgentReply(input: AgentEvalInput): AgentEvalResult {
   const reply = (input.reply || '').trim();

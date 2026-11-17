@@ -889,7 +889,7 @@ export default function AgentPage() {
                                 type="button"
                                 variant="ghost"
                                 size="xs"
-                                onClick={() => void copyMessage(m.id, m.content)}
+                                onClick={() => void copyMessage(m.id, sanitizeAnswerText(m.content))}
                                 aria-label="复制回复"
                               >
                                 {copiedId === m.id ? (

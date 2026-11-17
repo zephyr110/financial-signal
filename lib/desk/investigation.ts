@@ -9,6 +9,7 @@ import { chatCompletion } from '../llm/client'
 import { getEffectiveLlmConfig, PRICING } from '../llm/config'
 import { tryParseToolCall } from '../agent/tool-call'
 import { todayShanghai } from '../cockpit/format'
+import { sourceDisplayName } from '../constants'
 import { searchSourceDocuments } from '../search/fts'
 import { getOverseasQuotes } from './repo'
 import type {
@@ -171,13 +172,14 @@ export async function collectEvidence(input: {
     })
     for (const row of docs.rows as unknown as Row[]) {
       const ref = `doc:${str(row.id)}`
+      const source = sourceDisplayName(str(row.source_id))
       refs.push({
         ref,
         kind: 'document',
         label: str(row.title),
-        value: `${str(row.source_id)} ${str(row.published_at)}`,
+        value: `${source} ${str(row.published_at)}`,
       })
-      lines.push(`${str(row.published_at)}｜${str(row.title)}｜来源 ${str(row.source_id)}`)
+      lines.push(`${str(row.published_at)}｜${str(row.title)}｜来源 ${source}`)
     }
   }
 
@@ -236,13 +238,14 @@ export async function collectCounterEvidence(input: {
   })
   for (const row of docs.rows as unknown as Row[]) {
     const ref = `doc:${str(row.id)}`
+    const source = sourceDisplayName(str(row.source_id))
     refs.push({
       ref,
       kind: 'counter',
       label: `反方：${str(row.title)}`,
-      value: `${str(row.source_id)} ${str(row.published_at)}`,
+      value: `${source} ${str(row.published_at)}`,
     })
-    lines.push(`反方文档：${str(row.published_at)}｜${str(row.title)}｜来源 ${str(row.source_id)}`)
+    lines.push(`反方文档：${str(row.published_at)}｜${str(row.title)}｜来源 ${source}`)
   }
 
   let industryHit = 0
@@ -295,8 +298,9 @@ async function searchDocuments(args: Record<string, unknown>): Promise<ToolResul
   const refs: EvidenceRef[] = []
   const lines = rows.map((row) => {
     const ref = `doc:${str(row.id)}`
-    refs.push({ ref, kind: 'document', label: str(row.title), value: `${str(row.source_id)} ${str(row.published_at)}` })
-    return `${str(row.published_at)}｜${str(row.title)}｜来源 ${str(row.source_id)}`
+    const source = sourceDisplayName(str(row.source_id))
+    refs.push({ ref, kind: 'document', label: str(row.title), value: `${source} ${str(row.published_at)}` })
+    return `${str(row.published_at)}｜${str(row.title)}｜来源 ${source}`
   })
   return { text: lines.join('\n'), refs }
 }
@@ -525,7 +529,8 @@ export async function runInvestigation(
             toolResult = await tool(call.args || {})
           } catch (err) {
             ok = false
-            toolResult = { text: `工具失败：${(err as Error).message}`, refs: [] }
+            const message = err instanceof Error ? err.message : String(err)
+            toolResult = { text: `工具失败：${sanitizeErrorMessage(message)}`, refs: [] }
           }
           refs.push(...toolResult.refs)
           await addStep({
@@ -543,7 +548,8 @@ export async function runInvestigation(
           messages.push({ role: 'user', content: `【工具 ${call.tool} 结果】\n${toolResult.text.slice(0, 3000)}` })
         }
       } catch (err) {
-        await addStep({ kind: 'fallback', digest: `模型深挖中断，改用证据摘要：${sanitizeErrorMessage((err as Error).message)}`, ok: false })
+        const message = err instanceof Error ? err.message : String(err)
+        await addStep({ kind: 'fallback', digest: `模型深挖中断，改用证据摘要：${sanitizeErrorMessage(message)}`, ok: false })
       }
     }
     if (!conclusion) conclusion = fallbackConclusion(bundle, counter, str(row.question))

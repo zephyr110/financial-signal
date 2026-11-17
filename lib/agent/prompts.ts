@@ -34,9 +34,9 @@ export interface PromptSpec {
 export const PROMPT_REGISTRY: Record<string, PromptSpec> = {
   [AGENT_PROMPT_ID]: {
     id: AGENT_PROMPT_ID,
-    version: 'v5',
+    version: 'v6',
     text: AGENT_SYSTEM_PROMPT,
-    notes: '补齐研究日志、数据源健康、分析看板与站内通知；要求先读取面板数据再回答；回答不得暴露模型名、请求/会话 ID 等内部标识。',
+    notes: '引用改为来源名称与发布时间（不再引用信号/事件内部编号）；回答不得暴露模型名、请求/会话 ID 等内部标识。',
   },
 };
 
