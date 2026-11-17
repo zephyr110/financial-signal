@@ -14,6 +14,7 @@ import {
 import type { AlertView, InvestigationFeedback, InvestigationView, JudgmentView } from '@/lib/desk/types'
 import { deskApi } from './api'
 import { ConfidenceBadge, SeverityBadge, StanceBadge } from './ui'
+import { sanitizeAnswerText, sanitizeErrorMessage } from '@/lib/safe-json'
 
 export type InvestigationTarget =
   | { kind: 'alert'; alert: AlertView }
@@ -236,13 +237,13 @@ export function InvestigationSheet({
 
               {investigation.status === 'failed' && (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] text-destructive">
-                  {investigation.errorMessage || '调查失败'}
+                  {investigation.errorMessage ? sanitizeErrorMessage(investigation.errorMessage) : '调查失败'}
                 </p>
               )}
 
               {investigation.conclusion && (
                 <div className="markdown-body rounded-lg bg-muted/30 px-4 py-3 text-[14px] leading-6">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{investigation.conclusion}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{sanitizeAnswerText(investigation.conclusion)}</ReactMarkdown>
                 </div>
               )}
 
@@ -258,14 +259,7 @@ export function InvestigationSheet({
                         <span className="mr-1 text-muted-foreground">#{step.stepNo}</span>
                         <span className="font-medium">{step.tool || STEP_LABEL[step.kind] || step.kind}</span>
                         {!step.ok && <span className="ml-1 text-destructive">失败</span>}
-                        <p className="line-clamp-3 text-muted-foreground">{step.digest}</p>
-                        {step.refs.length > 0 && (
-                          <p className="mt-0.5 flex flex-wrap gap-1">
-                            {step.refs.slice(0, 8).map((ref) => (
-                              <span key={ref} className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-muted-foreground">{ref}</span>
-                            ))}
-                          </p>
-                        )}
+                        <p className="line-clamp-3 text-muted-foreground">{sanitizeAnswerText(step.digest)}</p>
                       </li>
                     ))}
                   </ol>

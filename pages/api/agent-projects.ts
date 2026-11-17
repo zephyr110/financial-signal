@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../lib/cockpit/api'
+import { sanitizeErrorMessage } from '../../lib/safe-json'
 import {
   addProjectItem,
   createProject,
@@ -99,6 +100,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!project) return sendError(req, res, 404, 'PROJECT_NOT_FOUND', '研究项目不存在')
     sendData(res, { project }, await buildMeta())
   } catch (err) {
-    sendError(req, res, 400, 'PROJECT_FAILED', err instanceof Error ? err.message : '研究项目操作失败')
+    sendError(req, res, 400, 'PROJECT_FAILED', err instanceof Error ? sanitizeErrorMessage(err.message) : '研究项目操作失败')
   }
 }

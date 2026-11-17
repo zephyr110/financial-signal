@@ -130,7 +130,7 @@ describe('get_investigation', () => {
     investigation.listInvestigations.mockReset();
   });
 
-  it('输出触发原因、进度、消耗、反馈与工具步骤', async () => {
+  it('输出触发原因、进度、反馈与工具步骤，不暴露内部编号与用量', async () => {
     investigation.listInvestigations.mockResolvedValue([{
       id: 'inv1', alertId: 'a1', judgmentId: 'j1', status: 'succeeded',
       triggerReason: '重要预警自动深挖', question: '影响多大？', progress: 100,
@@ -143,13 +143,15 @@ describe('get_investigation', () => {
       ],
     }]);
     const text = await tool('get_investigation').execute({ alertId: 'a1' });
-    expect(text).toContain('调查 inv1｜succeeded｜进度 100%｜置信度 中｜证据强度 moderate');
-    expect(text).toContain('触发原因：重要预警自动深挖｜预警 #a1｜判断 #j1');
-    expect(text).toContain('消耗：2 步｜1234 tokens｜¥0.0120');
+    expect(text).toContain('调查状态：succeeded｜进度 100%｜置信度 中｜证据强度 moderate');
+    expect(text).toContain('触发原因：重要预警自动深挖');
+    expect(text).not.toContain('inv1');
+    expect(text).not.toContain('#a1');
+    expect(text).not.toContain('tokens');
     expect(text).toContain('结论：短期影响有限');
     expect(text).toContain('用户反馈：有用');
-    expect(text).toContain('- 第1步 [tool·search_news] 成功｜120ms｜300 tokens\n  检索到 3 条\n  引用：#1、#2');
-    expect(text).toContain('- 第2步 [think] 成功｜100 tokens\n  归纳证据');
+    expect(text).toContain('- 第1步 [tool·search_news] 成功｜120ms\n  检索到 3 条');
+    expect(text).toContain('- 第2步 [think] 成功\n  归纳证据');
   });
 });
 

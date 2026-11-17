@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentCodeBlock from "./agent-code-block";
 import { useThrottledMarkdown } from "@/hooks/use-throttled-markdown";
+import { sanitizeAnswerText } from "@/lib/safe-json";
 
 // 引用保持稳定，避免父组件每次渲染（如输入框击键）都重建 Markdown 解析树
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
@@ -23,7 +24,7 @@ const MARKDOWN_COMPONENTS = {
 
 /** 助手 Markdown 正文；流式生成时按渲染耗时节流，完成后立即显示全文 */
 export function AgentMarkdown({ content, streaming = false }: { content: string; streaming?: boolean }) {
-  const rendered = useThrottledMarkdown(content, streaming);
+  const rendered = useThrottledMarkdown(sanitizeAnswerText(content), streaming);
   return (
     <div className="markdown-body text-sm leading-7 text-foreground">
       <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>

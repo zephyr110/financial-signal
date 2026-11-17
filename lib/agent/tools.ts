@@ -11,7 +11,6 @@ import { getDeskSnapshot, getDeskStatus, listAlerts, listJudgments } from '../de
 import { getInvestigation, listInvestigations } from '../desk/investigation';
 import { getThreadMarketContext } from '../market';
 import { CATEGORY_LABELS, sourceDisplayName } from '../constants';
-import { formatCost } from '../cockpit/format';
 import { proposeAgentAction, type AgentActionType } from './actions';
 import { searchWeb } from './web-search';
 import { COCKPIT_TOOLS } from './cockpit-tools';
@@ -91,7 +90,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
           ['id', 'signal_score', 'category', 'industries', 'summary', 'source', 'published_at'],
           10
         ),
-        '（引用时请标注 signal id）',
+        '（引用时请标注来源与发布时间）',
       ].join('\n');
     },
   },
@@ -180,7 +179,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       // Number('') = 0：空串也拦截，避免 0 被当作合法 id 查库（C22）
       if (!Number.isFinite(id) || id <= 0) return 'eventId 必须是大于 0 的数字。';
       const thread = await getEventThreadById(id);
-      if (!thread) return `事件线索 ${id} 不存在（可能已过期，可用 get_event_threads 查看最新线索）。`;
+      if (!thread) return '该事件线索不存在（可能已过期，可用 get_event_threads 查看最新线索）。';
       const context = await getThreadMarketContext((thread.industries || []) as string[])
         .catch(() => null);
       const signalLines = (thread.signals as ThreadSignalRow[]).map((s) => {
@@ -356,13 +355,11 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       if (!investigation) return '没有找到该预警的深挖调查。'
       const steps = investigation.steps.slice(0, 15).map((s) =>
         `- 第${s.stepNo}步 [${s.kind}${s.tool ? `·${s.tool}` : ''}] ${s.ok ? '成功' : '失败'}` +
-        `${s.durationMs != null ? `｜${s.durationMs}ms` : ''}｜${s.tokens} tokens\n  ${clip(s.digest, 200)}` +
-        `${s.refs.length ? `\n  引用：${s.refs.slice(0, 6).join('、')}` : ''}`)
+        `${s.durationMs != null ? `｜${s.durationMs}ms` : ''}\n  ${clip(s.digest, 200)}`)
       return [
-        `调查 ${investigation.id}｜${investigation.status}｜进度 ${investigation.progress}%｜置信度 ${investigation.confidence || '—'}｜证据强度 ${investigation.evidenceStrength || '—'}`,
-        `触发原因：${investigation.triggerReason}${investigation.alertId ? `｜预警 #${investigation.alertId}` : ''}${investigation.judgmentId ? `｜判断 #${investigation.judgmentId}` : ''}`,
+        `调查状态：${investigation.status}｜进度 ${investigation.progress}%｜置信度 ${investigation.confidence || '—'}｜证据强度 ${investigation.evidenceStrength || '—'}`,
+        `触发原因：${investigation.triggerReason}`,
         `问题：${investigation.question}`,
-        `消耗：${investigation.stepsUsed} 步｜${investigation.tokensUsed} tokens｜${formatCost(investigation.costMicros)}`,
         `创建 ${investigation.createdAt}${investigation.startedAt ? `｜开始 ${investigation.startedAt}` : ''}${investigation.finishedAt ? `｜完成 ${investigation.finishedAt}` : ''}`,
         investigation.conclusion ? `结论：${investigation.conclusion}` : investigation.errorMessage ? `失败原因：${investigation.errorMessage}` : '尚未生成结论。',
         investigation.feedback

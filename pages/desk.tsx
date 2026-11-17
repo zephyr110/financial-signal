@@ -17,6 +17,7 @@ import { serializable } from '@/lib/cockpit/page-data'
 import { getDeskSnapshot, getDeskStatus } from '@/lib/desk/repo'
 import type { DeskSnapshot, DeskStatus, JudgmentView, OverseasQuoteView, RealtimeQuoteView } from '@/lib/desk/types'
 import { CONTENT_GUTTER } from '@/lib/layout-classes'
+import { sanitizeErrorMessage } from '@/lib/safe-json'
 
 interface DeskPageProps {
   snapshot: DeskSnapshot
@@ -93,7 +94,7 @@ function delayLabel(seconds: number) {
 function RealtimeQuotes({ quotes }: { quotes: RealtimeQuoteView[] }) {
   if (!quotes.length) return null
   return (
-    <div className="border-t border-border/60">
+    <section className="overflow-hidden rounded-lg border border-border/60" aria-label="行情快照">
       <div className="flex items-center justify-between bg-muted/30 px-4 py-1.5 text-xs text-muted-foreground">
         <span className="flex items-center gap-1"><Timer className="size-3.5" />行情快照</span>
         <span>{delayLabel(Math.max(...quotes.map((quote) => quote.delaySeconds)))}</span>
@@ -101,7 +102,7 @@ function RealtimeQuotes({ quotes }: { quotes: RealtimeQuoteView[] }) {
       {quotes.map((quote) => (
         <RealtimeRow key={`${quote.code}:${quote.tradeTime}`} quote={quote} />
       ))}
-    </div>
+    </section>
   )
 }
 
@@ -214,7 +215,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
       }
       if (task.status === 'failed' || task.status === 'canceled') {
         await reload().catch(() => {})
-        setError(task.error || '刷新任务未能完成，请重试。')
+        setError(task.error ? sanitizeErrorMessage(task.error) : '刷新任务未能完成，请重试。')
         stopRefreshing()
         return
       }
@@ -231,7 +232,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
           if (next.status === 'failed' || next.status === 'canceled') {
             stopRefreshing()
             await reload().catch(() => {})
-            setError(next.error || '刷新任务未能完成，请重试。')
+            setError(next.error ? sanitizeErrorMessage(next.error) : '刷新任务未能完成，请重试。')
             return
           }
           if (Date.now() - startedAt > 120_000) {
@@ -364,21 +365,25 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                         </ul>
                       )}
                     </button>
-                    <div className="flex shrink-0 items-center justify-between bg-muted/30 px-4 py-1.5 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><CloudSun className="size-3.5" />外盘隔夜</span>
-                      <span>{snapshot.overseas[0]?.delayMinutes ? `${snapshot.overseas[0].delayMinutes} 分钟延迟` : '延迟数据'}</span>
-                    </div>
-                    <div className="xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
-                      {snapshot.overseas.length
-                        ? snapshot.overseas.map((quote) => <OverseasRow key={quote.symbol} quote={quote} />)
-                        : <EmptyHint>暂无外盘行情</EmptyHint>}
+                    <div className="space-y-2 p-2 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+                      <section className="overflow-hidden rounded-lg border border-border/60" aria-label="外盘隔夜行情">
+                        <div className="flex items-center justify-between bg-muted/30 px-4 py-1.5 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><CloudSun className="size-3.5" />外盘隔夜</span>
+                          <span>{snapshot.overseas[0]?.delayMinutes ? `${snapshot.overseas[0].delayMinutes} 分钟延迟` : '延迟数据'}</span>
+                        </div>
+                        {snapshot.overseas.length
+                          ? snapshot.overseas.map((quote) => <OverseasRow key={quote.symbol} quote={quote} />)
+                          : <EmptyHint>暂无外盘行情</EmptyHint>}
+                      </section>
                       <RealtimeQuotes quotes={snapshot.realtime} />
                     </div>
                   </div>
                 ) : (
                   <div className="flex min-h-0 flex-col xl:flex-1">
                     <EmptyHint>今天还没有生成市场判断，点右上角“刷新数据”拉取行情与公告。</EmptyHint>
-                    <RealtimeQuotes quotes={snapshot.realtime} />
+                    <div className="p-2">
+                      <RealtimeQuotes quotes={snapshot.realtime} />
+                    </div>
                   </div>
                 )}
               </DeskPanel>

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildMeta, ensureMethod, ensureSameOrigin, sendData, sendError } from '../../../lib/cockpit/api'
+import { sanitizeErrorMessage } from '../../../lib/safe-json'
 import { enqueueTask, scheduleTaskDrain } from '../../../lib/cockpit/tasks'
 import { getDeskStatus } from '../../../lib/desk/repo'
 
@@ -18,6 +19,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (task.status === 'queued') scheduleTaskDrain()
     sendData(res, { task, status: await getDeskStatus() }, await buildMeta())
   } catch (err) {
-    sendError(req, res, 400, 'DESK_REFRESH_FAILED', err instanceof Error ? err.message : '投研台刷新入队失败')
+    sendError(req, res, 400, 'DESK_REFRESH_FAILED', err instanceof Error ? sanitizeErrorMessage(err.message) : '投研台刷新入队失败')
   }
 }

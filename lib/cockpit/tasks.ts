@@ -12,6 +12,7 @@ import { normalizeCode } from './codes'
 import { ingestOfficialDocuments } from './sources/official'
 import { refreshDesk } from '../desk/engine'
 import { listInvestigations, queueAutoInvestigations, runInvestigation } from '../desk/investigation'
+import { sanitizeErrorMessage } from '../safe-json'
 import type { TaskEvent, TaskLane, TaskRecord, TaskStatus, TaskType } from './types'
 
 export const TASK_TYPES: TaskType[] = [
@@ -810,7 +811,7 @@ export async function processNextTask(lane?: TaskLane): Promise<TaskRecord | nul
     return await finishTask(task, 'succeeded', { progress: 100, step: '完成', result })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    const safeMessage = message.slice(0, 500)
+    const safeMessage = sanitizeErrorMessage(message).slice(0, 500)
     if (task.attempts < MAX_ATTEMPTS) {
       return await finishTask(task, 'queued', {
         step: '等待重试',

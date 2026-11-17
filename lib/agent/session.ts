@@ -46,7 +46,7 @@ export function estimateContextTokens(messages: AgentMessage[]): number {
 }
 
 const SUMMARIZE_PROMPT = `你是一个财经研究助手的上下文压缩器。请把用户与助手的历史对话压缩成一段中文摘要（200字以内），
-保留：用户关心的问题、助手给出的关键结论、引用过的数据（行业、公司、事件线索ID、时间），
+保留：用户关心的问题、助手给出的关键结论、引用过的数据（行业、公司、时间），
 不要遗漏尚未解决的问题。只输出摘要本身，不要任何前缀。`;
 
 async function summarizeMessages(messages: AgentMessage[]): Promise<string> {

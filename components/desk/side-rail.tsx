@@ -14,6 +14,7 @@ import type { AgentProjectView } from '@/lib/agent/projects'
 import { dateShanghai, formatShortDate, formatTime } from '@/lib/cockpit/format'
 import { deskApi } from './api'
 import { EmptyHint } from './ui'
+import { sanitizeErrorMessage } from '@/lib/safe-json'
 
 const ACTION_LABEL: Record<AgentActionView['type'], string> = {
   watch_event: '关注事件',
@@ -37,15 +38,15 @@ function actionSummary(action: AgentActionView): string {
   const payload = action.payload
   switch (action.type) {
     case 'watch_event':
-      return [payload.title, payload.code, payload.eventId].filter(Boolean).map(String).join(' · ') || '关注项'
+      return [payload.title, payload.code].filter(Boolean).map(String).join(' · ') || '关注项'
     case 'create_task':
       return `${String(payload.type || '任务')}${payload.params && Object.keys(payload.params).length ? `（${Object.keys(payload.params).join(', ')}）` : ''}`
     case 'pin_project':
-      return `${String(payload.kind || '')} ${String(payload.refId || '')}`.trim()
+      return String(payload.title || payload.note || '加入研究项目')
     case 'save_memory':
       return `${String(payload.key || '')}：${String(payload.value || '').slice(0, 60)}`
     default:
-      return action.id
+      return '待确认动作'
   }
 }
 
@@ -97,7 +98,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
       if (decision === 'confirm') {
         // 接口 200 也可能是执行失败/已过期，必须看动作最终状态再报成功。
         if (data.action.status === 'confirmed') onChanged?.()
-        else setError(data.action.errorMessage || (data.action.status === 'expired' ? '动作已过期，请重新发起。' : '动作执行失败，请重试。'))
+        else setError(data.action.errorMessage ? sanitizeErrorMessage(data.action.errorMessage) : (data.action.status === 'expired' ? '动作已过期，请重新发起。' : '动作执行失败，请重试。'))
       }
     } catch (err) {
       setError((err as Error).message)

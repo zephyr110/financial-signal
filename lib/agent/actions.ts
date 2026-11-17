@@ -4,6 +4,7 @@
  */
 import crypto from 'crypto'
 import { getDb } from '../db'
+import { sanitizeErrorMessage } from '../safe-json'
 import { createNotification } from '../cockpit/notifications'
 import { enqueueTask, scheduleTaskDrain, TASK_TYPES } from '../cockpit/tasks'
 import type { TaskType } from '../cockpit/types'
@@ -332,7 +333,7 @@ export async function resolveAgentAction(
   } catch (err) {
     await db.execute({
       sql: "UPDATE agent_action SET status = 'failed', error_message = ? WHERE id = ?",
-      args: [(err as Error).message.slice(0, 500), id],
+      args: [sanitizeErrorMessage((err as Error).message).slice(0, 500), id],
     })
     return getAgentAction(id, userId)
   }

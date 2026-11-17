@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import type { TaskRecord } from '@/lib/cockpit/types'
 import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
-import { publicJson } from '@/lib/safe-json'
+import { publicJson, sanitizeAnswerText, sanitizeErrorMessage } from '@/lib/safe-json'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -198,6 +198,11 @@ function resultView(task: TaskRecord): TaskResultView | null {
           result.thesisStatus ? `论点状态：${thesisStatusLabel(String(result.thesisStatus))}` : '',
           Array.isArray(result.evidence) ? `${result.evidence.length} 条证据已归档。` : '',
         ].filter(Boolean).join('\n'),
+      }
+    case 'desk_investigation':
+      return {
+        title: '预警深挖完成',
+        body: String(result.conclusion || '结论尚未生成。').slice(0, 600),
       }
     default:
       return { title: '任务完成', body: publicJson(result).slice(0, 600) }
@@ -511,10 +516,10 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                   {view && (
                     <div className="ck-task-result">
                       <strong>{view.title}</strong>
-                      {view.body}
+                      {sanitizeAnswerText(view.body)}
                     </div>
                   )}
-                  {task.error && <p className="ck-task-error">{task.error}</p>}
+                  {task.error && <p className="ck-task-error">{sanitizeErrorMessage(task.error)}</p>}
                   <div className="ck-task-meta">
                     <span>{formatTime(task.createdAt)}</span>
                     {task.attempts > 1 && (

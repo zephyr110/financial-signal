@@ -93,7 +93,7 @@ export default function WatchlistPanel({ items, threads, heatmap = null }: Props
                     href={`/signal/${w.id}`}
                     className="text-sm text-foreground hover:text-primary truncate flex-1"
                   >
-                    {sig?.summary || `信号 #${w.id}`}
+                    {sig?.summary || '查看信号详情'}
                   </Link>
                   <button
                     type="button"
@@ -125,7 +125,7 @@ export default function WatchlistPanel({ items, threads, heatmap = null }: Props
                       !t && "text-muted-foreground"
                     )}
                   >
-                    {t?.title || `线索 #${w.id}`}
+                    {t?.title || '查看事件线索'}
                   </Link>
                   <button
                     type="button"

@@ -32,6 +32,7 @@ import { getAgentMaxSteps, MAX_CORRECTION_STEPS } from './limits';
 import { AGENT_SYSTEM_PROMPT, buildAgentSystemPrompt } from './prompts';
 import { acquireAgentSessionLock } from './lock';
 import { findActionableTradeInstruction } from '../cockpit/validators';
+import { sanitizeToolSummary } from '../safe-json';
 
 export { AGENT_SYSTEM_PROMPT } from './prompts';
 
@@ -393,7 +394,7 @@ export async function runAgentTurn(
         resultText = `工具执行失败: ${(err as Error).message}`;
       }
       toolSteps++;
-      const summary = resultText.split('\n')[0].slice(0, 100);
+      const summary = sanitizeToolSummary(resultText.split('\n')[0]).slice(0, 100);
       toolLog.push({
         name: tool.name,
         args: toolCall.args || {},

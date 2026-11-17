@@ -7,6 +7,17 @@ import { formatSignedPct } from '@/lib/cockpit/format'
 import type { JudgmentView } from '@/lib/desk/types'
 import { ConfidenceBadge, StanceBadge } from './ui'
 
+// 证据 kind 落库为英文，界面统一显示中文
+const EVIDENCE_KIND_LABEL: Record<string, string> = {
+  breadth: '广度',
+  return: '涨跌',
+  momentum: '动量',
+  document: '事件',
+  turnover: '成交',
+  index: '指数',
+  overseas: '外盘',
+}
+
 export function JudgmentSheet({
   judgment,
   onClose,
@@ -77,7 +88,7 @@ export function JudgmentSheet({
                           {item.value && <p className="line-clamp-2 text-muted-foreground">{item.value}</p>}
                           {item.sourceName && <p className="text-xs text-muted-foreground">{item.sourceName}{item.asOf ? ` · ${item.asOf}` : ''}</p>}
                         </div>
-                        <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[11px]">{item.kind}</Badge>
+                        <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[11px]">{EVIDENCE_KIND_LABEL[item.kind] || item.kind}</Badge>
                       </li>
                     ))}
                   </ul>

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildMeta, ensureMethod, queryInt, queryString, sendData, sendError } from '../../../lib/cockpit/api'
+import { sanitizeErrorMessage } from '../../../lib/safe-json'
 import { listJudgmentDates, listJudgments } from '../../../lib/desk/repo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -22,6 +23,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       dates: await listJudgmentDates(30),
     }, await buildMeta())
   } catch (err) {
-    sendError(req, res, 500, 'JUDGMENTS_FAILED', err instanceof Error ? err.message : '读取判断台账失败')
+    sendError(req, res, 500, 'JUDGMENTS_FAILED', err instanceof Error ? sanitizeErrorMessage(err.message) : '读取判断台账失败')
   }
 }

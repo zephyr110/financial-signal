@@ -159,7 +159,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
           : '政策与公告：无',
         quality.length ? `数据质量提示：\n${quality.join('\n')}` : '',
         payload.narrative?.text ? `AI 叙述：${payload.narrative.text}` : '',
-        '（引用时标注交易日；公告引用标注文档 id 与来源）',
+        '（引用时标注交易日与来源）',
       ].filter(Boolean).join('\n');
     },
   },
@@ -209,7 +209,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
       return [
         `近${days}天匹配 ${rows.length} 条（显示前${rows.length}条）：`,
         ...lines,
-        '（引用时标注文档 id 与发布日期）',
+        '（引用时标注来源与发布日期）',
       ].join('\n');
     },
   },

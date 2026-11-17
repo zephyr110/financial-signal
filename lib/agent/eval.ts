@@ -47,7 +47,7 @@ export function evaluateAgentReply(input: AgentEvalInput): AgentEvalResult {
     {
       name: 'cites_sources',
       ok: usedTools.length === 0 || CITATION.test(reply),
-      detail: '调用过工具时，回答要引用 id、时间或来源',
+      detail: '调用过工具时，回答要引用来源或时间',
     },
     {
       name: 'states_uncertainty',

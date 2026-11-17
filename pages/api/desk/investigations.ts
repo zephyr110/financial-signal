@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../../lib/cockpit/api'
+import { sanitizeErrorMessage } from '../../../lib/safe-json'
 import { enqueueTask, scheduleTaskDrain } from '../../../lib/cockpit/tasks'
 import {
   createInvestigation,
@@ -78,6 +79,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     sendData(res, { investigation, created, task }, await buildMeta())
   } catch (err) {
-    sendError(req, res, 500, 'INVESTIGATION_FAILED', err instanceof Error ? err.message : '调查操作失败')
+    sendError(req, res, 500, 'INVESTIGATION_FAILED', err instanceof Error ? sanitizeErrorMessage(err.message) : '调查操作失败')
   }
 }
