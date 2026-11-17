@@ -28,8 +28,8 @@ export function DeskPanel({
       <CardHeader className="relative flex shrink-0 flex-row items-center justify-between gap-2 px-4 py-2.5 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>
-          <h2 className="truncate text-[13px] font-semibold tracking-tight">{title}</h2>
-          {meta && <span className="truncate text-[11px] text-muted-foreground">{meta}</span>}
+          <h2 className="truncate text-[14px] font-semibold tracking-tight">{title}</h2>
+          {meta && <span className="truncate text-xs text-muted-foreground">{meta}</span>}
         </div>
         {action}
       </CardHeader>
@@ -49,7 +49,7 @@ export function StanceBadge({ stance }: { stance: DeskStance }) {
     <Badge
       variant="outline"
       className={cn(
-        'h-5 px-1.5 text-[11px]',
+        'h-5 px-1.5 text-xs',
         stance === 'bullish' && 'border-chart-3/40 bg-chart-3/10 text-chart-3',
         stance === 'bearish' && 'border-chart-2/40 bg-chart-2/10 text-chart-2',
         stance === 'neutral' && 'text-muted-foreground',
@@ -65,7 +65,7 @@ export function confidenceText(confidence: DeskConfidence): string {
 }
 
 export function ConfidenceBadge({ confidence }: { confidence: DeskConfidence }) {
-  return <Badge variant={confidence === 'high' ? 'secondary' : 'outline'} className="h-5 px-1.5 text-[11px]">{confidenceText(confidence)}</Badge>
+  return <Badge variant={confidence === 'high' ? 'secondary' : 'outline'} className="h-5 px-1.5 text-xs">{confidenceText(confidence)}</Badge>
 }
 
 export function SeverityBadge({ severity }: { severity: AlertView['severity'] }) {
@@ -74,7 +74,7 @@ export function SeverityBadge({ severity }: { severity: AlertView['severity'] })
     <Badge
       variant="outline"
       className={cn(
-        'h-5 px-1.5 text-[11px]',
+        'h-5 px-1.5 text-xs',
         severity === 'critical' && 'border-destructive/40 bg-destructive/10 text-destructive',
         severity === 'important' && 'border-chart-5/50 bg-chart-5/10 text-chart-5',
         severity === 'watch' && 'border-chart-4/40 text-muted-foreground',
@@ -95,11 +95,11 @@ export function JudgmentRow({ judgment, onSelect }: { judgment: JudgmentView; on
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[13px] font-semibold tracking-tight">{judgment.industry || '市场'}</span>
+          <span className="truncate text-[14px] font-semibold tracking-tight">{judgment.industry || '市场'}</span>
           {judgment.relation && (
             <Badge
               variant={judgment.relation === 'holding' ? 'secondary' : 'outline'}
-              className="h-5 shrink-0 px-1.5 text-[10px]"
+              className="h-5 shrink-0 px-1.5 text-[11px]"
             >
               {judgment.relation === 'holding' ? '持仓' : '自选'}
             </Badge>
@@ -107,9 +107,9 @@ export function JudgmentRow({ judgment, onSelect }: { judgment: JudgmentView; on
           <StanceBadge stance={judgment.stance} />
           <ConfidenceBadge confidence={judgment.confidence} />
         </div>
-        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{judgment.headline}</p>
+        <p className="line-clamp-2 text-[13px] leading-5 text-muted-foreground">{judgment.headline}</p>
       </div>
-      <span className="shrink-0 pt-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">{judgment.score.toFixed(1)}</span>
+      <span className="shrink-0 pt-0.5 text-xs font-medium tabular-nums text-muted-foreground">{judgment.score.toFixed(1)}</span>
     </button>
   )
 }
@@ -135,13 +135,13 @@ export function AlertRow({
         meta={<SeverityBadge severity={alert.severity} />}
         action={(
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-[11px] text-muted-foreground">
+            <span className="truncate text-xs text-muted-foreground">
               {alert.industry ? `${alert.industry} · ` : ''}证据 {alert.evidence.length} 条
             </span>
             <div className="flex shrink-0 gap-1">
               <button
                 type="button"
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 onClick={onDeepDive}
               >
                 深挖
@@ -149,7 +149,7 @@ export function AlertRow({
               <button
                 type="button"
                 disabled={busy}
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
                 onClick={onAcknowledge}
               >
                 已读

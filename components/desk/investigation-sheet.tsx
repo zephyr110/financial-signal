@@ -165,14 +165,14 @@ export function InvestigationSheet({
     <Sheet open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[clamp(42rem,42vw,60rem)]">
         <SheetHeader className="relative shrink-0 px-5 py-4 after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
-          <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <ShieldQuestion className="size-3.5" />
             <span className="tracking-wide">{target?.kind === 'judgment' ? '判断深挖' : '预警深挖'}</span>
             {target?.kind === 'alert' && <SeverityBadge severity={target.alert.severity} />}
             {target?.kind === 'judgment' && <StanceBadge stance={target.judgment.stance} />}
           </div>
           <SheetTitle className="pr-8 text-[17px] font-semibold leading-6 tracking-tight">{target ? targetTitle(target) : ''}</SheetTitle>
-          <SheetDescription className="line-clamp-2 text-[13px] leading-5">
+          <SheetDescription className="line-clamp-2 text-[14px] leading-6">
             {target?.kind === 'alert' ? target.alert.whyNow : target?.judgment.summary}
           </SheetDescription>
         </SheetHeader>
@@ -185,7 +185,7 @@ export function InvestigationSheet({
           )}
 
           {error && (
-            <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] text-destructive">
               {error}
             </div>
           )}
@@ -193,8 +193,8 @@ export function InvestigationSheet({
           {!loading && !investigation && (
             <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed px-4 py-5">
               <div>
-                <p className="text-sm font-medium">这条{target?.kind === 'judgment' ? '判断' : '预警'}还没有深挖记录</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                <p className="text-[15px] font-medium">这条{target?.kind === 'judgment' ? '判断' : '预警'}还没有深挖记录</p>
+                <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
                   深挖只读公告、行情与证据，最多 8 步 / 90 秒；结论会附上引用与置信度，不产生交易指令。
                 </p>
               </div>
@@ -215,7 +215,7 @@ export function InvestigationSheet({
                 {investigation.evidenceStrength && (
                   <Badge variant="outline">{STRENGTH_LABEL[investigation.evidenceStrength]}</Badge>
                 )}
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {investigation.stepsUsed} 步 · {investigation.tokensUsed} tokens
                 </span>
               </div>
@@ -228,33 +228,33 @@ export function InvestigationSheet({
                       style={{ width: `${Math.max(4, investigation.progress)}%` }}
                     />
                   </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {investigation.progress}% · 排队或执行中，可关闭面板稍后回看
                   </p>
                 </div>
               )}
 
               {investigation.status === 'failed' && (
-                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] text-destructive">
                   {investigation.errorMessage || '调查失败'}
                 </p>
               )}
 
               {investigation.conclusion && (
-                <div className="markdown-body rounded-lg bg-muted/30 px-4 py-3 text-[13px] leading-6">
+                <div className="markdown-body rounded-lg bg-muted/30 px-4 py-3 text-[14px] leading-6">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{investigation.conclusion}</ReactMarkdown>
                 </div>
               )}
 
               {investigation.steps.length > 0 && (
                 <details className="group rounded-lg bg-muted/25">
-                  <summary className="flex cursor-pointer items-center gap-2 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
+                  <summary className="flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground">
                     <ChevronDown className="size-3.5 transition-transform duration-200 group-open:rotate-180" />
                     证据与工具步骤（{investigation.steps.length}）
                   </summary>
                   <ol className="space-y-2 px-3 pb-3">
                     {investigation.steps.map((step) => (
-                      <li key={step.stepNo} className="text-xs leading-5">
+                      <li key={step.stepNo} className="text-[13px] leading-5">
                         <span className="mr-1 text-muted-foreground">#{step.stepNo}</span>
                         <span className="font-medium">{step.tool || STEP_LABEL[step.kind] || step.kind}</span>
                         {!step.ok && <span className="ml-1 text-destructive">失败</span>}
@@ -262,7 +262,7 @@ export function InvestigationSheet({
                         {step.refs.length > 0 && (
                           <p className="mt-0.5 flex flex-wrap gap-1">
                             {step.refs.slice(0, 8).map((ref) => (
-                              <span key={ref} className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">{ref}</span>
+                              <span key={ref} className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-muted-foreground">{ref}</span>
                             ))}
                           </p>
                         )}
@@ -274,7 +274,7 @@ export function InvestigationSheet({
 
               {investigation.status === 'succeeded' && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground">这条调查有用吗？</span>
+                  <span className="text-[13px] text-muted-foreground">这条调查有用吗？</span>
                   <Button
                     size="xs"
                     variant={investigation.feedback === 'useful' ? 'secondary' : 'ghost'}

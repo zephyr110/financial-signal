@@ -1402,8 +1402,8 @@ a.ck-chip:hover {
 
 .ck-empty {
   padding: 28px 18px;
-  /* 2px 虚线 + 7 成色：1px 在 1.25x/1.5x 缩放下顶边会落到半个设备像素，看起来像被裁掉 */
-  border: 2px dashed color-mix(in srgb, var(--ck-line-strong) 75%, transparent);
+  /* 1px 虚线统一描边；上文行高已固定为整数像素，顶边不会落在半个设备像素上 */
+  border: 1px dashed color-mix(in srgb, var(--ck-line-strong) 75%, transparent);
   border-radius: var(--ck-radius);
   background: color-mix(in srgb, var(--ck-surface) 65%, transparent);
   text-align: center;
@@ -1950,7 +1950,7 @@ a.ck-chip:hover {
   transform: rotate(180deg);
 }
 
-/* 折叠按钮与移除按钮同尺寸同显隐规则，点击直接展开/收起 */
+/* 折叠按钮与移除按钮同尺寸，点击直接展开/收起 */
 .ck-watch-toggle {
   flex: none;
   color: var(--ck-faint);
@@ -2099,21 +2099,7 @@ a.ck-chip:hover {
   gap: 4px;
 }
 
-/* 折叠指示与移除按钮默认隐去，悬停整行或键盘聚焦时才浮现。
-   触屏没有 hover，经媒体查询排除后保持常显，避免移除入口消失。 */
-@media (hover: hover) and (pointer: fine) {
-  .ck-watch-action {
-    opacity: 0;
-    transition: opacity 160ms ease;
-  }
-
-  .ck-watch-row:hover .ck-watch-action,
-  .ck-watch-row:focus-within .ck-watch-action,
-  /* 确认移除态必须可见，鼠标一移开就看不见自己在确认什么 */
-  .ck-watch-row:has(.ck-inline-actions) .ck-watch-action {
-    opacity: 1;
-  }
-}
+/* 折叠与移除按钮常显，不依赖悬停，触屏与键盘操作同样直接可达。 */
 
 /* ---------- 个股 ---------- */
 

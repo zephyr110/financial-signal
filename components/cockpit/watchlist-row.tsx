@@ -99,7 +99,7 @@ export function WatchlistRow({ item }: { item: WatchlistItem }) {
         </div>
       </button>
 
-      {/* 折叠与移除按钮同排同尺寸，默认隐藏，悬停整行时才浮现 */}
+      {/* 折叠与移除按钮同排同尺寸，默认常显 */}
       <div className="ck-watch-action">
         <Hint content={open ? '收起详情' : '展开详情'}>
           <Button

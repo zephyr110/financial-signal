@@ -15,7 +15,7 @@ export function EmptyData({ message = "暂无数据", className }: EmptyDataProp
     <div
       role="status"
       className={cn(
-        "flex min-h-32 w-full flex-col items-center justify-center gap-2 px-4 py-6 text-center text-xs text-muted-foreground",
+        "flex min-h-32 w-full flex-col items-center justify-center gap-2 px-4 py-6 text-center text-[13px] text-muted-foreground",
         className
       )}
     >

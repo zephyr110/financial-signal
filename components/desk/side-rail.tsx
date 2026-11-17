@@ -181,8 +181,8 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
     <Card className="flex min-h-[360px] flex-col gap-0 overflow-hidden py-0 xl:min-h-0">
       <CardHeader className="relative flex shrink-0 flex-row items-center gap-2 px-4 py-2.5 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/60 after:content-['']">
         <ShieldCheck className="size-4 text-muted-foreground" />
-        <h2 className="text-[13px] font-semibold tracking-tight">研究台</h2>
-        <span className="truncate text-[11px] text-muted-foreground">动作 / 项目 / 记忆</span>
+        <h2 className="text-[14px] font-semibold tracking-tight">研究台</h2>
+        <span className="truncate text-xs text-muted-foreground">动作 / 项目 / 记忆</span>
       </CardHeader>
       <CardContent className="min-h-0 p-0 xl:flex-1">
         <Tabs value={tab} onValueChange={(value) => setTab(String(value))} className="h-full gap-0">
@@ -196,10 +196,10 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
 
           <div className="min-h-0 xl:flex-1 xl:overflow-y-auto">
             {error && (
-              <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">{error}</div>
+              <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-[13px] text-destructive">{error}</div>
             )}
             {loading && (
-              <div className="flex items-center gap-2 px-4 py-6 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 px-4 py-6 text-[13px] text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" />读取研究台
               </div>
             )}
@@ -211,13 +211,13 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
               {actions.map((action) => (
                 <div key={action.id} className="relative px-4 py-3 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
                   <div className="flex items-center justify-between gap-2">
-                    <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{ACTION_LABEL[action.type]}</Badge>
-                    <span className="text-[10px] text-muted-foreground">
+                    <Badge variant="outline" className="h-5 px-1.5 text-[11px]">{ACTION_LABEL[action.type]}</Badge>
+                    <span className="text-[11px] text-muted-foreground">
                       {formatShortDate(dateShanghai(action.createdAt))} {formatTime(action.createdAt)}
                     </span>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-xs leading-5">{actionSummary(action)}</p>
-                  {action.sessionId && <p className="mt-0.5 text-[10px] text-muted-foreground">来自会话 {action.sessionId}</p>}
+                  <p className="mt-1 line-clamp-2 text-[13px] leading-5">{actionSummary(action)}</p>
+                  {action.sessionId && <p className="mt-0.5 text-[11px] text-muted-foreground">来自会话 {action.sessionId}</p>}
                   <div className="mt-2 flex gap-1.5">
                     <Button size="xs" disabled={busy === action.id} onClick={() => void decide(action, 'confirm')}>
                       <Check className="size-3.5" />确认
@@ -242,7 +242,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                   value={projectThesis}
                   onChange={(event) => setProjectThesis(event.target.value)}
                   placeholder="一句话论点（可选）"
-                  className="min-h-14 text-xs"
+                  className="min-h-14"
                   maxLength={2000}
                 />
                 <Button size="xs" disabled={busy === 'project' || !projectName.trim()} onClick={() => void createProject()}>
@@ -254,8 +254,8 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                 <div key={project.id} className="group relative px-4 py-3 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-[13px] font-semibold tracking-tight">{project.name}</p>
-                      {project.thesis && <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{project.thesis}</p>}
+                      <p className="truncate text-[14px] font-semibold tracking-tight">{project.name}</p>
+                      {project.thesis && <p className="line-clamp-2 text-[13px] leading-5 text-muted-foreground">{project.thesis}</p>}
                     </div>
                     <Hint content="归档项目">
                       <Button
@@ -271,12 +271,12 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                   </div>
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {project.industries.map((industry) => (
-                      <Badge key={industry} variant="secondary" className="h-5 px-1.5 text-[10px]">{industry}</Badge>
+                      <Badge key={industry} variant="secondary" className="h-5 px-1.5 text-[11px]">{industry}</Badge>
                     ))}
                     {project.symbols.map((symbol) => (
-                      <Badge key={symbol} variant="outline" className="h-5 px-1.5 font-mono text-[10px]">{symbol}</Badge>
+                      <Badge key={symbol} variant="outline" className="h-5 px-1.5 font-mono text-[11px]">{symbol}</Badge>
                     ))}
-                    <span className="text-[10px] text-muted-foreground">{project.items.length} 条关联</span>
+                    <span className="text-[11px] text-muted-foreground">{project.items.length} 条关联</span>
                   </div>
                 </div>
               ))}
@@ -290,7 +290,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                     value={memoryScope}
                     onValueChange={(value) => setMemoryScope(value as MemoryScope)}
                   >
-                    <SelectTrigger className="h-9 w-auto shrink-0 px-2 text-xs" aria-label="记忆范围">
+                    <SelectTrigger className="h-9 w-auto shrink-0 px-2 text-sm" aria-label="记忆范围">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -310,7 +310,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                   value={memoryValue}
                   onChange={(event) => setMemoryValue(event.target.value)}
                   placeholder="要记住的事实或约束"
-                  className="min-h-14 text-xs"
+                  className="min-h-14"
                   maxLength={2000}
                 />
                 <Button
@@ -326,11 +326,11 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                 <div key={memory.id} className="group relative flex items-start gap-2 px-4 py-2.5 after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{SCOPE_LABEL[memory.scope]}</Badge>
-                      <span className="truncate text-xs font-medium">{memory.key}</span>
-                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">{memory.confidence.toFixed(2)}</span>
+                      <Badge variant="outline" className="h-5 px-1.5 text-[11px]">{SCOPE_LABEL[memory.scope]}</Badge>
+                      <span className="truncate text-[13px] font-medium">{memory.key}</span>
+                      <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">{memory.confidence.toFixed(2)}</span>
                     </div>
-                    <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{memory.value}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[13px] leading-5 text-muted-foreground">{memory.value}</p>
                   </div>
                   <Hint content="删除记忆">
                     <Button
