@@ -6,6 +6,9 @@ import {
   detectTruncation,
   formatFinalAnswer,
   stripToolProtocolFromAnswer,
+  hasToolProtocolTokens,
+  hasPartialToolProtocolToken,
+  parseToolMarkupCalls,
   validateToolArgs,
   looksLikeJson,
   parseJsonLike,
@@ -13,6 +16,10 @@ import {
   formatBacktestRows,
   publicJson,
 } from './format';
+
+// 线上截图原文：DeepSeek 原生协议是 DSML + 双竖线（旧夹具曾误写成 DSLM + 单竖线）
+const REAL_DSML_CALLS =
+  '<||DSML||calls><||DSML||invoke name="search_news"><||DSML||parameter name="args" string="false">{"query": "海光信息", "hoursBack": 2160, "minScore": 1, "limit": 20}</||DSML||parameter></||DSML||invoke><||DSML||invoke name="search_news"><||DSML||parameter name="args" string="false">{"query": "国产CPU", "hoursBack": 2160, "minScore": 1, "limit": 20}</||DSML||parameter></||DSML||invoke></||DSML||calls>';
 
 describe('extractJson', () => {
   it('提取纯 JSON 对象', () => {
@@ -219,25 +226,76 @@ describe('stripToolProtocolFromAnswer', () => {
     expect(stripToolProtocolFromAnswer(raw)).toBe(raw);
   });
 
-  it('剥离原生工具标记块，保留前置正文', () => {
-    const raw =
-      '我先查一下事件和行业热度。\n<| DSLM | calls> <| DSLM | invoke name="watch_event"> <| DSLM | parameter name="eventId" string="false">1019</| DSLM | parameter> <| DSLM | invoke name="get_industry_heatmap"> <| DSLM | parameter name="hoursBack" string="false">168</| DSLM | parameter> </| DSLM | invoke> </| DSLM | calls>';
-    expect(stripToolProtocolFromAnswer(raw)).toBe('我先查一下事件和行业热度。');
+  it('剥离真实 DSML 原生工具块，保留前置正文', () => {
+    expect(stripToolProtocolFromAnswer(`我先查一下海光信息。\n${REAL_DSML_CALLS}`)).toBe('我先查一下海光信息。');
   });
 
-  it('纯原生工具标记返回空', () => {
+  it('纯真实 DSML 块返回空', () => {
+    expect(stripToolProtocolFromAnswer(REAL_DSML_CALLS)).toBe('');
+  });
+
+  it('兼容单竖线与旧拼写 DSLM', () => {
     const raw =
       '<| DSLM | calls> <| DSLM | invoke name="watch_event"> </| DSLM | invoke> </| DSLM | calls>';
     expect(stripToolProtocolFromAnswer(raw)).toBe('');
   });
 
   it('流式半截的原生标记从首个标记处截断', () => {
-    expect(stripToolProtocolFromAnswer('先说结论。\n<| DSLM | calls> <| DSLM | invoke name="watch_')).toBe('先说结论。');
+    expect(stripToolProtocolFromAnswer('先说结论。\n<||DSML||calls> <||DSML||invoke name="watch_')).toBe('先说结论。');
   });
 
   it('普通文本不误伤', () => {
     const raw = '行业景气度回升，关注 <存储> 与 | 分隔符。';
     expect(stripToolProtocolFromAnswer(raw)).toBe(raw);
+  });
+});
+
+describe('hasToolProtocolTokens', () => {
+  it('识别真实双竖线 DSML 与单竖线变体', () => {
+    expect(hasToolProtocolTokens(REAL_DSML_CALLS)).toBe(true);
+    expect(hasToolProtocolTokens('<|DSML|invoke name="x">')).toBe(true);
+    expect(hasToolProtocolTokens('正文里的 <||DSML||calls>')).toBe(true);
+  });
+
+  it('普通文本与 HTML 标签不误判', () => {
+    expect(hasToolProtocolTokens('关注 <存储> 与 | 分隔符')).toBe(false);
+    expect(hasToolProtocolTokens('<div>正文</div>')).toBe(false);
+  });
+
+  it('能识别流式中途的半截标记', () => {
+    expect(hasPartialToolProtocolToken('<||DS')).toBe(true);
+    expect(hasPartialToolProtocolToken('先说结论。<||DSM')).toBe(true);
+    expect(hasPartialToolProtocolToken('<||DSML|')).toBe(true);
+    expect(hasPartialToolProtocolToken('营收 <')).toBe(false);
+  });
+});
+
+describe('parseToolMarkupCalls', () => {
+  it('把截图中的两个 search_news 块解析成可执行调用', () => {
+    const calls = parseToolMarkupCalls(REAL_DSML_CALLS);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual({
+      tool: 'search_news',
+      args: { query: '海光信息', hoursBack: 2160, minScore: 1, limit: 20 },
+    });
+    expect(calls[1].args).toEqual({ query: '国产CPU', hoursBack: 2160, minScore: 1, limit: 20 });
+  });
+
+  it('非 args 参数按标量解析', () => {
+    const raw =
+      '<||DSML||calls><||DSML||invoke name="watch_event"><||DSML||parameter name="eventId" string="false">1019</||DSML||parameter></||DSML||invoke></||DSML||calls>';
+    expect(parseToolMarkupCalls(raw)).toEqual([{ tool: 'watch_event', args: { eventId: 1019 } }]);
+  });
+
+  it('args 被二次包成字符串时仍能解析', () => {
+    const raw =
+      '<||DSML||calls><||DSML||invoke name="search_news"><||DSML||parameter name="args">"{\\"query\\":\\"存储\\"}"</||DSML||parameter></||DSML||invoke></||DSML||calls>';
+    expect(parseToolMarkupCalls(raw)[0].args).toEqual({ query: '存储' });
+  });
+
+  it('不是原生协议时返回空数组', () => {
+    expect(parseToolMarkupCalls('{"tool":"search_news","args":{"query":"存储"}}')).toEqual([]);
+    expect(parseToolMarkupCalls('普通回答')).toEqual([]);
   });
 });
 

@@ -7,23 +7,26 @@ import ErrorBanner from "../components/ErrorBanner";
 import EmptyState from "../components/EmptyState";
 import TodaySignalSummary from "../components/TodaySignalSummary";
 import WelcomeScreen from "../components/WelcomeScreen";
-import { Clock, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { TodayTabs } from "../components/TodayTabs";
 import { getNewsByDate, getAvailableDates, getDb } from "../lib/db";
 import { todayKey } from "../lib/format";
+import { formatDateCn, formatTime } from "../lib/cockpit/format";
 import { CONTENT_GUTTER } from "@/lib/layout-classes";
 
 const PULL_THRESHOLD = 56;
 
-export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today: ssgTodayStr, error: ssgError }) {
+export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today: ssgTodayStr, updatedAt: ssgUpdatedAt, error: ssgError }) {
   // AppShell 内容滚动容器——下拉刷新守卫读 scrollTop（替代原 window.scrollY）
   const scrollRef = useAppShellScroll();
   const [todayItems, setTodayItems] = useState(ssgToday || []);
   const [pastDates, setPastDates] = useState(ssgDates || []);
+  const [today, setToday] = useState<string | null>(ssgTodayStr || null);
   const [error, setError] = useState(ssgError ?? null);
   const [fetching, setFetching] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [mounted, setMounted] = useState(false);
+  // 客户端刷新时间；未刷新时用 SSG 的组装时间，首屏就有可信的新鲜度
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const updatedAt = lastUpdated ?? ssgUpdatedAt;
 
   // ---- 首次启动引导（仅桌面端、userData 无 db 时展示）----
   const [showWelcome, setShowWelcome] = useState(false);
@@ -111,7 +114,8 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
       const data = await res.json();
       setTodayItems(data.todayItems || []);
       setPastDates(data.pastDates || []);
-      setLastUpdated(new Date());
+      if (data.today) setToday(data.today);
+      setLastUpdated(new Date().toISOString());
     } catch (e) {
       if (e.name === "AbortError") return;
       console.error("Refresh failed:", e);
@@ -124,14 +128,6 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
       if (abortRef.current === controller) abortRef.current = null;
     }
   }, []);
-
-  // Set mounted flag and initial timestamp client-side only (avoid hydration mismatch)
-  useEffect(() => {
-    setMounted(true);
-    if (ssgToday && ssgToday.length > 0) {
-      setLastUpdated(new Date());
-    }
-  }, [ssgToday]);
 
   // Only auto-refresh if SSG returned no data (cold start)
   // 欢迎页展示期间不拉取数据:fetch /api/news 会触发 server 侧 getDb() 建库,
@@ -267,33 +263,23 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
 
         {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
         <div className={`w-full pb-12 ${CONTENT_GUTTER}`}>
-          {/* Hero */}
-          <div className="pt-6 pb-5 flex items-end justify-between gap-4 flex-wrap">
+          {/* 页头与收盘简报同构：顶栏与视图 Tab 已给出页面名，这里只留日期、新鲜度与筛选口径 */}
+          <header className="flex flex-wrap items-start justify-between gap-3 pb-5 pt-6">
             <div className="min-w-0">
-              <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">
-                新闻线索
-              </h2>
-              <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
+              <h1 className="sr-only">新闻线索</h1>
+              {(today || updatedAt) && (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  {today && <span>{formatDateCn(today)}</span>}
+                  {today && updatedAt && <span aria-hidden="true">·</span>}
+                  {updatedAt && <span>更新 {formatTime(updatedAt)}</span>}
+                </div>
+              )}
+              <p className="mt-1 max-w-2xl text-[13px] leading-5 text-muted-foreground">
                 7×24 全球快讯，按影响与相关性筛选值得跟进的线索
               </p>
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock className="size-3.5" aria-hidden="true" />
-                {lastUpdated ? (
-                  <>
-                    更新于{" "}
-                    {lastUpdated.toLocaleTimeString("zh-CN", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                    })}
-                  </>
-                ) : (
-                  <>7×24 快讯 · 下拉或点右上角刷新</>
-                )}
-              </div>
             </div>
             <TodayTabs />
-          </div>
+          </header>
 
           <ErrorBanner message={error} />
 
@@ -334,6 +320,7 @@ export async function getStaticProps() {
         todayItems,
         pastDates,
         today,
+        updatedAt: new Date().toISOString(),
         error: null,
       },
       revalidate: 300,
@@ -341,7 +328,7 @@ export async function getStaticProps() {
   } catch (e) {
     console.error("Failed to load news:", e);
     return {
-      props: { todayItems: [], pastDates: [], today: '', error: "暂时无法获取最新新闻，请稍后刷新页面" },
+      props: { todayItems: [], pastDates: [], today: '', updatedAt: null, error: "暂时无法获取最新新闻，请稍后刷新页面" },
       revalidate: 60,
     };
   }

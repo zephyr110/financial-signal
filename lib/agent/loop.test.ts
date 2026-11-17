@@ -119,6 +119,30 @@ describe('runAgentTurn', () => {
     expect(db.logEvent).toHaveBeenCalled();
   });
 
+  it('原生 DSML 块转成真实工具调用，流式阶段不漏标记', async () => {
+    const leaked =
+      '<||DSML||calls><||DSML||invoke name="search_news"><||DSML||parameter name="args" string="false">{"query":"海光信息"}</||DSML||parameter></||DSML||invoke><||DSML||invoke name="search_news"><||DSML||parameter name="args" string="false">{"query":"国产CPU"}</||DSML||parameter></||DSML||invoke></||DSML||calls>';
+    const events: Array<{ type: string }> = [];
+    llm.chatCompletion
+      .mockImplementationOnce(async (opts: { onDelta?: (t: string) => void }) => {
+        // 标记被拆成两个 delta：半截与完整串都不能透给前端
+        opts.onDelta?.('<||DSM');
+        opts.onDelta?.(leaked.slice('<||DSM'.length));
+        return { content: leaked };
+      })
+      .mockResolvedValueOnce({ content: '海光信息与国产CPU近期均有信号。' });
+
+    const result = await runAgentTurn({
+      userMessage: '查海光信息和国产CPU',
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(result.toolLog.map((t) => t.name)).toEqual(['search_news', 'search_news']);
+    expect(result.toolLog.every((t) => t.ok)).toBe(true);
+    expect(events.filter((e) => e.type === 'delta')).toHaveLength(0);
+    expect(result.reply).toBe('海光信息与国产CPU近期均有信号。');
+  });
+
   it('未知工具名 → 告知模型重试 → 模型给出最终回答', async () => {
     llm.chatCompletion
       .mockResolvedValueOnce({ content: '{"tool":"nonexistent","args":{}}' })

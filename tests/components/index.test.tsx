@@ -32,6 +32,7 @@ const baseProps = {
   todayItems: [] as any[],
   pastDates: [] as any[],
   today: '',
+  updatedAt: null as string | null,
   error: null as string | null,
 }
 
@@ -146,5 +147,30 @@ describe('首页欢迎页门控(集成,防 C1 类回归)', () => {
     expect(screen.getByText(/欢迎使用财经信号/)).toBeTruthy()
     // finally 复位 importing:按钮不再卡在"导入中…"
     expect(screen.getByRole('button', { name: /导入已有数据库/i })).not.toBeDisabled()
+  })
+})
+
+describe('今日页头', () => {
+  it('用日期与更新时间替代重复标题，保留 sr-only h1', () => {
+    desktopMock.getInfo.mockResolvedValue({ imported: true })
+    render(
+      <Home
+        {...baseProps}
+        todayItems={[{
+          id: 1,
+          rich_text: '测试快讯',
+          published_at: '2026-11-17T02:00:00.000Z',
+          source: '测试',
+          title: null,
+        }]}
+        today="2026-11-17"
+        updatedAt="2026-11-17T02:18:00.000Z"
+      />,
+    )
+
+    expect(screen.getByRole('heading', { level: 1, name: '新闻线索' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { level: 2, name: '新闻线索' })).toBeNull()
+    expect(screen.getByText('2026年11月17日 星期二')).toBeTruthy()
+    expect(screen.getByText('更新 10:18')).toBeTruthy()
   })
 })

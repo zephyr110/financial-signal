@@ -97,16 +97,19 @@ export default function SignalAlert({ items }: { items: any[] }) {
             type="button"
             onClick={handleToggle}
             aria-pressed={active}
+            aria-label={active ? "关闭高分信号提醒" : "开启高分信号提醒"}
             className={cn(
-              // 与 IndustrySelector 同款胶囊按钮
-              "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors",
+              // 与 IndustrySelector 同款胶囊按钮；窄屏只留图标，避免整行被挤换行
+              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
               active
                 ? "border-primary/40 bg-primary/10 text-primary"
                 : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
             )}
           >
             {active ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
-            {active ? "高分信号提醒已开启" : "开启高分信号提醒"}
+            <span className="hidden sm:inline">
+              {active ? "高分信号提醒已开启" : "开启高分信号提醒"}
+            </span>
           </button>
         </Hint>
       )}

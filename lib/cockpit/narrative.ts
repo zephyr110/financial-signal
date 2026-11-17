@@ -3,6 +3,7 @@ import { getDb } from '../db'
 import { chatCompletion } from '../llm/client'
 import { getEffectiveLlmConfig, PRICING } from '../llm/config'
 import { containsNumericClaim, findAdviceLanguage, findStrongAdvice } from './validators'
+import { stripToolProtocolFromAnswer } from '../agent/format'
 import type { TodayPayload } from './types'
 
 /**
@@ -101,7 +102,7 @@ export async function generateBriefNarrative(
       temperature: 0.2,
       maxTokens: 320,
     }) as { content?: string; usage?: { prompt_tokens?: number; completion_tokens?: number }; model?: string }
-    const text = String(result.content || '').replace(/\s+/g, ' ').trim()
+    const text = stripToolProtocolFromAnswer(String(result.content || '')).replace(/\s+/g, ' ').trim()
     const latencyMs = Date.now() - started
     const model = result.model || 'unknown'
     const costMicros = costOf(result.usage)
@@ -180,7 +181,7 @@ export async function answerBriefQuestion(
       temperature: 0.1,
       maxTokens: 600,
     }) as { content?: string; usage?: { prompt_tokens?: number; completion_tokens?: number }; model?: string }
-    const text = String(result.content || '').trim()
+    const text = stripToolProtocolFromAnswer(String(result.content || '')).trim()
     const latencyMs = Date.now() - started
     const model = result.model || 'unknown'
     const costMicros = costOf(result.usage)

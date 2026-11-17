@@ -17,6 +17,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import type { ProcessingBlock, ToolCallInfo } from "@/types/agent-chat";
 import { getToolLabel } from "@/lib/agent/tool-labels";
+import { stripToolProtocolFromAnswer } from "@/lib/agent/format";
 import { displayToolArgs, sanitizeToolSummary } from "@/lib/safe-json";
 
 interface AgentProcessingBlockProps {
@@ -252,7 +253,7 @@ function CompactionRow({
             <CollapsibleContent>
               <Separator className="" />
               <p className="bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-                {sanitizeToolSummary(compaction.summary)}
+                {sanitizeToolSummary(stripToolProtocolFromAnswer(compaction.summary))}
               </p>
             </CollapsibleContent>
           )}

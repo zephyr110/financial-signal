@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bot } from "lucide-react";
 import AppShell from "../../../components/app-shell";
 import { getSharedSession } from "../../../lib/db";
+import { stripToolProtocolFromAnswer } from "../../../lib/agent/format";
 import { sanitizeAnswerText } from "../../../lib/safe-json";
 
 /**
@@ -66,7 +67,7 @@ export default function SharedAgentPage({ title, messages, notFound }: any) {
                             ),
                           }}
                         >
-                          {sanitizeAnswerText(String(r.content || ""))}
+                          {sanitizeAnswerText(stripToolProtocolFromAnswer(String(r.content || "")))}
                         </ReactMarkdown>
                       </div>
                     </div>

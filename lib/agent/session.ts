@@ -4,6 +4,7 @@
 import { getAgentMessages, compactAgentMessages } from '../db';
 import { chatCompletion } from '../llm/client';
 import { loadAgentMemoryPrompt } from './memory';
+import { stripToolProtocolFromAnswer } from './format';
 import type { AgentMessage } from './types';
 
 export { loadAgentMemoryPrompt };
@@ -58,7 +59,7 @@ async function summarizeMessages(messages: AgentMessage[]): Promise<string> {
     userMessage: `历史对话：\n${transcript}`,
     maxTokens: SUMMARY_MAX_TOKENS,
   });
-  return content.slice(0, 500);
+  return stripToolProtocolFromAnswer(content).slice(0, 500);
 }
 
 export function stripContextCompactPrefix(content: string): string {

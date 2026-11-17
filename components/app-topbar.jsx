@@ -44,10 +44,11 @@ export default function AppTopbar({ title, subtitle = null, actions = null }) {
 export function TopbarRefreshButton({ onClick, refreshing, label = "刷新数据" }) {
   return (
     <Hint content={label}>
+      {/* 刷新是零参动作：透传 click 事件会被调用方误当作 AbortSignal 传给 fetch */}
       <Button
         variant="ghost"
         size="icon"
-        onClick={onClick}
+        onClick={() => onClick?.()}
         disabled={refreshing}
         className={cn(
           "text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
