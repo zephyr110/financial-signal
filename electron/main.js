@@ -49,7 +49,9 @@ const configFile = path.join(userData, 'config.json');
 const dbConfigPath = dbConfigPathFor({ dev: isDev, dbPath });
 
 function isRemoteDb() {
-  return isRemoteDbConfig(process.env, readDbConfig(dbConfigPath));
+  // 打包版 server 子进程被剥离 DB_BACKEND / VERCEL（见 server-utils 白名单），
+  // 主进程若认宿主环境变量会与服务端判断相反；dev 两端共享 .env.local。
+  return isRemoteDbConfig(isDev ? process.env : {}, readDbConfig(dbConfigPath));
 }
 
 /** 本地库有没有可用的库文件；远端库由设置文件决定，不依赖本地文件。 */
@@ -175,19 +177,22 @@ function navigate() {
 /** 保证调度器存在(dev 下仅按需 runOnce,不 start 定时轮询)。 */
 function ensureScheduler() {
   if (scheduler) return scheduler;
+  // 后端切换要重启才生效；本轮调度器固定用创建时的判断，
+  // 避免保存 Turso 未重启的窗口内通知/LLM 探测提前切到尚未连接的库。
+  const remoteDb = isRemoteDb();
   scheduler = createScheduler({
     baseUrl: serverUrl || devUrl(),
     dbPath,
     configFile,
     isDbAvailable: dbAvailable,
     // Turso 模式下设置存在远端，本地 app_settings 不可用
-    ...(isRemoteDb()
+    ...(remoteDb
       ? { getLlmConfigured: () => fetchLlmConfigured(serverUrl || devUrl()) }
       : {}),
     onRunStart: (sequence) => console.log(`[scheduler] run: ${sequence.join(' → ')}`),
     onRunEnd: () => {
       // 桌面通知按本地 news 表增量查询；Turso 模式下本地库不更新，跳过避免误报
-      if (isRemoteDb()) return;
+      if (remoteDb) return;
       // 通知失败不能打断调度循环,吞掉错误只记日志
       notifyNewHighSignals({
         dbPath,
