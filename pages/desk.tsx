@@ -94,7 +94,7 @@ function RealtimeQuotes({ quotes }: { quotes: RealtimeQuoteView[] }) {
   if (!quotes.length) return null
   return (
     <div className="border-t border-border/60">
-      <div className="flex items-center justify-between bg-muted/30 px-4 py-1.5 text-[11px] text-muted-foreground">
+      <div className="flex items-center justify-between bg-muted/30 px-4 py-1.5 text-xs text-muted-foreground">
         <span className="flex items-center gap-1"><Timer className="size-3.5" />行情快照</span>
         <span>{delayLabel(Math.max(...quotes.map((quote) => quote.delaySeconds)))}</span>
       </div>
@@ -107,16 +107,16 @@ function RealtimeQuotes({ quotes }: { quotes: RealtimeQuoteView[] }) {
 
 function RealtimeRow({ quote }: { quote: RealtimeQuoteView }) {
   return (
-    <div className="relative flex items-center justify-between gap-2 px-4 py-2 text-xs after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
+    <div className="relative flex items-center justify-between gap-2 px-4 py-2 text-[13px] after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
       <div className="min-w-0">
         <p className="truncate font-medium">{quote.name || quote.code}</p>
         {/* 延迟秒数由数据源给出，界面只用「延迟」措辞 */}
-        <p className="text-[10px] text-muted-foreground" suppressHydrationWarning>
+        <p className="text-[11px] text-muted-foreground" suppressHydrationWarning>
           {quote.code} · {delayLabel(quote.delaySeconds)} · {freshness(quote.fetchedAt)}
         </p>
       </div>
       <div className="shrink-0 text-right tabular-nums">
-        <p>{formatPrice(quote.price)}</p>
+        <p className="font-medium">{formatPrice(quote.price)}</p>
         <p className={changeClass(quote.changePct)}>
           {quote.changePct == null ? '—' : formatSignedPct(quote.changePct)}
         </p>
@@ -127,16 +127,16 @@ function RealtimeRow({ quote }: { quote: RealtimeQuoteView }) {
 
 function OverseasRow({ quote }: { quote: OverseasQuoteView }) {
   return (
-    <div className="relative flex items-center justify-between gap-2 px-4 py-2 text-xs after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
+    <div className="relative flex items-center justify-between gap-2 px-4 py-2 text-[13px] after:pointer-events-none after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden">
       <div className="min-w-0">
         <p className="truncate font-medium">{OVERSEAS_NAME[quote.symbol] || quote.symbol}</p>
         {/* 相对时间随渲染时刻变化，SSR 与 hydration 必然不同 */}
-        <p className="text-[10px] text-muted-foreground" suppressHydrationWarning>
+        <p className="text-[11px] text-muted-foreground" suppressHydrationWarning>
           {quote.delayMinutes ? `延迟 ${quote.delayMinutes} 分钟 · ` : ''}{freshness(quote.fetchedAt)}
         </p>
       </div>
       <div className="shrink-0 text-right tabular-nums">
-        <p>{formatPrice(quote.price)}</p>
+        <p className="font-medium">{formatPrice(quote.price)}</p>
         <p className={changeClass(quote.changePct)}>
           {quote.changePct == null ? '—' : formatSignedPct(quote.changePct)}
         </p>
@@ -291,25 +291,25 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
       >
         <div className="flex min-h-0 flex-1 flex-col">
           <div className={`shrink-0 pt-6 ${CONTENT_GUTTER}`}>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-card px-3 py-2 text-xs text-muted-foreground ring-1 ring-foreground/10">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-card px-3 py-2 text-[13px] text-muted-foreground ring-1 ring-foreground/10">
               <span className="flex items-center gap-1.5 font-medium text-foreground">
                 <Radar className="size-3.5" />
                 交易日 {snapshot.tradeDate || status.tradeDate || '—'}
               </span>
               <span suppressHydrationWarning>数据更新 {freshness(updatedAt)}</span>
-              {isDemo && <Badge variant="outline" className="h-5 px-1.5 text-[10px]">示例数据</Badge>}
+              {isDemo && <Badge variant="outline" className="h-5 px-1.5 text-[11px]">示例数据</Badge>}
               {unhealthy.length > 0 && (
                 <span className="flex items-center gap-1 text-chart-5">
                   <ShieldAlert className="size-3.5" />{unhealthy.length} 个数据源异常
                 </span>
               )}
-              <span className="ml-auto hidden text-[11px] lg:inline">仅供个人研究参考，不构成投资建议</span>
+              <span className="ml-auto hidden text-xs lg:inline">仅供个人研究参考，不构成投资建议</span>
             </div>
           </div>
 
           {error && (
             <div className={`shrink-0 pt-2 ${CONTENT_GUTTER}`}>
-              <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">{error}</div>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] text-destructive" role="alert">{error}</div>
             </div>
           )}
 
@@ -317,8 +317,8 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
               <Gauge className="size-8 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">还没有投研快照</p>
-                <p className="mt-1 text-xs text-muted-foreground">点击下方按钮拉取行情与公告，生成当天的市场与行业判断。</p>
+                <p className="text-[15px] font-medium">还没有投研快照</p>
+                <p className="mt-1 text-[13px] leading-5 text-muted-foreground">点击下方按钮拉取行情与公告，生成当天的市场与行业判断。</p>
               </div>
               <Button size="sm" disabled={refreshing} onClick={() => void refresh()}>
                 {refreshing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
@@ -349,14 +349,14 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                       <div className="flex flex-wrap items-center gap-2">
                         <StanceBadge stance={snapshot.market.stance} />
                         <ConfidenceBadge confidence={snapshot.market.confidence} />
-                        <span className="text-xs tabular-nums text-muted-foreground">评分 {snapshot.market.score.toFixed(1)}</span>
+                        <span className="text-[13px] tabular-nums text-muted-foreground">评分 {snapshot.market.score.toFixed(1)}</span>
                       </div>
-                      <p className="mt-2 text-[13px] font-semibold leading-5 tracking-tight">{snapshot.market.headline}</p>
-                      <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">{snapshot.market.summary}</p>
+                      <p className="mt-2 text-[15px] font-semibold leading-6 tracking-tight">{snapshot.market.headline}</p>
+                      <p className="mt-1 line-clamp-3 text-[13px] leading-5 text-muted-foreground">{snapshot.market.summary}</p>
                       {snapshot.market.drivers.length > 0 && (
                         <ul className="mt-2 space-y-0.5">
                           {snapshot.market.drivers.slice(0, 2).map((driver) => (
-                            <li key={driver} className="flex gap-1.5 text-[11px] leading-4 text-muted-foreground">
+                            <li key={driver} className="flex gap-1.5 text-xs leading-4 text-muted-foreground">
                               <TrendingUp className="mt-0.5 size-3 shrink-0 text-chart-3" />
                               <span className="line-clamp-1">{driver}</span>
                             </li>
@@ -364,7 +364,7 @@ export default function DeskPage({ snapshot: initialSnapshot, status: initialSta
                         </ul>
                       )}
                     </button>
-                    <div className="flex shrink-0 items-center justify-between bg-muted/30 px-4 py-1.5 text-[11px] text-muted-foreground">
+                    <div className="flex shrink-0 items-center justify-between bg-muted/30 px-4 py-1.5 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1"><CloudSun className="size-3.5" />外盘隔夜</span>
                       <span>{snapshot.overseas[0]?.delayMinutes ? `${snapshot.overseas[0].delayMinutes} 分钟延迟` : '延迟数据'}</span>
                     </div>

@@ -35,12 +35,12 @@ export function RiskCard({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {showLevel && (
-            <span className={cn('text-[10px] font-semibold tracking-wide', t.icon)}>{t.label}</span>
+            <span className={cn('text-[11px] font-semibold tracking-wide', t.icon)}>{t.label}</span>
           )}
-          {title && <p className="text-[13px] font-semibold leading-5 text-foreground">{title}</p>}
+          {title && <p className="text-[14px] font-semibold leading-5 text-foreground">{title}</p>}
           {meta}
         </div>
-        {children && <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{children}</div>}
+        {children && <div className="mt-0.5 text-[13px] leading-5 text-muted-foreground">{children}</div>}
         {action && <div className="mt-1.5">{action}</div>}
       </div>
     </div>
