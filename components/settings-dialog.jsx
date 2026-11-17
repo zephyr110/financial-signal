@@ -18,8 +18,8 @@ import { clearClientCaches, cn } from "@/lib/utils";
  * - 外观：主题模式（next-themes，只存本机浏览器）
  * - 模型：LLM_MODEL / LLM_BASE_URL / LLM_API_KEY（30s 缓存热生效，无需重启）
  * - 联网搜索：WEB_SEARCH_PROVIDER / WEB_SEARCH_API_KEY（研究助手「联网」开关使用）
- * - 数据源：TURSO_DATABASE_URL / TURSO_AUTH_TOKEN / TUSHARE_TOKEN（Turso 改动需重启）
- * - 定时任务：CRON_SECRET（30s 缓存热生效）
+ * - 数据与存储：本地数据库（默认）/ Turso 云端（可选，重启生效）+ TUSHARE_TOKEN
+ * - 自动刷新：桌面端内置调度（默认）或外部 Cron 的 CRON_SECRET
  * 布局参考 reelay-sensee：左栏标题+分组导航，右侧面板叠在同一 grid 格子里，
  * 非当前面板用 invisible 保留高度，切换时弹窗不抽动。
  * 文本类字段留空保存 = 清除该项（恢复环境变量默认）；密钥类留空 = 保持不变。
@@ -35,8 +35,8 @@ const PANELS = [
   { id: "appearance", label: "外观", group: "偏好", icon: Palette },
   { id: "model", label: "模型", group: "服务配置", icon: Cpu },
   { id: "websearch", label: "联网搜索", group: "服务配置", icon: Globe },
-  { id: "turso", label: "数据源", group: "服务配置", icon: Database },
-  { id: "cron", label: "定时任务", group: "服务配置", icon: Clock },
+  { id: "turso", label: "数据与存储", group: "服务配置", icon: Database },
+  { id: "cron", label: "自动刷新", group: "服务配置", icon: Clock },
 ];
 
 export default function SettingsDialog({ open, onOpenChange, username, onAccountChanged }) {
@@ -57,6 +57,18 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   const [tursoToken, setTursoToken] = useState("");
   const [tursoUrlSet, setTursoUrlSet] = useState(false);
   const [tursoTokenSet, setTursoTokenSet] = useState(false);
+  const [storage, setStorage] = useState({
+    backend: "local", source: "default", locked: false, urlSet: false, tokenSet: false,
+    activeBackend: "local", restartRequired: false,
+  });
+  const [storageBackend, setStorageBackend] = useState("local");
+  // 读取失败时不能按默认值保存，否则会用「本地库」覆盖已保存的 Turso 配置
+  const [storageLoadFailed, setStorageLoadFailed] = useState(false);
+  // 远端库连不上时只能读存储状态；此时保存服务配置会清空未知字段，必须禁用。
+  const [settingsUnavailable, setSettingsUnavailable] = useState(false);
+  const [clearTursoToken, setClearTursoToken] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [scheduler, setScheduler] = useState(null);
 
   const [tushareToken, setTushareToken] = useState("");
   const [tushareTokenSet, setTushareTokenSet] = useState(false);
@@ -78,9 +90,12 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
 
   // 打开时拉取当前配置（仅在打开/关闭转换时重置；账号改名回调更新 username prop 时保持 okMsg 可见）
   const prevOpen = useRef(false);
+  // 关掉再打开时，旧请求可能晚于新请求失败；迟到的响应不能覆盖/锁死当前面板。
+  const openRun = useRef(0);
   useEffect(() => {
     if (prevOpen.current === open) return;
     prevOpen.current = open;
+    const run = ++openRun.current;
     if (!open) return;
     setPanel(PANELS[0].id);
     setLoaded(false);
@@ -88,7 +103,11 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     setOkMsg(null);
     setClearedKeys(new Set());
     setApiKey("");
+    setTursoUrl("");
     setTursoToken("");
+    setClearTursoToken(false);
+    setStorageLoadFailed(false);
+    setSettingsUnavailable(false);
     setTushareToken("");
     setCronSecret("");
     setWebSearchKey("");
@@ -96,24 +115,48 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
+    setScheduler(null);
+    const desktopBridge = typeof window !== "undefined" ? window.desktop : null;
+    setIsDesktop(Boolean(desktopBridge?.getScheduler));
     fetch("/api/settings")
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((d) => {
+        if (run !== openRun.current) return;
         setModel(d.llm?.model ?? "");
         setBaseUrl(d.llm?.baseUrl ?? "");
         setApiKeySet(Boolean(d.llm?.apiKeySet));
-        setTursoUrlSet(Boolean(d.turso?.urlSet));
-        setTursoTokenSet(Boolean(d.turso?.tokenSet));
+        setStorage(d.storage || {});
+        setStorageBackend(d.storage?.backend === "turso" ? "turso" : "local");
+        setTursoUrlSet(Boolean(d.storage?.urlSet));
+        setTursoTokenSet(Boolean(d.storage?.tokenSet));
         setTushareTokenSet(Boolean(d.tushare?.tokenSet));
         setCronSecretSet(Boolean(d.cronSecretSet));
         setWebSearchProvider(d.webSearch?.provider ?? "");
         setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
+        // 存储状态仍可用，不能因为设置表读不到就锁死切回本地库的入口。
+        setSettingsUnavailable(Boolean(d.settingsUnavailable));
+        if (d.settingsUnavailable) {
+          setError("读取已保存的设置失败，暂时无法修改服务配置；存储配置仍可调整。");
+        }
+        setStorageLoadFailed(false);
         setLoaded(true);
       })
       .catch(() => {
+        if (run !== openRun.current) return;
         setError("读取配置失败，请稍后重试");
+        setSettingsUnavailable(true);
+        setStorageLoadFailed(true);
         setLoaded(true);
       });
+    if (desktopBridge?.getScheduler) {
+      desktopBridge.getScheduler()
+        .then((r) => {
+          if (run === openRun.current && r?.ok) setScheduler({ enabled: r.enabled, intervalMs: r.intervalMs });
+        })
+        .catch(() => {
+          if (run === openRun.current) setScheduler(null);
+        });
+    }
   }, [open, username]);
 
   const clearKey = (key) => {
@@ -139,6 +182,10 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   });
 
   const saveSettings = async () => {
+    if (settingsUnavailable) {
+      setError("读取设置失败，暂时无法保存，请稍后重试");
+      return;
+    }
     setSaving(true);
     setError(null);
     setOkMsg(null);
@@ -146,8 +193,6 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       llmModel: model,
       llmBaseUrl: baseUrl,
       ...(apiKey ? { llmApiKey: apiKey } : clearedKeys.has("llmApiKey") ? { llmApiKey: "" } : {}),
-      ...(tursoUrl ? { tursoUrl } : clearedKeys.has("tursoUrl") ? { tursoUrl: "" } : {}),
-      ...(tursoToken ? { tursoToken } : clearedKeys.has("tursoToken") ? { tursoToken: "" } : {}),
       ...(tushareToken ? { tushareToken } : clearedKeys.has("tushareToken") ? { tushareToken: "" } : {}),
       ...(cronSecret ? { cronSecret } : clearedKeys.has("cronSecret") ? { cronSecret: "" } : {}),
       webSearchProvider,
@@ -164,24 +209,98 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
         setError(d.error || "保存失败，请重试");
         return;
       }
-      // 刷新掩码状态
-      const d = await fetch("/api/settings").then((r) => r.json());
-      setApiKeySet(Boolean(d.llm?.apiKeySet));
-      setTursoUrlSet(Boolean(d.turso?.urlSet));
-      setTursoTokenSet(Boolean(d.turso?.tokenSet));
-      setTushareTokenSet(Boolean(d.tushare?.tokenSet));
-      setCronSecretSet(Boolean(d.cronSecretSet));
-      setWebSearchProvider(d.webSearch?.provider ?? "");
-      setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
+      // 刷新掩码状态；保存已成功，刷新失败不能伪装成保存失败。
+      const d = await fetch("/api/settings")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      if (d) {
+        setApiKeySet(Boolean(d.llm?.apiKeySet));
+        setTursoUrlSet(Boolean(d.storage?.urlSet));
+        setTursoTokenSet(Boolean(d.storage?.tokenSet));
+        setStorage(d.storage || {});
+        setTushareTokenSet(Boolean(d.tushare?.tokenSet));
+        setCronSecretSet(Boolean(d.cronSecretSet));
+        setWebSearchProvider(d.webSearch?.provider ?? "");
+        setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
+        setSettingsUnavailable(Boolean(d.settingsUnavailable));
+      }
       setClearedKeys(new Set());
       setApiKey("");
       setTursoToken("");
       setTushareToken("");
       setCronSecret("");
       setWebSearchKey("");
-      setOkMsg("已保存" + (tursoUrl || clearedKeys.has("tursoUrl") || tursoToken || clearedKeys.has("tursoToken") ? "（Turso 数据源改动需重启应用生效）" : ""));
+      // 保存其他面板不应保留未提交的存储改动/清除标记，否则稍后保存存储会误删 Token。
+      setStorageBackend(storage.backend === "turso" ? "turso" : "local");
+      setTursoUrl("");
+      setClearTursoToken(false);
+      setOkMsg("已保存");
     } catch {
       setError("网络错误，请稍后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 数据库后端在连库前就要确定，因此单独写启动配置，保存后必须重启
+  const saveStorage = async () => {
+    setSaving(true);
+    setError(null);
+    setOkMsg(null);
+    const body = { storageBackend };
+    if (storageBackend === "turso" && tursoUrl.trim()) body.tursoUrl = tursoUrl.trim();
+    // 清除 Token 会同时切回本地库，因此本地分支也要带上显式 null。
+    if (clearTursoToken) body.tursoToken = null;
+    else if (storageBackend === "turso" && tursoToken.trim()) body.tursoToken = tursoToken.trim();
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(d.error || "保存失败，请重试");
+        return;
+      }
+      const fresh = await fetch("/api/settings")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      if (fresh?.storage) {
+        setStorage(fresh.storage);
+        setStorageBackend(fresh.storage.backend === "turso" ? "turso" : "local");
+        setTursoUrlSet(Boolean(fresh.storage.urlSet));
+        setTursoTokenSet(Boolean(fresh.storage.tokenSet));
+      }
+      setTursoUrl("");
+      setTursoToken("");
+      setClearTursoToken(false);
+      setOkMsg(d.restartRequired ? "已保存，重启应用后生效" : "已保存");
+    } catch {
+      setError("网络错误，请稍后重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveScheduler = async () => {
+    if (!scheduler || !window.desktop?.setScheduler) return;
+    setSaving(true);
+    setError(null);
+    setOkMsg(null);
+    try {
+      const r = await window.desktop.setScheduler({
+        enabled: scheduler.enabled,
+        intervalMinutes: Math.round(scheduler.intervalMs / 60000),
+      });
+      if (!r?.ok) {
+        setError(r?.error || "保存失败，请重试");
+        return;
+      }
+      setScheduler({ enabled: r.enabled, intervalMs: r.intervalMs });
+      setOkMsg("自动刷新设置已保存");
+    } catch {
+      setError("保存失败，请重试");
     } finally {
       setSaving(false);
     }
@@ -258,6 +377,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   );
 
   const accountInitial = (username || accUsername).trim().charAt(0).toUpperCase();
+  const schedulerMinutes = scheduler ? Math.round(scheduler.intervalMs / 60000) : 30;
+  const schedulerOptions = Array.from(new Set([15, 30, 60, 120, schedulerMinutes])).sort((a, b) => a - b);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -463,7 +584,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">模型/接口/Key 保存在应用内（app_settings 表），保存后约 30 秒内热生效，无需重启。</p>
-                    {saveButton(saveSettings)}
+                    {saveButton(saveSettings, settingsUnavailable)}
                   </div>
                 </section>
 
@@ -514,43 +635,114 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                     <p className="text-xs text-muted-foreground">
                       自动：按已配置的 BOCHA_API_KEY / TAVILY_API_KEY 推断（优先博查）。仅在研究助手打开「联网」开关后调用；保存后约 30 秒内热生效。
                     </p>
-                    {saveButton(saveSettings)}
+                    {saveButton(saveSettings, settingsUnavailable)}
                   </div>
                 </section>
 
-                {/* ── 数据源 ── */}
+                {/* ── 数据与存储 ── */}
                 <section className={sectionClass("turso")}>
                   <div className="space-y-3 rounded-lg bg-muted p-4">
-                    <div className="space-y-2">
-                      <label htmlFor="turso-url" className="text-sm font-medium">远端数据库 URL (TURSO_DATABASE_URL)</label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="turso-url"
-                          value={tursoUrl}
-                          onChange={(e) => {
-                            setTursoUrl(e.target.value);
-                            if (e.target.value) restoreKey("tursoUrl");
-                          }}
-                          placeholder={tursoUrlSet ? "已设置，留空保持不变" : "未设置（可选）"}
-                          disabled={!loaded}
-                          className="flex-1 bg-background"
-                        />
-                        {tursoUrlSet && clearButton("tursoUrl")}
-                      </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium">数据库存储</span>
+                      <Badge variant="outline" className="rounded-full px-2 py-0 text-[11px] font-normal text-muted-foreground">
+                        当前：{storage.activeBackend === "turso" ? "Turso 云端" : "本地数据库"}
+                      </Badge>
                     </div>
-                    <div className="space-y-2">
-                      <label htmlFor="turso-token" className="text-sm font-medium">鉴权 Token (TURSO_AUTH_TOKEN)</label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="turso-token"
-                          {...secretInputProps("tursoToken", tursoToken, setTursoToken, tursoTokenSet)}
-                          className="flex-1 bg-background"
-                          disabled={!loaded}
-                        />
-                        {tursoTokenSet && clearButton("tursoToken")}
-                      </div>
+                    <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="数据库存储">
+                      {[
+                        ["local", "本地数据库", "默认 · 无云端用量限制"],
+                        ["turso", "Turso 云端", "可选 · 多设备共享同一远端库"],
+                      ].map(([value, title, desc]) => {
+                        const active = storageBackend === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => {
+                              setStorageBackend(value);
+                              // 重新选择 Turso 视为放弃"清除 Token"。
+                              if (value === "turso") setClearTursoToken(false);
+                            }}
+                            aria-pressed={active}
+                            disabled={!loaded || storage.locked || storageLoadFailed}
+                            className={cn(
+                              "rounded-md border bg-background px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                              active
+                                ? "border-primary text-foreground shadow-sm"
+                                : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                            )}
+                          >
+                            <span className="block text-sm font-medium">{title}</span>
+                            <span className="mt-0.5 block text-[11px] text-muted-foreground">{desc}</span>
+                          </button>
+                        );
+                      })}
                     </div>
-                    <p className="text-xs text-muted-foreground">留空时使用本地文件数据库（news.db）；配置 Turso 后数据存远端，改动需重启应用后生效。</p>
+                    {clearTursoToken && (
+                      <p className="text-xs text-muted-foreground">
+                        保存后将切回本地数据库，并清除已存 Token（URL 保留）。
+                      </p>
+                    )}
+                    {storageBackend === "turso" && !storage.locked && (
+                      <>
+                        <div className="space-y-2">
+                          <label htmlFor="turso-url" className="text-sm font-medium">数据库 URL</label>
+                          <Input
+                            id="turso-url"
+                            value={tursoUrl}
+                            onChange={(e) => setTursoUrl(e.target.value)}
+                            placeholder={tursoUrlSet ? "已配置，留空保持不变" : "libsql://…"}
+                            disabled={!loaded}
+                            className="bg-background"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label htmlFor="turso-token" className="text-sm font-medium">鉴权 Token</label>
+                          <Input
+                            id="turso-token"
+                            {...secretInputProps("tursoToken", tursoToken, (value) => {
+                              setTursoToken(value);
+                              if (value) setClearTursoToken(false);
+                            }, tursoTokenSet)}
+                            className="bg-background"
+                            disabled={!loaded}
+                          />
+                          {tursoTokenSet && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="self-start"
+                              onClick={() => {
+                                setClearTursoToken(true);
+                                setTursoToken("");
+                                // 无 token 无法探测 Turso；清除即切回本地库，服务端才允许删凭据。
+                                setStorageBackend("local");
+                              }}
+                            >
+                              清除已保存的 Token
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                    {storage.locked && (
+                      <p className="text-xs text-muted-foreground">
+                        当前后端由环境变量（DB_BACKEND / Vercel）控制，设置中不可切换。
+                      </p>
+                    )}
+                    {storageLoadFailed && (
+                      <p className="text-xs text-destructive">
+                        读取存储配置失败，保存已锁定以免覆盖现有 Turso 凭据；请关闭设置后重试。
+                      </p>
+                    )}
+                    {storage.restartRequired && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">存储选择已保存，重启应用后生效。</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      默认使用本地 SQLite（news_archive.db），不消耗云端额度。切换到 Turso 后需重启；云端是独立空库，不会自动迁移或同步本地数据。
+                    </p>
+                    {saveButton(saveStorage, storage.locked || storageLoadFailed)}
                   </div>
 
                   <div className="space-y-3 rounded-lg bg-muted p-4">
@@ -567,16 +759,83 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">Tushare 只提供 T1 行情/交易日历；官方公告与政策直接取交易所、巨潮、证监会页面。Token 保存后约 30 秒热生效。</p>
+                    {saveButton(saveSettings, settingsUnavailable)}
                   </div>
-
-                  {saveButton(saveSettings)}
                 </section>
 
-                {/* ── 定时任务 ── */}
+                {/* ── 自动刷新 ── */}
                 <section className={sectionClass("cron")}>
+                  {isDesktop && scheduler ? (
+                    <div className="space-y-3 rounded-lg bg-muted p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium">内置调度</span>
+                        <Badge variant="outline" className="rounded-full px-2 py-0 text-[11px] font-normal text-muted-foreground">
+                          {scheduler.enabled ? "已开启" : "已暂停"}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2" role="group" aria-label="内置调度">
+                        {[
+                          [true, "开启", "按间隔自动抓取与分析"],
+                          [false, "暂停", "仅保留手动刷新"],
+                        ].map(([value, title, desc]) => {
+                          const active = scheduler.enabled === value;
+                          return (
+                            <button
+                              key={String(value)}
+                              type="button"
+                              onClick={() => setScheduler((s) => ({ ...s, enabled: value }))}
+                              aria-pressed={active}
+                              disabled={!loaded}
+                              className={cn(
+                                "rounded-md border bg-background px-3 py-2 text-left transition-colors",
+                                active
+                                  ? "border-primary text-foreground shadow-sm"
+                                  : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                              )}
+                            >
+                              <span className="block text-sm font-medium">{title}</span>
+                              <span className="mt-0.5 block text-[11px] text-muted-foreground">{desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="space-y-2">
+                        <label htmlFor="scheduler-interval" className="text-sm font-medium">检查间隔</label>
+                        <select
+                          id="scheduler-interval"
+                          value={schedulerMinutes}
+                          onChange={(e) => setScheduler((s) => ({ ...s, intervalMs: Number(e.target.value) * 60000 }))}
+                          disabled={!loaded || !scheduler.enabled}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          {schedulerOptions.map((m) => (
+                            <option key={m} value={m}>{m} 分钟</option>
+                          ))}
+                        </select>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        每轮依次触发抓取、分析、事件线索与行情；各接口自身按交易日和任务节流，未配置模型 Key 时只抓取不分析。保存后立即重启内置调度。
+                      </p>
+                      {saveButton(saveScheduler)}
+                    </div>
+                  ) : isDesktop ? (
+                    <div className="rounded-lg bg-muted p-4">
+                      <p className="text-sm font-medium">内置调度配置不可用</p>
+                      <p className="mt-1 text-xs text-muted-foreground">重启应用后再试；不影响手动刷新。</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg bg-muted p-4">
+                      <p className="text-sm font-medium">Web 部署无常驻调度</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        请用外部 Cron 调用 /api/cron/*，或在桌面版使用内置调度。数据库仍默认存本地（Vercel 除外）。
+                      </p>
+                    </div>
+                  )}
+
                   <div className="space-y-3 rounded-lg bg-muted p-4">
+                    <p className="text-sm font-medium">外部 Cron（可选）</p>
                     <div className="space-y-2">
-                      <label htmlFor="cron-secret" className="text-sm font-medium">CRON_SECRET（Vercel Cron / QStash 鉴权）</label>
+                      <label htmlFor="cron-secret" className="text-sm font-medium">CRON_SECRET</label>
                       <div className="flex gap-2">
                         <Input
                           id="cron-secret"
@@ -587,8 +846,10 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                         {cronSecretSet && clearButton("cronSecret")}
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">用于保护 /api/cron/* 定时任务接口（Bearer 或 ?token=）。保存在应用内，约 30 秒内热生效。</p>
-                    {saveButton(saveSettings)}
+                    <p className="text-xs text-muted-foreground">
+                      仅在使用 Vercel Cron / QStash / GitHub Actions 触发时需要；桌面端内置调度无需填写。保存在应用内，约 30 秒内热生效。
+                    </p>
+                    {saveButton(saveSettings, settingsUnavailable)}
                   </div>
                 </section>
               </div>

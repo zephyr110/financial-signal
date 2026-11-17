@@ -3,7 +3,10 @@ import http from 'http'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { createScheduler, callCron } from '../../electron/scheduler'
+import {
+  createScheduler, callCron, fetchLlmConfigured, normalizeIntervalMs,
+  DEFAULT_INTERVAL_MS, MIN_INTERVAL_MS,
+} from '../../electron/scheduler'
 import { PIPELINE_JOBS } from '../../electron/scheduler-core'
 import { findFreePort } from '../../electron/server-utils'
 
@@ -91,14 +94,57 @@ describe('callCron', () => {
   })
 })
 
+describe('fetchLlmConfigured', () => {
+  it('带本机 Origin 请求 /api/desktop/runtime 并读取布尔值', async () => {
+    const reqs = []
+    const { port } = await startServer((req, res) => {
+      reqs.push({ url: req.url, origin: req.headers.origin })
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ llmConfigured: true }))
+    })
+    await expect(fetchLlmConfigured(`http://127.0.0.1:${port}`)).resolves.toBe(true)
+    expect(reqs).toEqual([{ url: '/api/desktop/runtime', origin: `http://127.0.0.1:${port}` }])
+  })
+
+  it('非 2xx 时 reject，由调度器降级处理', async () => {
+    const { port } = await startServer((req, res) => { res.statusCode = 500; res.end('{}') })
+    await expect(fetchLlmConfigured(`http://127.0.0.1:${port}`)).rejects.toThrow(/500/)
+  })
+
+  it('响应头后连接中断 → reject，而不是永久挂起', async () => {
+    const { port } = await startServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.write('{"llmConfigured":')
+      setTimeout(() => res.destroy(), 10)
+    })
+    await expect(fetchLlmConfigured(`http://127.0.0.1:${port}`)).rejects.toThrow()
+  })
+})
+
 describe('createScheduler', () => {
-  function makeScheduler({ port, intervalMs = 60000, getSettings, dbPath: db = dbPath, onRunEnd } = {}) {
+  it('最小间隔与设置页的 5 分钟下限一致', () => {
+    expect(MIN_INTERVAL_MS).toBe(5 * 60 * 1000)
+  })
+
+  it('非数值/非正间隔回退默认值，不会得到 NaN', () => {
+    expect(normalizeIntervalMs('30m')).toBe(DEFAULT_INTERVAL_MS)
+    expect(normalizeIntervalMs(0)).toBe(DEFAULT_INTERVAL_MS)
+    expect(normalizeIntervalMs(-1)).toBe(DEFAULT_INTERVAL_MS)
+    expect(normalizeIntervalMs(60_000, 10)).toBe(60_000)
+  })
+
+  function makeScheduler({
+    port, intervalMs = 60000, getSettings, dbPath: db = dbPath, onRunEnd,
+    isDbAvailable, getLlmConfigured,
+  } = {}) {
     return createScheduler({
       baseUrl: `http://127.0.0.1:${port}`,
       dbPath: db,
       configFile: path.join(dir, 'config.json'),
       getConfig: () => ({ intervalMs, notifyLastRunAt: null }),
       getSettings: getSettings || (async () => ({})),
+      isDbAvailable,
+      getLlmConfigured,
       onRunEnd,
       firstRunDelayMs: 20, // 测试注入:不等待默认 15s
       minIntervalMs: 10,
@@ -216,6 +262,37 @@ describe('createScheduler', () => {
       expect(onRunEnd).toHaveBeenCalledTimes(1)
     } finally {
       logSpy.mockRestore()
+    }
+  })
+
+  it('远端库用 isDbAvailable 跳过本地文件检查', async () => {
+    const paths = []
+    const { port } = await startServer((req, res) => { paths.push(req.url); res.end('{}') })
+    const scheduler = makeScheduler({
+      port,
+      dbPath: path.join(dir, 'missing.db'),
+      isDbAvailable: () => true,
+      getLlmConfigured: async () => false,
+    })
+    await scheduler.runOnce()
+    expect(paths).toEqual(['/api/cron/fetch', '/api/cron/cockpit-daily'])
+  })
+
+  it('getLlmConfigured 决定管线；探测失败降级为只抓取', async () => {
+    const paths = []
+    const { port } = await startServer((req, res) => { paths.push(req.url); res.end('{}') })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const full = makeScheduler({ port, getLlmConfigured: async () => true })
+      await full.runOnce()
+      expect(paths).toEqual([...PIPELINE_JOBS.map((j) => `/api/cron/${j}`), '/api/cron/cockpit-daily'])
+
+      paths.length = 0
+      const degraded = makeScheduler({ port, getLlmConfigured: async () => { throw new Error('probe down') } })
+      await degraded.runOnce()
+      expect(paths).toEqual(['/api/cron/fetch', '/api/cron/cockpit-daily'])
+    } finally {
+      errorSpy.mockRestore()
     }
   })
 

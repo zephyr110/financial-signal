@@ -25,16 +25,44 @@ export function displayToolArgs(args: unknown): string {
   return JSON.stringify(args, (key, value) => (ID_ARG_KEY.test(key) ? '…' : value), 2) ?? 'null';
 }
 
+// 错误信息里的文件名/源码位置不是主机名：db-config.json、analysis.tsx:42 必须原样保留。
+// 故意不收 md/py/zip/sh/local：它们同时是真实顶级域名，放进来会让主机名漏过脱敏。
+const FILE_EXTENSIONS = new Set([
+  'json', 'jsonl', 'tsx', 'ts', 'jsx', 'js', 'mjs', 'cjs', 'db', 'sqlite', 'sqlite3', 'sql',
+  'log', 'txt', 'css', 'html', 'htm', 'yaml', 'yml', 'toml', 'ini', 'env',
+  'lock', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'csv', 'xlsx', 'xls',
+  'gz', 'tar', 'pem', 'key', 'crt', 'map', 'wasm', 'node', 'gitkeep',
+]);
+
+const CURRENCY_CODES = new Set([
+  'USD', 'CNY', 'EUR', 'JPY', 'HKD', 'GBP', 'AUD', 'CAD', 'CHF', 'SGD', 'KRW', 'TWD', 'MOP',
+]);
+
 /**
  * 任务失败文案会进任务中心与站内通知：去掉接口地址、请求 ID 与模型厂牌，
  * 只留下用户能据此行动的原因。
  */
 export function sanitizeErrorMessage(text: string | null | undefined): string {
   return String(text ?? '')
-    // 停止在中文与标点前，否则「https://x/失败」会把失败原因一起吞掉。
-    .replace(/https?:\/\/[^\s一-鿿，。；、）)（("'<>]*/gi, '（接口地址已隐藏）')
-    // 主机名不写死 TLD 白名单；全小写后缀可避开 600519.SH 这类股票代码。
-    .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?(?:\/[^\s一-鿿，。；、）)（("'<>]*)?/g, '（接口地址已隐藏）')
+    // 任意 scheme（https/libsql/ws/file…）都算接口地址；停止在中文与标点前，
+    // 否则「https://x/失败」会把失败原因一起吞掉。
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s一-鿿，。；、）)（("'<>]*/gi, '（接口地址已隐藏）')
+    // 主机名不写死 TLD 白名单；文件名后缀、股票代码、异常类名与汇率对不是主机名。
+    .replace(
+      /(^|[^\w/.\-])([a-z0-9-]+(?:\.[a-z0-9-]+)*)\.([a-z]{2,})(?::\d+)?(?:\/[^\s一-鿿，。；、）)（("'<>]*)?/gi,
+      (match, prefix: string, labels: string, tld: string) => {
+        const upperTld = tld.toUpperCase();
+        // 带点的 labels 是主机名（api.example.json），不当成文件名放行。
+        const isFile = !labels.includes('.') && FILE_EXTENSIONS.has(tld.toLowerCase());
+        const isStock = (/^\d{6}$/.test(labels) && /^(?:SH|SZ|BJ)$/i.test(tld))
+          || (/^\d{5}$/.test(labels) && /^HK$/i.test(tld));
+        const isExceptionClass = /(?:Error|Exception)$/.test(tld);
+        const isCurrencyPair = CURRENCY_CODES.has(labels.toUpperCase()) && CURRENCY_CODES.has(upperTld);
+        return isFile || isStock || isExceptionClass || isCurrencyPair
+          ? match
+          : `${prefix}（接口地址已隐藏）`;
+      },
+    )
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g, '（接口地址已隐藏）')
     .replace(/\b(?:deepseek|openai|anthropic|qwen|claude|gemini|llama)[\w.-]*/gi, '模型服务')
     .replace(/\brequest[ _-]?id\b["']?\s*[:=]\s*["']?[A-Za-z0-9_-]+["']?/gi, '')
@@ -49,8 +77,9 @@ export function sanitizeToolSummary(text: string): string {
     .split('\n')
     .map((line) =>
       line
-        // 预警/判断 id 是 alert:日期:类别:哈希 这样的冒号链，必须整段吃掉。
-        .replace(/#[A-Za-z0-9_-]+(?::[A-Za-z0-9_.:-]+)*/g, '')
+        // 预警/判断 id 是 alert:日期:类别:哈希 这样的冒号链，必须整段吃掉；
+        // 但 6 位股票代码（#600519 / #600519.SH）要留给读者。
+        .replace(/#(?!\d{6}(?:\.[A-Za-z]{2})?(?![\w-]))[\w-]+(?::[\w.:-]+)*/g, '')
         .replace(REF_CODE_PATTERN, '$1')
         .replace(UUID_PATTERN, '')
         .replace(/^[｜|]+/, '')

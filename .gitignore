@@ -7,6 +7,9 @@ docs/
 *.db
 *.db-wal
 *.db-shm
+# 设置里切换数据库后端时写入（可能含 Turso token）
+db-config.json
+db-config.json.*.tmp
 
 # Secrets / local env (prefer shell or Keychain; never commit)
 .env

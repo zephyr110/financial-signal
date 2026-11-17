@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionUser, SESSION_COOKIE } from './lib/auth';
+import { isRemoteDbConfigured, readDbConfig } from './lib/db-config';
 
 /**
  * 登录门卫：除公开路径外一律校验会话 cookie。
@@ -18,20 +19,24 @@ export const config = {
 const STATIC_EXT_RE = /\.(?:png|svg|jpg|jpeg|gif|webp|ico|css|woff2?|js|json|txt|pdf|mp4|webm|html?)$/i;
 
 const PUBLIC_PAGE = ['/login'];
-const PUBLIC_API = ['/api/auth/', '/api/health', '/api/rss', '/api/events', '/api/cron/'];
+// /api/desktop/runtime 自带 DESKTOP_MODE + 本机 Origin 校验，供内置调度器探测；
+// 调度器请求不带会话 cookie，放进白名单才不会先被这里 401。
+const PUBLIC_API = ['/api/auth/', '/api/health', '/api/rss', '/api/events', '/api/cron/', '/api/desktop/runtime'];
 const PUBLIC_PREFIX = ['/agent/s/'];
 
 export default async function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
   // 桌面首启:主库文件尚未创建时放行首页(欢迎引导);login 走独立 auth.db,不抢先建主库
-  if (process.env.DESKTOP_MODE === '1') {
+  // 远端库本就不落地文件，不能因为"文件不存在"永久放行首页。
+  if (process.env.DESKTOP_MODE === '1' && pathname === '/') {
     const localDbPath = process.env.NEWS_DB_PATH;
+    const remoteConfigured = isRemoteDbConfigured(process.env, readDbConfig());
     if (
       localDbPath
       && !localDbPath.startsWith(':')
       && !fs.existsSync(localDbPath)
-      && pathname === '/'
+      && !remoteConfigured
     ) {
       return NextResponse.next();
     }

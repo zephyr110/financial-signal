@@ -14,9 +14,29 @@
  * 死于 DB 不可达（如 Turso 免费额度用尽/未配置），与解耦设计矛盾。
  * 需要强制校验 DB 的部署流程设 VERIFY_DATA_STRICT=1。
  */
+import fs from 'fs';
+import path from 'path';
 import { createClient } from '@libsql/client';
 
 const STRICT = process.env.VERIFY_DATA_STRICT === '1';
+const LOCAL_DB_FILE = process.env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db');
+
+/** 与 lib/db-config.ts 同格式；读不到时回退默认本地库。 */
+function readDbConfig() {
+  const file = process.env.DB_CONFIG_PATH
+    || path.join(path.dirname(LOCAL_DB_FILE), 'db-config.json');
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (raw.backend !== 'local' && raw.backend !== 'turso') return null;
+    const tursoUrl = typeof raw.tursoUrl === 'string' ? raw.tursoUrl.trim() : '';
+    const tursoToken = typeof raw.tursoToken === 'string' ? raw.tursoToken.trim() : '';
+    if (raw.backend === 'turso' && !tursoUrl) return null;
+    return { backend: raw.backend, tursoUrl, tursoToken };
+  } catch {
+    return null;
+  }
+}
 
 // DB 问题统一降级：默认警告不阻断构建；严格模式（VERIFY_DATA_STRICT=1）才 exit 1。
 function dbProblem(reason, hint) {
@@ -32,19 +52,40 @@ function dbProblem(reason, hint) {
   process.exit(0);
 }
 
-// 与 lib/db.ts resolveClientConfig 保持一致的连接解析
+// 与 lib/db-config.ts 的解析顺序保持一致：测试/显式环境变量 → Vercel → 设置文件 → 本地默认
 function resolveClientConfig() {
-  const url = process.env.TURSO_DATABASE_URL;
-  if (url) {
-    return { url, authToken: process.env.TURSO_AUTH_TOKEN };
+  if (process.env.NODE_ENV === 'test') {
+    return { url: `file:${LOCAL_DB_FILE}` };
+  }
+
+  const envBackend = (process.env.DB_BACKEND || '').trim().toLowerCase();
+  if (envBackend && envBackend !== 'local' && envBackend !== 'turso') {
+    throw new Error(`DB_BACKEND 只能是 local 或 turso（当前 "${envBackend}"）`);
+  }
+  if (envBackend === 'turso') {
+    if (!process.env.TURSO_DATABASE_URL) {
+      throw new Error('DB_BACKEND=turso 需要 TURSO_DATABASE_URL 与 TURSO_AUTH_TOKEN');
+    }
+    return { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN };
+  }
+  if (envBackend === 'local') {
+    if (process.env.VERCEL) {
+      throw new Error('Vercel 无持久磁盘，不能使用本地数据库；请删除 DB_BACKEND=local 并配置 TURSO_DATABASE_URL。');
+    }
+    return { url: `file:${LOCAL_DB_FILE}` };
   }
   if (process.env.VERCEL) {
-    throw new Error(
-      'TURSO_DATABASE_URL is required on Vercel. Create a Turso DB and set TURSO_DATABASE_URL + TURSO_AUTH_TOKEN.'
-    );
+    if (!process.env.TURSO_DATABASE_URL) {
+      throw new Error('Vercel 无持久磁盘，请配置 TURSO_DATABASE_URL 与 TURSO_AUTH_TOKEN。');
+    }
+    return { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN };
   }
-  const filePath = process.env.NEWS_DB_PATH || 'news_archive.db';
-  return { url: `file:${filePath}` };
+
+  const stored = readDbConfig();
+  if (stored?.backend === 'turso' && stored.tursoUrl) {
+    return { url: stored.tursoUrl, authToken: stored.tursoToken || undefined };
+  }
+  return { url: `file:${LOCAL_DB_FILE}` };
 }
 
 const REQUIRED_TABLES = [
@@ -66,7 +107,7 @@ async function main() {
   } catch (err) {
     dbProblem(
       `无法连接数据库: ${err.message}`,
-      '检查 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 是否配置且可达(如 Turso 免费额度用尽)。'
+      '检查设置 → 数据与存储 中的 Turso 地址/Token，或 DB_BACKEND=turso 时的 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 是否可达(如额度用尽)。'
     );
   }
   console.log('[verify-data] ✓ 数据库连接正常');
@@ -87,7 +128,7 @@ async function main() {
   if (missing.length > 0) {
     dbProblem(
       `缺失关键表: ${missing.join(', ')}`,
-      '首次部署需先建库;确认 DB 指向了正确的 Turso 实例。'
+      '首次部署需先建库;确认 DB_CONFIG_PATH / NEWS_DB_PATH 或 Turso 配置指向了正确的库。'
     );
   }
   console.log(`[verify-data] ✓ ${REQUIRED_TABLES.length} 张关键表齐全`);
@@ -113,5 +154,5 @@ async function main() {
 
 main().catch((err) => {
   // 覆盖 resolveClientConfig 抛错(如 Vercel 上未配置 TURSO_DATABASE_URL)等同步路径
-  dbProblem(`预检异常: ${err.message}`, '检查 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 配置。');
+  dbProblem(`预检异常: ${err.message}`, '检查 DB_BACKEND / TURSO_* 环境变量与 db-config.json 配置。');
 });

@@ -1,4 +1,5 @@
-import { getDb, resolveDbTarget } from '../db'
+import { getActiveDbTarget, getDb, resolveDbTarget } from '../db'
+import { readDbConfig } from '../db-config'
 import { refreshOverseasQuotes } from '../desk/overseas'
 import { livePlan, shanghaiClock, shouldQueueDailyClose } from './market-hours'
 import { refreshLiveQuotes } from './sources/live-quotes'
@@ -26,7 +27,21 @@ export function liveSchedulerEnabled(
 }
 
 async function localDbReady(): Promise<boolean> {
-  const target = resolveDbTarget()
+  // 已连接的库不会再热切；判断必须以实际连接为准，否则"保存新配置但未重启"的窗口内
+  // 会把远端库当成本地库继续写，或反过来让本地任务停摆。
+  const active = getActiveDbTarget()
+  if (active) {
+    if (!active.url.startsWith('file:')) return false
+    await getDb()
+    return true
+  }
+  // 尚未建连接时按配置预判；设置页选择的 Turso 也写在 db-config.json。
+  let target
+  try {
+    target = resolveDbTarget(process.env, readDbConfig())
+  } catch {
+    return false
+  }
   if (!target.url.startsWith('file:')) return false
   await getDb()
   return true

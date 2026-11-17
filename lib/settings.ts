@@ -12,8 +12,6 @@ export const SETTING_KEYS = {
   LLM_MODEL: 'llm_model',
   LLM_BASE_URL: 'llm_base_url',
   LLM_API_KEY: 'llm_api_key',
-  TURSO_DATABASE_URL: 'turso_database_url',
-  TURSO_AUTH_TOKEN: 'turso_auth_token',
   TUSHARE_TOKEN: 'tushare_token',
   CRON_SECRET: 'cron_secret',
   WEB_SEARCH_PROVIDER: 'web_search_provider',

@@ -181,3 +181,54 @@ describe('IPC sender 校验(I3):非本应用页面一律拒绝', () => {
     expect(r.error).toBe('Forbidden')
   })
 })
+
+describe('scheduler IPC', () => {
+  function registerWithScheduler(setSchedulerConfig) {
+    let cfg = { enabled: true, intervalMs: 30 * 60 * 1000 }
+    registerIpc({
+      getDbPath: () => dbPath,
+      onImported: () => Promise.resolve(),
+      onFreshDb: () => Promise.resolve({ ok: true }),
+      onFetchNow: null,
+      getSchedulerConfig: () => cfg,
+      setSchedulerConfig: (patch) => {
+        cfg = setSchedulerConfig(patch, cfg)
+        return cfg
+      },
+    })
+    return () => cfg
+  }
+
+  it('get/set 转发注入的配置并返回最新值', async () => {
+    const getCfg = registerWithScheduler((patch, cfg) => (
+      typeof patch.enabled === 'boolean' ? { ...cfg, enabled: patch.enabled } : cfg
+    ))
+    expect(await handlers['app:get-scheduler'](trustedEvent()))
+      .toEqual({ ok: true, enabled: true, intervalMs: 30 * 60 * 1000 })
+    expect(await handlers['app:set-scheduler'](trustedEvent(), { enabled: false }))
+      .toEqual({ ok: true, enabled: false, intervalMs: 30 * 60 * 1000 })
+    expect(getCfg().enabled).toBe(false)
+  })
+
+  it('untrusted sender 拒绝,不修改配置', async () => {
+    const setSchedulerConfig = vi.fn((patch, cfg) => cfg)
+    registerWithScheduler(setSchedulerConfig)
+    const r = await handlers['app:set-scheduler'](untrustedEvent(), { enabled: false })
+    expect(r).toEqual({ ok: false, error: 'Forbidden' })
+    expect(setSchedulerConfig).not.toHaveBeenCalled()
+  })
+
+  it('set 抛错时返回 ok:false + 错误信息', async () => {
+    registerWithScheduler(() => { throw new Error('调度间隔不合法') })
+    const r = await handlers['app:set-scheduler'](trustedEvent(), { intervalMinutes: 1 })
+    expect(r).toEqual({ ok: false, error: '调度间隔不合法' })
+  })
+
+  it('文件系统错误不回传绝对路径', async () => {
+    registerWithScheduler(() => {
+      throw new Error("EACCES: permission denied, open '/Users/someone/Library/Application Support/scheduler.json'")
+    })
+    const r = await handlers['app:set-scheduler'](trustedEvent(), { enabled: false })
+    expect(r).toEqual({ ok: false, error: '保存调度设置失败' })
+  })
+})

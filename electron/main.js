@@ -5,11 +5,16 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('./libsql-client');
 const { createServerManager, devUrl } = require('./server');
-const { createScheduler } = require('./scheduler');
+const {
+  createScheduler, fetchLlmConfigured,
+  MIN_INTERVAL_MS: MIN_SCHEDULER_INTERVAL_MS, DEFAULT_INTERVAL_MS: DEFAULT_SCHEDULER_INTERVAL_MS,
+} = require('./scheduler');
 const { createTray } = require('./tray');
 const { registerIpc } = require('./ipc');
 const { notifyNewHighSignals } = require('./notifier');
 const { initUpdater } = require('./updater');
+const { dbConfigPathFor, readDbConfig, isRemoteDbConfig } = require('./db-config');
+const { loadConfig, saveConfig } = require('./store');
 
 // Windows 通知依赖 AppUserModelID(与 electron-builder appId 一致,缺失则托盘通知
 // 静默不显示)。须在 whenReady 之前调用;mac/Linux 上是 no-op,安全。
@@ -24,14 +29,67 @@ let tray = null;
 let appQuitting = false;
 
 const isDev = !app.isPackaged;
+if (isDev) {
+  // next dev 会读 .env.local；主进程也读同一份，否则后端/库路径判断会与服务端分裂。
+  try {
+    process.loadEnvFile(path.join(process.cwd(), '.env.local'));
+  } catch {
+    // 没有 .env.local 是常态
+  }
+}
 const userData = app.getPath('userData');
 // dev 下 next dev 的 server 落在仓库根 news_archive.db(lib/db.ts 无
 // NEWS_DB_PATH 时的 fallback);主进程也指向同一文件,避免 dev 双库分裂
 // (设置写仓库库、调度器读 userData 库 → LLM 配置永远"未配置")。
 const dbPath = isDev
-  ? path.join(process.cwd(), 'news_archive.db')
+  ? (process.env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db'))
   : path.join(userData, 'news_archive.db');
 const configFile = path.join(userData, 'config.json');
+// 与 lib/db-config.ts 同路径：数据库后端选择必须先于连库生效
+const dbConfigPath = dbConfigPathFor({ dev: isDev, dbPath });
+
+function isRemoteDb() {
+  // 打包版 server 子进程被剥离 DB_BACKEND / VERCEL（见 server-utils 白名单），
+  // 主进程若认宿主环境变量会与服务端判断相反；dev 两端共享 .env.local。
+  return isRemoteDbConfig(isDev ? process.env : {}, readDbConfig(dbConfigPath));
+}
+
+/** 本地库有没有可用的库文件；远端库由设置文件决定，不依赖本地文件。 */
+function dbAvailable() {
+  return isRemoteDb() || fs.existsSync(dbPath);
+}
+
+function readSchedulerConfig() {
+  const cfg = loadConfig(configFile, {});
+  const raw = Number(cfg.intervalMs);
+  return {
+    enabled: cfg.schedulerEnabled !== false,
+    intervalMs: Math.max(
+      MIN_SCHEDULER_INTERVAL_MS,
+      Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_SCHEDULER_INTERVAL_MS,
+    ),
+  };
+}
+
+/** 改配置后立即重启调度器；返回落盘后的完整配置。 */
+function updateSchedulerConfig(patch = {}) {
+  const next = loadConfig(configFile, {});
+  if (typeof patch.enabled === 'boolean') next.schedulerEnabled = patch.enabled;
+  if (patch.intervalMinutes != null) {
+    const minutes = Number(patch.intervalMinutes);
+    const minMinutes = MIN_SCHEDULER_INTERVAL_MS / 60_000;
+    if (!Number.isFinite(minutes) || minutes < minMinutes || minutes > 24 * 60) {
+      throw new Error(`调度间隔需在 ${minMinutes} 分钟到 24 小时之间`);
+    }
+    next.intervalMs = Math.round(minutes) * 60_000;
+  }
+  saveConfig(configFile, next);
+  if (!isDev) {
+    stopScheduler();
+    if (readSchedulerConfig().enabled && dbAvailable()) startScheduler();
+  }
+  return readSchedulerConfig();
+}
 
 /** 停掉并丢弃调度器(3 处共用:启动替换、换库重启、崩溃后重建)。 */
 function stopScheduler() {
@@ -119,12 +177,22 @@ function navigate() {
 /** 保证调度器存在(dev 下仅按需 runOnce,不 start 定时轮询)。 */
 function ensureScheduler() {
   if (scheduler) return scheduler;
+  // 后端切换要重启才生效；本轮调度器固定用创建时的判断，
+  // 避免保存 Turso 未重启的窗口内通知/LLM 探测提前切到尚未连接的库。
+  const remoteDb = isRemoteDb();
   scheduler = createScheduler({
     baseUrl: serverUrl || devUrl(),
     dbPath,
     configFile,
+    isDbAvailable: dbAvailable,
+    // Turso 模式下设置存在远端，本地 app_settings 不可用
+    ...(remoteDb
+      ? { getLlmConfigured: () => fetchLlmConfigured(serverUrl || devUrl()) }
+      : {}),
     onRunStart: (sequence) => console.log(`[scheduler] run: ${sequence.join(' → ')}`),
     onRunEnd: () => {
+      // 桌面通知按本地 news 表增量查询；Turso 模式下本地库不更新，跳过避免误报
+      if (remoteDb) return;
       // 通知失败不能打断调度循环,吞掉错误只记日志
       notifyNewHighSignals({
         dbPath,
@@ -138,6 +206,10 @@ function ensureScheduler() {
 
 async function startScheduler() {
   if (!serverUrl) return;
+  if (!readSchedulerConfig().enabled || !dbAvailable()) {
+    stopScheduler();
+    return;
+  }
   // 幂等:已存在则先停再建(崩溃重启后端口变化,调度器必须绑新 URL)
   stopScheduler();
   ensureScheduler();
@@ -148,7 +220,7 @@ async function startScheduler() {
  * /api/health 在文件缺失时不触发 getDb(见 pages/api/health.ts)。用户做出
  * 选择后 restartAfterDbChange 内会无条件 startScheduler()(此时 db 必已存在)。 */
 function maybeStartScheduler() {
-  if (!isDev && fs.existsSync(dbPath)) startScheduler();
+  if (!isDev && dbAvailable()) startScheduler();
 }
 
 /** 手动抓取:prod 走调度器 runOnce;dev 无调度器轮询,也建实例按需跑一轮。 */
@@ -270,6 +342,9 @@ if (!gotLock) {
         onImported,
         onFreshDb: createFreshDb,
         onFetchNow: runFetchNow,
+        isRemoteDb,
+        getSchedulerConfig: readSchedulerConfig,
+        setSchedulerConfig: updateSchedulerConfig,
       });
       try {
         tray = createTray({
