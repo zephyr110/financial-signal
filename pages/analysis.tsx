@@ -127,7 +127,7 @@ export default function Analysis({
   const searchGenRef = useRef(0);
   const listGenRef = useRef(0);
 
-  const doRefresh = useCallback(async (signal) => {
+  const doRefresh = useCallback(async (signal?: AbortSignal) => {
     setFetching(true);
     setError(null);
     const gen = ++listGenRef.current;
@@ -373,28 +373,27 @@ export default function Analysis({
         {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
         <div className={`w-full pb-8 ${CONTENT_GUTTER}`}>
           <div className="flex flex-wrap items-center justify-end gap-2 pt-6 pb-5">
-            {/* 操作区：重要信号提醒 + 关注行业（同组：提醒作用于关注行业的信号） */}
+            {/* 操作区按「检索 → 筛选 → 关注范围 → 提醒开关」排序，
+                同组因果相邻；搜索默认收起，展开时向左生长不挤动右侧按钮 */}
             <div className="flex items-center gap-2 flex-wrap">
-              <SignalAlert items={watchedItems} />
+              <SearchBar
+                onSearch={handleSearch}
+                onClear={handleClearSearch}
+                loading={searchLoading}
+              />
               <IndustrySelector
                 industries={availableIndustries}
                 watched={watchedEff}
                 onToggle={toggleIndustry}
                 onClear={clearIndustries}
               />
+              <SignalAlert items={watchedItems} />
             </div>
           </div>
 
           <ErrorBanner message={error} />
 
           <WatchlistPanel items={items} threads={threads} heatmap={normHeatmap} />
-
-          <SearchBar
-            onSearch={handleSearch}
-            onClear={handleClearSearch}
-            loading={searchLoading}
-            className="mb-5"
-          />
 
           <div id="overview" className="scroll-mt-28">
             <h3 className="text-[15px] font-semibold text-foreground mb-3">概览</h3>
