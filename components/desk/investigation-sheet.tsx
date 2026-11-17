@@ -12,6 +12,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import type { AlertView, InvestigationFeedback, InvestigationView, JudgmentView } from '@/lib/desk/types'
+import { stripToolProtocolFromAnswer } from '@/lib/agent/format'
 import { deskApi } from './api'
 import { ConfidenceBadge, SeverityBadge, StanceBadge } from './ui'
 
@@ -242,7 +243,7 @@ export function InvestigationSheet({
 
               {investigation.conclusion && (
                 <div className="markdown-body rounded-lg bg-muted/30 px-4 py-3 text-[14px] leading-6">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{investigation.conclusion}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripToolProtocolFromAnswer(investigation.conclusion)}</ReactMarkdown>
                 </div>
               )}
 

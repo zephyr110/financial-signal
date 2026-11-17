@@ -2,6 +2,7 @@ import { getUnanalyzedNews, getNeedsDeepAnalysis, getHighSignalNews, insertAnaly
 import { describeProvider, getEffectiveLlmConfig } from './llm/config';
 import { chatCompletion, getUsageStats, getCostEstimate } from './llm/client';
 import { SCORE_TO_IMPACT } from './constants';
+import { stripToolProtocolFromAnswer } from './agent/format';
 
 // Re-export for backward compatibility (used by /api/cron/stats)
 export { getUsageStats, getCostEstimate };
@@ -87,8 +88,8 @@ function parseAnalysisResponse(content, newsItems) {
       signal_score: Math.max(1, Math.min(5, parseInt(r.signal_score, 10) || 1)),
       category: ['policy','geopolitics','industry','company','macro','market_rumor'].includes(r.category) ? r.category : 'macro',
       sentiment: ['positive','negative','neutral','mixed'].includes(r.sentiment) ? r.sentiment : 'neutral',
-      summary: String(r.summary || '无摘要').slice(0, 50),
-      reason: String(r.reason || ''),
+      summary: stripToolProtocolFromAnswer(String(r.summary || '')).slice(0, 50) || '无摘要',
+      reason: stripToolProtocolFromAnswer(String(r.reason || '')),
       industries: r.industries || null,
       companies: r.companies || null,
     };
@@ -245,7 +246,7 @@ function parseDeepAnalysisResponse(content, newsItems) {
       industries: Array.isArray(r.industries) ? r.industries : null,
       companies: Array.isArray(r.companies) ? r.companies : null,
       tags: Array.isArray(r.tags) ? r.tags : null,
-      deep_analysis: String(r.deep_analysis || ''),
+      deep_analysis: stripToolProtocolFromAnswer(String(r.deep_analysis || '')),
     };
   });
 }

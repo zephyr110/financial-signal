@@ -7,6 +7,7 @@ import { getDb } from '../db'
 import { chatCompletion } from '../llm/client'
 import { getEffectiveLlmConfig, PRICING } from '../llm/config'
 import { tryParseToolCall } from '../agent/tool-call'
+import { parseToolMarkupCalls, stripToolProtocolFromAnswer } from '../agent/format'
 import { todayShanghai } from '../cockpit/format'
 import { searchSourceDocuments } from '../search/fts'
 import { getOverseasQuotes } from './repo'
@@ -342,7 +343,7 @@ function buildSystemPrompt(budget: InvestigationBudget): string {
 
 预算：最多 ${budget.maxSteps} 次工具调用，最长 ${Math.round(budget.timeoutMs / 1000)} 秒。
 
-工具调用协议（需要信息时只输出 JSON）：
+工具调用协议（需要信息时只输出 JSON；不要输出任何 XML/工具调用标签）：
 {"tool":"<工具名>","args":{...}}
 可用工具：
 - search_documents {query:string, days?:number} 检索公告/政策/新闻文档
@@ -506,51 +507,61 @@ export async function runInvestigation(
           if (!text) throw new Error('模型返回空内容')
 
           const call = tryParseToolCall(text)
-          if (!call?.tool) {
-            conclusion = text
+          // 与 Agent 循环一致：原生 DSML 块即模型发起的工具调用，解析后执行而不是当结论
+          const nativeCalls = call?.tool ? [] : parseToolMarkupCalls(text)
+          if (!call?.tool && nativeCalls.length === 0) {
+            // 无法解析的协议标记也要剥离，结论不能带着模型内部标记入库/渲染
+            conclusion = stripToolProtocolFromAnswer(text)
             break
           }
-          const tool = TOOLS[call.tool]
-          if (!tool) {
-            await addStep({ kind: 'reason', digest: `未知工具 ${call.tool}，已拒绝`, ok: false, stepTokens: promptTokens + completionTokens })
-            messages.push({ role: 'assistant', content: text })
-            messages.push({ role: 'user', content: `【工具 ${call.tool} 不存在】可用工具：${Object.keys(TOOLS).join(', ')}` })
-            continue
+          const calls = call?.tool ? [call] : nativeCalls
+          for (const toolCall of calls) {
+            const assistantText = call?.tool
+              ? text
+              : JSON.stringify({ tool: toolCall.tool, args: toolCall.args || {} })
+            const tool = TOOLS[toolCall.tool]
+            if (!tool) {
+              await addStep({ kind: 'reason', digest: `未知工具 ${toolCall.tool}，已拒绝`, ok: false, stepTokens: promptTokens + completionTokens })
+              messages.push({ role: 'assistant', content: assistantText })
+              messages.push({ role: 'user', content: `【工具 ${toolCall.tool} 不存在】可用工具：${Object.keys(TOOLS).join(', ')}` })
+              continue
+            }
+            const toolStarted = Date.now()
+            let toolResult: ToolResult
+            let ok = true
+            try {
+              toolResult = await tool(toolCall.args || {})
+            } catch (err) {
+              ok = false
+              toolResult = { text: `工具失败：${(err as Error).message}`, refs: [] }
+            }
+            refs.push(...toolResult.refs)
+            await addStep({
+              kind: 'tool',
+              tool: toolCall.tool,
+              args: toolCall.args || {},
+              digest: toolResult.text,
+              refs: toolResult.refs,
+              ok,
+              durationMs: Date.now() - toolStarted,
+              stepTokens: promptTokens + completionTokens,
+            })
+            await mark(15 + ((usedTurns + turn + 1) / budget.maxSteps) * 65, `工具 ${usedTurns + turn + 1}/${budget.maxSteps}：${toolCall.tool}`)
+            messages.push({ role: 'assistant', content: assistantText })
+            messages.push({ role: 'user', content: `【工具 ${toolCall.tool} 结果】\n${toolResult.text.slice(0, 3000)}` })
           }
-          const toolStarted = Date.now()
-          let toolResult: ToolResult
-          let ok = true
-          try {
-            toolResult = await tool(call.args || {})
-          } catch (err) {
-            ok = false
-            toolResult = { text: `工具失败：${(err as Error).message}`, refs: [] }
-          }
-          refs.push(...toolResult.refs)
-          await addStep({
-            kind: 'tool',
-            tool: call.tool,
-            args: call.args || {},
-            digest: toolResult.text,
-            refs: toolResult.refs,
-            ok,
-            durationMs: Date.now() - toolStarted,
-            stepTokens: promptTokens + completionTokens,
-          })
-          await mark(15 + ((usedTurns + turn + 1) / budget.maxSteps) * 65, `工具 ${usedTurns + turn + 1}/${budget.maxSteps}：${call.tool}`)
-          messages.push({ role: 'assistant', content: text })
-          messages.push({ role: 'user', content: `【工具 ${call.tool} 结果】\n${toolResult.text.slice(0, 3000)}` })
         }
       } catch (err) {
         await addStep({ kind: 'fallback', digest: `模型深挖中断，改用证据摘要：${(err as Error).message}`, ok: false })
       }
     }
-    if (!conclusion) conclusion = fallbackConclusion(bundle, counter, str(row.question))
+    // 结论可能混入原生协议标记或纯标记；剥离后为空则回退确定性摘要
+    const cleanConclusion = stripToolProtocolFromAnswer(conclusion) || fallbackConclusion(bundle, counter, str(row.question))
 
     // 反方引用进入结论引文，但不参与置信度/证据强度计算
     const positiveRefs = dedupeRefs(refs)
     refs = dedupeRefs([...refs, ...counter.refs])
-    const finalConclusion = withCitations(conclusion, refs)
+    const finalConclusion = withCitations(cleanConclusion, refs)
     const confidence = confidenceOf(positiveRefs)
     const evidenceStrength = strengthOf(positiveRefs)
     await addStep({ kind: 'conclusion', digest: finalConclusion, refs })

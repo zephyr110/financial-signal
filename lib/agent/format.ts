@@ -306,23 +306,118 @@ function isToolProtocolJson(text: string): boolean {
   return !!(parsed && typeof parsed === 'object' && typeof (parsed as { tool?: unknown }).tool === 'string');
 }
 
-// 模型偶发把原生工具标记（如 <| DSLM | calls>…）当正文输出；这些标记只属于协议层。
-const DSLM_MARKER = /<\|\s*DSLM\s*\|/i;
-const DSLM_CALLS_BLOCK = /<\|\s*DSLM\s*\|\s*calls\s*>[\s\S]*?<\/\|\s*DSLM\s*\|\s*calls\s*>/gi;
-const DSLM_INVOKE_BLOCK = /<\|\s*DSLM\s*\|\s*invoke\b[\s\S]*?<\/\|\s*DSLM\s*\|\s*invoke\s*>/gi;
+// 模型偶发把训练时的原生工具协议当正文输出。真实 token 是 <||DSML||calls>；
+// 同时容忍单竖线、空格、全角竖线与旧拼写 DSLM（历史版本/其他代理曾出现）。
+const PROTOCOL_BAR = '[|｜]';
+const PROTOCOL_NAME = '(?:DSML|DSLM)';
+const PROTOCOL_MARKER = `<\\s*${PROTOCOL_BAR}{1,2}\\s*${PROTOCOL_NAME}\\s*${PROTOCOL_BAR}{1,2}`;
+const PROTOCOL_CLOSE = `<\\/\\s*${PROTOCOL_BAR}{1,2}\\s*${PROTOCOL_NAME}\\s*${PROTOCOL_BAR}{1,2}`;
+const PROTOCOL_MARKER_RE = new RegExp(PROTOCOL_MARKER, 'i');
+const PROTOCOL_CALLS_BLOCK_RE = new RegExp(
+  `${PROTOCOL_MARKER}\\s*calls\\s*>[\\s\\S]*?${PROTOCOL_CLOSE}\\s*calls\\s*>`,
+  'gi',
+);
+const PROTOCOL_INVOKE_BLOCK_RE = new RegExp(
+  `${PROTOCOL_MARKER}\\s*invoke\\b[\\s\\S]*?${PROTOCOL_CLOSE}\\s*invoke\\s*>`,
+  'gi',
+);
+const PROTOCOL_PARTIAL_RE = new RegExp(
+  `<\\s*${PROTOCOL_BAR}{1,2}\\s*(?:D(?:S(?:M(?:L)?|L(?:M)?)?)?)?(?:\\s*${PROTOCOL_BAR}{1,2})?$`,
+  'i',
+);
 
-/** 是否含原生工具协议标记（循环据此判断是否需要回喂纠错）。 */
+export interface NativeToolCall {
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+/** 是否含原生工具协议标记（循环据此决定纠错/转换）。 */
 export function hasToolProtocolTokens(text: string): boolean {
-  return DSLM_MARKER.test(text || '');
+  return PROTOCOL_MARKER_RE.test(text || '');
+}
+
+/** 流式缓冲是否以半截标记结尾（如 <||DS）；用于在标记补全前抑制 delta。 */
+export function hasPartialToolProtocolToken(text: string): boolean {
+  return PROTOCOL_PARTIAL_RE.test(text || '');
 }
 
 /** 剥离原生工具协议标记：完整块整段删除；流式半截从首个残留标记截断（协议总在尾部）。 */
 export function stripToolProtocolTokens(text: string): string {
-  if (!text || !DSLM_MARKER.test(text)) return text;
-  let s = text.replace(DSLM_CALLS_BLOCK, '').replace(DSLM_INVOKE_BLOCK, '');
-  const idx = s.search(DSLM_MARKER);
+  if (!text || !PROTOCOL_MARKER_RE.test(text)) return text;
+  let s = text.replace(PROTOCOL_CALLS_BLOCK_RE, '').replace(PROTOCOL_INVOKE_BLOCK_RE, '');
+  const idx = s.search(PROTOCOL_MARKER_RE);
   if (idx >= 0) s = s.slice(0, idx);
   return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+}
+
+function readProtocolAttr(attrs: string, name: string): string | null {
+  const m = attrs.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i'));
+  return m ? (m[1] ?? m[2]) : null;
+}
+
+function decodeParameterValue(raw: string): unknown {
+  const value = raw.trim();
+  if (!value) return '';
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function asArgsObject(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  // 部分变体会把 args JSON 再包一层字符串
+  if (typeof value === 'string') {
+    const json = extractJson(value);
+    const parsed = json ? parseJsonLike(json) : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+function parseInvokeArgs(body: string): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  const paramRe = new RegExp(
+    `${PROTOCOL_MARKER}\\s*parameter\\b([^>]*)>([\\s\\S]*?)${PROTOCOL_CLOSE}\\s*parameter\\s*>`,
+    'gi',
+  );
+  for (const m of body.matchAll(paramRe)) {
+    const name = readProtocolAttr(m[1], 'name');
+    const value = decodeParameterValue(m[2]);
+    const argsObject = name === 'args' ? asArgsObject(value) : null;
+    if (argsObject) {
+      Object.assign(args, argsObject);
+    } else if (name) {
+      args[name] = value;
+    }
+  }
+  if (Object.keys(args).length === 0) {
+    // 少数变体把整个参数对象直接放在 invoke 体内
+    const argsObject = asArgsObject(body);
+    if (argsObject) Object.assign(args, argsObject);
+  }
+  return args;
+}
+
+/** 把模型误输出的原生 DSML 工具块解析成可执行调用；不是该协议时返回空数组。 */
+export function parseToolMarkupCalls(text: string): NativeToolCall[] {
+  const source = (text || '').trim();
+  if (!source || !hasToolProtocolTokens(source)) return [];
+  const invokeRe = new RegExp(
+    `${PROTOCOL_MARKER}\\s*invoke\\b([^>]*)>([\\s\\S]*?)(?:${PROTOCOL_CLOSE}\\s*invoke\\s*>|$)`,
+    'gi',
+  );
+  const calls: NativeToolCall[] = [];
+  for (const m of source.matchAll(invokeRe)) {
+    const tool = readProtocolAttr(m[1], 'name')?.trim();
+    if (tool) calls.push({ tool, args: parseInvokeArgs(m[2]) });
+  }
+  return calls;
 }
 
 /** 从用户可见回答中剥离工具协议（JSON 与原生标记两类） */
