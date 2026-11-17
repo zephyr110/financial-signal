@@ -1,6 +1,6 @@
 import { stripToolProtocolFromAnswer } from "@/lib/agent/format";
 import { isTruncatedAgentReply } from "@/lib/agent/limits";
-import { CONTEXT_COMPACT_PREFIX, stripContextCompactPrefix } from "@/lib/agent/session";
+import { CONTEXT_COMPACT_PREFIX, stripContextCompactPrefix } from "@/lib/agent/context-compact";
 
 export interface ToolCallInfo {
   name: string;

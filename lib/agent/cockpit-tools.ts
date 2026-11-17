@@ -19,6 +19,7 @@ import {
 } from '../db';
 import { getTodayMarketData } from '../market';
 import { formatBacktestRows, formatEvidenceLines, publicJson } from './format';
+import { sanitizeErrorMessage } from '../safe-json';
 import {
   dateShanghai,
   formatCost,
@@ -520,7 +521,10 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
         const delta = (key: string): string => previous == null
           ? '—'
           : `${value(current, key) - value(previous, key) >= 0 ? '+' : ''}${value(current, key) - value(previous, key)}`;
-        const avgScore = current.avg_score == null ? '—' : Number(current.avg_score).toFixed(1);
+        // SUM 为空时 SQL 的 COALESCE 会给出 0，空窗口必须显示占位而不是「平均 0.0 分」。
+        const avgScore = value(current, 'total_signals') === 0 || current.avg_score == null
+          ? '—'
+          : Number(current.avg_score).toFixed(1);
         sections.push(
           `概览（近${hoursBack}h${scope}，对比前${hoursBack}h）：信号 ${value(current, 'total_signals')} 条（较前 ${delta('total_signals')}）` +
             `｜5分 ${value(current, 'critical_count')}（${delta('critical_count')}）` +
@@ -665,7 +669,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
           task.step ? `当前步骤：${task.step}` : '',
           `参数：${parameterText}`,
           `结果：${resultText}`,
-          task.error ? `错误：${task.error}` : '',
+          task.error ? `错误：${sanitizeErrorMessage(task.error)}` : '',
           shownEvents.length > 0
             ? `最近事件（${shownEvents.length}/${events.length} 条）：\n${shownEvents.map((e) => {
                 const payload = e.payload ? ` ${clip(publicJson(e.payload), 200)}` : '';
@@ -685,7 +689,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
         `最近任务 ${filtered.length} 条${filtered.length > shown.length ? `（显示前${shown.length}条）` : ''}：`,
         ...shown.map((t) => {
           const step = t.step ? `｜${t.step}` : '';
-          const error = t.error ? `｜错误：${t.error}` : '';
+          const error = t.error ? `｜错误：${sanitizeErrorMessage(t.error)}` : '';
           const span = t.finishedAt ? `${t.createdAt} ~ ${t.finishedAt}` : t.createdAt;
           return `- ${t.id} ${t.type} [${taskStatusLabel(t.status)}] ${Math.round(t.progress)}%${step}${error}｜${span}`;
         }),

@@ -74,6 +74,18 @@ describe('GET /api/health', () => {
     expect(getDb).not.toHaveBeenCalled()
   })
 
+  it('仅残留 TURSO_DATABASE_URL（后端未锁定）→ 仍按本地库处理,不跳过首启守卫', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1')
+    vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
+    vi.stubEnv('TURSO_DATABASE_URL', 'https://stale.turso.io')
+    const res = mockRes()
+    await handler(mockReq(), res)
+
+    expect(res._status).toBe(200)
+    expect(res._body.db).toBe('missing')
+    expect(getDb).not.toHaveBeenCalled()
+  })
+
   it('db 文件缺失 + 无 DESKTOP_MODE(web 自托管)→ 原行为:getDb 自愈建库', async () => {
     vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
     vi.mocked(getDb).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) } as any)
@@ -123,6 +135,23 @@ describe('GET /api/health', () => {
   it('Turso 模式:文件概念不存在,NEWS_DB_PATH 缺失也照常 getDb(行为不变)', async () => {
     vi.stubEnv('TURSO_DATABASE_URL', 'https://example.turso.io')
     vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
+    vi.mocked(getDb).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) } as any)
+    vi.mocked(getPipelineHealth).mockResolvedValue({ hours: 24, jobs: [] } as any)
+
+    const res = mockRes()
+    await handler(mockReq(), res)
+
+    expect(getDb).toHaveBeenCalledTimes(1)
+    expect(res._status).toBe(200)
+    expect(res._body.db).toBe('ok')
+  })
+
+  it('设置页选的 Turso:本地文件缺失也照常 getDb(不误报 db:"missing")', async () => {
+    const cfg = path.join(dir, 'db-config.json')
+    fs.writeFileSync(cfg, JSON.stringify({ backend: 'turso', tursoUrl: 'libsql://x.turso.io' }))
+    vi.stubEnv('DESKTOP_MODE', '1')
+    vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
+    vi.stubEnv('DB_CONFIG_PATH', cfg)
     vi.mocked(getDb).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) } as any)
     vi.mocked(getPipelineHealth).mockResolvedValue({ hours: 24, jobs: [] } as any)
 

@@ -7,4 +7,6 @@ contextBridge.exposeInMainWorld('desktop', {
   openDataDir: () => ipcRenderer.invoke('app:open-data-dir'),
   getInfo: () => ipcRenderer.invoke('app:get-info'),
   fetchNow: () => ipcRenderer.invoke('app:fetch-now'),
+  getScheduler: () => ipcRenderer.invoke('app:get-scheduler'),
+  setScheduler: (patch) => ipcRenderer.invoke('app:set-scheduler', patch),
 });

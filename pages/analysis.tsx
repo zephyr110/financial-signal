@@ -32,6 +32,9 @@ import { computeSentimentBreakdown } from "@/lib/sentiment";
 import { safeParse } from "../lib/utils";
 import { CONTENT_GUTTER } from "@/lib/layout-classes";
 
+// 本地库读取代价低：可见时静默对齐已生成的数据；只读接口，不触发任何 LLM 调用。
+const ANALYSIS_AUTO_REFRESH_MS = 30_000;
+
 function applyFilters(allItems, cardFilter, scoreFilter, maxScore) {
   let filtered = allItems;
   if (cardFilter === 'significant') {
@@ -54,6 +57,15 @@ function normSignalItems(list: any[] | null | undefined): any[] {
     industries: (Array.isArray(item.industries) ? item.industries : []).map(industryDisplayName),
     companies: Array.isArray(item.companies) ? item.companies : [],
   }));
+}
+
+function parseAnalysisItems(list: any[] | null | undefined): any[] {
+  return normSignalItems((list || []).map((item) => ({
+    ...item,
+    industries: item.industries ? safeParse(item.industries) : [],
+    companies: item.companies ? safeParse(item.companies) : [],
+    tags: item.tags ? safeParse(item.tags) : [],
+  })));
 }
 
 function normHeatmapRows(rows: any[] | null | undefined): { industry: string; signalCount: number }[] {
@@ -126,8 +138,18 @@ export default function Analysis({
   const searchAbortRef = useRef<AbortController | null>(null);
   const searchGenRef = useRef(0);
   const listGenRef = useRef(0);
+  // 轮询与手动刷新互斥：避免自动刷新把正在看的搜索/分页状态顶掉
+  const fetchingRef = useRef(false);
+  const autoRefreshingRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const isSearchActiveRef = useRef(false);
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+    isSearchActiveRef.current = isSearchActive;
+  }, [loadingMore, isSearchActive]);
 
   const doRefresh = useCallback(async (signal?: AbortSignal) => {
+    fetchingRef.current = true;
     setFetching(true);
     setError(null);
     const gen = ++listGenRef.current;
@@ -141,12 +163,7 @@ export default function Analysis({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (gen !== listGenRef.current) return; // 已被更新的刷新/加载取代
-      setItems(normSignalItems((data.items || []).map(item => ({
-        ...item,
-        industries: item.industries ? safeParse(item.industries) : [],
-        companies: item.companies ? safeParse(item.companies) : [],
-        tags: item.tags ? safeParse(item.tags) : [],
-      }))));
+      setItems(parseAnalysisItems(data.items));
       setStats(data.stats || {});
       setHeatmap(data.heatmap || []);
       setTrend(data.trend || []);
@@ -160,7 +177,11 @@ export default function Analysis({
       console.error("Analysis refresh failed:", e);
       setError("数据更新失败，请稍后重试");
     } finally {
-      setFetching(false);
+      // 已被更新请求取代时不能清互斥锁，否则旧请求会放行新的并发刷新。
+      if (gen === listGenRef.current) {
+        fetchingRef.current = false;
+        setFetching(false);
+      }
     }
   }, [trendHours, watchedEff]);
 
@@ -174,6 +195,50 @@ export default function Analysis({
     doRefresh(controller.signal);
     return () => controller.abort();
   }, [doRefresh, skipInitialFetch]);
+
+  // 静默对齐：只读 /api/analysis，不触发 LLM；新信号合并到列表头部，已加载分页不截断
+  const doAutoRefresh = useCallback(async () => {
+    if (autoRefreshingRef.current || fetchingRef.current) return;
+    autoRefreshingRef.current = true;
+    const gen = listGenRef.current;
+    const watchQuery =
+      watchedEff.length > 0 ? `&watched=${watchedEff.join(",")}` : "";
+    try {
+      const res = await fetch(
+        `/api/analysis?hoursBack=24&trendHours=${trendHours}${watchQuery}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (gen !== listGenRef.current) return; // 手动刷新/筛选已接管
+      const fresh = parseAnalysisItems(data.items);
+      setItems((prev) => {
+        const seen = new Set(prev.map((item) => item.analysis_id ?? item.id));
+        const added = fresh.filter((item) => !seen.has(item.analysis_id ?? item.id));
+        return added.length > 0 ? [...added, ...prev] : prev;
+      });
+      setStats(data.stats || {});
+      setHeatmap(data.heatmap || []);
+      setTrend(data.trend || []);
+      setThreads(data.threads || []);
+      setServerSentimentBreakdown(data.sentimentBreakdown || []);
+      setCompanyHeatmap(data.companyHeatmap || []);
+      setMarketToday(data.marketToday || []);
+    } catch {
+      // 后台轮询失败保持现状，下一轮再试
+    } finally {
+      autoRefreshingRef.current = false;
+    }
+  }, [trendHours, watchedEff]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (isSearchActiveRef.current || loadingMoreRef.current) return;
+      void doAutoRefresh();
+    }, ANALYSIS_AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [doAutoRefresh]);
 
   // Apply industry filter first, then score/card filters on top
   const watchedItems = useMemo(() => filterByWatched(items), [items, filterByWatched]);
@@ -194,12 +259,7 @@ export default function Analysis({
       if (gen !== listGenRef.current) return; // 期间发生过刷新/筛选变更,丢弃旧分页
       setItems(prev => [
         ...prev,
-        ...normSignalItems((data.items || []).map((item: any) => ({
-          ...item,
-          industries: item.industries ? safeParse(item.industries) : [],
-          companies: item.companies ? safeParse(item.companies) : [],
-          tags: item.tags ? safeParse(item.tags) : [],
-        }))),
+        ...parseAnalysisItems(data.items),
       ]);
       setNextCursor(data.nextCursor || null);
     } catch (e) {

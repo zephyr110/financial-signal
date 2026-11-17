@@ -6,11 +6,32 @@ const { loadConfig } = require('./store');
 const { getSettings: getAppSettings } = require('./app-settings');
 
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
-// 防御下限:config.json 被手动写坏(0/负数)时避免 setInterval 空转烧 LLM 额度
-const MIN_INTERVAL_MS = 60 * 1000;
+// 防御下限:config.json 被手动写坏(0/负数)时避免 setInterval 空转烧 LLM 额度。
+// 与设置页校验的 5 分钟下限保持一致，避免手动改成 1 分钟后主进程照跑。
+const MIN_INTERVAL_MS = 5 * 60 * 1000;
 // 启动后延迟首轮:崩溃重启/换库后立刻全量跑会与旧实例在途轮次重叠,
 // 对同一批未分析新闻重复发起 LLM 调用。托盘"立即抓取"不受此延迟影响。
 const FIRST_RUN_DELAY_MS = 15 * 1000;
+
+function getJson(url, { timeoutMs = 5000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, { headers: { Origin: new URL(url).origin } }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`GET ${url} -> ${res.statusCode}`));
+        try {
+          resolve(body ? JSON.parse(body) : null);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error(`GET ${url} timeout`)); });
+  });
+}
 
 function callCron(baseUrl, job, { timeoutMs = 60000 } = {}) {
   return new Promise((resolve, reject) => {
@@ -32,10 +53,17 @@ function callCron(baseUrl, job, { timeoutMs = 60000 } = {}) {
   });
 }
 
+/** Turso 模式下设置存在远端库，本地 app_settings 读不到，改问内置 server。 */
+async function fetchLlmConfigured(baseUrl) {
+  const data = await getJson(`${baseUrl}/api/desktop/runtime`, { timeoutMs: 3000 });
+  return Boolean(data && data.llmConfigured);
+}
+
 /** 创建调度器:start() 延迟一轮后开始,之后每 intervalMs 一轮。 */
 function createScheduler({
   baseUrl, dbPath, configFile, onRunStart, onRunEnd,
   getConfig = loadConfig, getSettings = getAppSettings,
+  isDbAvailable, getLlmConfigured,
   firstRunDelayMs = FIRST_RUN_DELAY_MS, minIntervalMs = MIN_INTERVAL_MS,
 }) {
   const cfg = getConfig(configFile, { intervalMs: DEFAULT_INTERVAL_MS, notifyLastRunAt: null });
@@ -49,17 +77,32 @@ function createScheduler({
     if (running) return 'running'; // 上一轮仍在跑:跳过并如实上报(不再静默当成功)
     if (stopped) return 'stopped';
     // 全新安装、用户尚未选择导入/全新开始:不发起任何请求,防止 /api/cron/*
-    // 经 getDb() 抢先建库(欢迎页门控依赖文件不存在)。
-    if (!dbPath || !fs.existsSync(dbPath)) {
+    // 经 getDb() 抢先建库(欢迎页门控依赖文件不存在)。远端库由 main 注入
+    // isDbAvailable,不依赖本地文件。
+    const dbReady = isDbAvailable
+      ? isDbAvailable()
+      : Boolean(dbPath && fs.existsSync(dbPath));
+    if (!dbReady) {
       console.log('[scheduler] db 不存在,跳过本轮');
       return 'no-db';
     }
     running = true;
     try {
-      const settings = await getSettings(dbPath);
+      let llmConfigured;
+      if (getLlmConfigured) {
+        // 远端库读不到本地 app_settings;探测失败时只降级为 fetch,不中断整轮
+        try {
+          llmConfigured = await getLlmConfigured();
+        } catch (err) {
+          console.error('[scheduler] llm status failed:', err.message);
+          llmConfigured = false;
+        }
+      } else {
+        llmConfigured = isLlmConfigured(await getSettings(dbPath));
+      }
       // 收盘链路不依赖 LLM（无 key 时只发确定性简报），且路由自己按交易日/报告节流，
       // 因此每轮都带一个轻量请求，不会因调度频率重复拉行情。
-      const sequence = [...buildJobSequence({ llmConfigured: isLlmConfigured(settings) }), COCKPIT_DAILY_JOB];
+      const sequence = [...buildJobSequence({ llmConfigured }), COCKPIT_DAILY_JOB];
       if (onRunStart) onRunStart(sequence);
       for (const job of sequence) {
         if (stopped) break; // stop()(重启/退出)后不再发新请求
@@ -106,4 +149,4 @@ function createScheduler({
   return { start, stop, runOnce };
 }
 
-module.exports = { createScheduler, callCron, DEFAULT_INTERVAL_MS };
+module.exports = { createScheduler, callCron, fetchLlmConfigured, DEFAULT_INTERVAL_MS, MIN_INTERVAL_MS };
