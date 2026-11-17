@@ -15,6 +15,7 @@ export const AGENT_SYSTEM_PROMPT = `你是一个A股政策-行业研究助手（
 
 使用准则：
 - 优先用工具获取真实数据，不要凭记忆编造新闻、日期、行业数据
+- 用户的自选、持仓、研究论点、收盘简报、公告原文、个股行情与任务状态在驾驶舱各面板；涉及这些内容时先调用对应工具读取，不要凭上下文摘要或记忆推断
 - 同一问题尽量合并检索（避免对相近关键词重复 search_news），信息足够后尽快给出结论
 - 回答要引用数据来源（信号ID、事件线索ID、时间），说明判断依据
 - 区分"已确认信号"与"推测"，标注置信度
@@ -32,16 +33,17 @@ export interface PromptSpec {
 export const PROMPT_REGISTRY: Record<string, PromptSpec> = {
   [AGENT_PROMPT_ID]: {
     id: AGENT_PROMPT_ID,
-    version: 'v2',
+    version: 'v3',
     text: AGENT_SYSTEM_PROMPT,
-    notes: '允许研究层面的关注方向与验证条件；硬交易指令仍禁止。',
+    notes: '接入驾驶舱面板数据工具；要求先读取自选/持仓/论点/简报再回答。',
   },
 };
 
-/** 拼装本轮 system prompt（正文 + 长期记忆 + 动态工具清单）。 */
-export function buildAgentSystemPrompt(toolPrompt: string, memoryPrompt = ''): string {
+/** 拼装本轮 system prompt（正文 + 长期记忆 + 个人上下文 + 动态工具清单）。 */
+export function buildAgentSystemPrompt(toolPrompt: string, memoryPrompt = '', personalPrompt = ''): string {
   const memory = memoryPrompt.trim()
     ? `\n\n长期记忆（用户此前的偏好与结论，冲突时以用户本轮说法为准）：\n${memoryPrompt.trim()}`
     : '';
-  return `${PROMPT_REGISTRY[AGENT_PROMPT_ID].text}${memory}\n\n可用工具：\n${toolPrompt}`;
+  const personal = personalPrompt.trim() ? `\n\n${personalPrompt.trim()}` : '';
+  return `${PROMPT_REGISTRY[AGENT_PROMPT_ID].text}${memory}${personal}\n\n可用工具：\n${toolPrompt}`;
 }

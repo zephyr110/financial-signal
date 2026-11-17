@@ -26,6 +26,7 @@ import { getEffectiveLlmConfig, PRICING } from '../llm/config';
 import type { AgentTurnResult } from './types';
 import { getTool, buildToolPrompt } from './tools';
 import { loadAgentContext, estimateContextTokens, loadAgentMemoryPrompt } from './session';
+import { loadPersonalContextPrompt } from './personal-context';
 import { looksLikeJson, parseJsonLike, formatFinalAnswer, hasToolProtocolTokens, stripToolProtocolFromAnswer, validateToolArgs } from './format';
 import { getAgentMaxSteps, MAX_CORRECTION_STEPS } from './limits';
 import { AGENT_SYSTEM_PROMPT, buildAgentSystemPrompt } from './prompts';
@@ -244,8 +245,12 @@ export async function runAgentTurn(
       },
     });
     contextTokens = estimateContextTokens(history);
-    const memoryPrompt = await loadAgentMemoryPrompt(12, opts.userId);
-    const systemPrompt = buildAgentSystemPrompt(buildToolPrompt(toolScope), memoryPrompt);
+    // 记忆与面板上下文互不依赖，并行读取；个人上下文读取失败时为空串，不阻断对话
+    const [memoryPrompt, personalPrompt] = await Promise.all([
+      loadAgentMemoryPrompt(12, opts.userId),
+      loadPersonalContextPrompt(),
+    ]);
+    const systemPrompt = buildAgentSystemPrompt(buildToolPrompt(toolScope), memoryPrompt, personalPrompt);
 
     while (llmCalls < maxLlmCalls) {
       llmCalls++;

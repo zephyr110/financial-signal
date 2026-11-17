@@ -11,6 +11,7 @@ import { getDeskSnapshot, listAlerts, listJudgments } from '../desk/repo';
 import { getInvestigation, listInvestigations } from '../desk/investigation';
 import { proposeAgentAction, type AgentActionType } from './actions';
 import { searchWeb } from './web-search';
+import { COCKPIT_TOOLS } from './cockpit-tools';
 
 /** 简洁化工具输出：限制文本长度，避免撑爆上下文 */
 function summarizeList(rows, fields, limit = 10) {
@@ -26,13 +27,8 @@ function focusStocksLine(thread) {
   return `重点个股: 看涨 ${names(focus.bullish)}；看跌 ${names(focus.bearish)}${watch}`;
 }
 
-/** 数字参数安全转换：undefined/null/空串 → 默认值；NaN → 默认值；合法数字原样返回。
- *  不用 `Number(x) || fallback`——`Number("0")` 为 0（falsy）会被误吞为默认值。 */
-export function numArg(v: unknown, fallback: number): number {
-  if (v === undefined || v === null || v === '') return fallback;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
+import { numArg } from './args';
+export { numArg };
 
 export const RESEARCH_TOOLS: ToolDefinition[] = [
   {
@@ -283,6 +279,8 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       ].join('\n\n')
     },
   },
+  // 驾驶舱面板数据（今日简报/自选/持仓/论点/个股/公告/任务）
+  ...COCKPIT_TOOLS,
   {
     name: 'propose_action',
     description:
