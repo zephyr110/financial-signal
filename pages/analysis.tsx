@@ -127,7 +127,7 @@ export default function Analysis({
   const searchGenRef = useRef(0);
   const listGenRef = useRef(0);
 
-  const doRefresh = useCallback(async (signal) => {
+  const doRefresh = useCallback(async (signal?: AbortSignal) => {
     setFetching(true);
     setError(null);
     const gen = ++listGenRef.current;
