@@ -92,8 +92,8 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
   {
     name: 'get_industry_heatmap',
     description:
-      '查询行业信号热力图（各行业近期信号数量与平均分、情绪）及时间趋势。' +
-      '用于回答"哪个行业近期信号最强"类问题。',
+      '查询行业信号热力图（各行业近期信号数量与平均分、情绪）。' +
+      '用于回答"哪个行业近期信号最强"类问题；看时段趋势用 get_market_analytics。',
     parameters: {
       type: 'object',
       properties: {
@@ -172,7 +172,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
   {
     name: 'get_desk_snapshot',
     description:
-      '读取投研台最新快照：市场判断、行业判断、未处理预警与外盘行情。' +
+      '读取投研台最新快照：市场判断、行业判断、未处理预警、A股实时行情、外盘行情与数据源质量。' +
       '用于回答"今天投研台怎么说""哪些行业/预警值得关注"类问题。',
     parameters: {
       type: 'object',
@@ -191,14 +191,21 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
           `- ${j.industry}：${j.stance}/${j.confidence} ${j.headline}`).join('\n')
         const alerts = snapshot.alerts.slice(0, 6).map((a) =>
           `- [${a.severity}] ${a.title}${a.industry ? `（${a.industry}）` : ''}`).join('\n')
+        const realtime = snapshot.realtime.slice(0, 6).map((q) =>
+          `- ${q.code}${q.name ? ` ${q.name}` : ''} ${q.price}（${q.changePct == null ? '—' : `${q.changePct}%`}，延迟${q.delaySeconds}秒）`).join('\n')
         const overseas = snapshot.overseas.map((q) =>
           `- ${q.symbol} ${q.changePct == null ? '—' : `${q.changePct}%`}（延迟 ${q.delayMinutes ?? '?'} 分钟）`).join('\n')
+        const quality = snapshot.dataQuality
+          .filter((q) => q.status !== 'ok')
+          .map((q) => `- ${q.name}：${q.status}${q.message ? `，${q.message}` : ''}`).join('\n')
         return [
           `交易日 ${snapshot.tradeDate}${snapshot.isDemo ? '（示例数据）' : ''}`,
           market,
           industries ? `行业判断：\n${industries}` : '行业判断：暂无',
           alerts ? `未处理预警：\n${alerts}` : '未处理预警：无',
+          realtime ? `A股行情（延迟标注）：\n${realtime}` : '',
           overseas ? `外盘：\n${overseas}` : '',
+          quality ? `数据质量提示：\n${quality}` : '',
         ].filter(Boolean).join('\n\n')
       } catch (err) {
         return `投研台快照不可用：${(err as Error).message}`

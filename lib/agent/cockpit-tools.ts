@@ -6,14 +6,54 @@
  */
 import type { ToolDefinition } from './types';
 import { intArg } from './args';
-import { getDb, getRelatedSignals, getSignalById } from '../db';
-import { dateShanghai, formatCny, formatPrice, formatSignedPct, taskStatusLabel, thesisStatusLabel } from '../cockpit/format';
-import { getPortfolio, getStockDetail, getTheses, getTodayPayload, getWatchlist } from '../cockpit/repo';
+import {
+  getAnalysisStats,
+  getCompanyHeatmap,
+  getDb,
+  getIndustryTrend,
+  getRelatedSignals,
+  getSentimentBreakdown,
+  getSignalById,
+} from '../db';
+import {
+  dateShanghai,
+  formatCost,
+  formatCny,
+  formatPrice,
+  formatSignedPct,
+  formatTime,
+  taskStatusLabel,
+  thesisStatusLabel,
+  tierLabel,
+} from '../cockpit/format';
+import { getJournal, getPortfolio, getSourceHealth, getStockDetail, getTheses, getTodayPayload, getWatchlist } from '../cockpit/repo';
+import { listNotifications } from '../cockpit/notifications';
+import { getTask, getTaskEvents, listTasks } from '../cockpit/tasks';
 import { searchSourceDocuments } from '../search/fts';
-import { listTasks } from '../cockpit/tasks';
+import { CATEGORY_LABELS, SENTIMENT_LABELS } from '../constants';
+import { aggregateSentimentRows } from '../sentiment';
 
 /** 单次工具结果的行数上限，避免把整张表塞进上下文；截断时明确说明。 */
 const MAX_ROWS = 20;
+
+const JOURNAL_ACTION_LABELS: Record<string, string> = {
+  watch: '继续观察',
+  buy: '记录买入',
+  sell: '记录卖出',
+  hold: '继续持有',
+  avoid: '选择回避',
+  review: '复盘旧决定',
+};
+
+const HEALTH_LABELS: Record<string, string> = {
+  ok: '正常',
+  stale: '延迟',
+  error: '异常',
+  demo: '示例',
+  inactive: '未接入',
+};
+
+const HEALTH_ORDER: Record<string, number> = { error: 0, stale: 1, demo: 2, inactive: 3, ok: 4 };
 
 function pct(value: number | null | undefined): string {
   return value === null || value === undefined || !Number.isFinite(value) ? '—' : formatSignedPct(value);
@@ -143,8 +183,9 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
         ...shown.map((it) => {
           const note = it.note ? `｜备注：${it.note}` : '';
           const thesis = it.thesisStatus ? `｜论点：${thesisStatusLabel(it.thesisStatus)}` : '';
+          const nextEvent = it.nextEvent ? `｜事件：${it.nextEvent}` : '';
           const backfill = it.backfill ? `｜行情补库：${it.backfill}` : '';
-          return `- ${it.code} ${it.name}：${formatPrice(it.price)}（${pct(it.changePct)}）${note}${thesis}${backfill}`;
+          return `- ${it.code} ${it.name}：${formatPrice(it.price)}（${pct(it.changePct)}）${note}${thesis}${nextEvent}${backfill}`;
         }),
       ].join('\n');
     },
@@ -298,18 +339,239 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'get_journal',
+    description:
+      '读取研究日志（用户自己记录的决定、理由与复盘）：日期、动作、标的、理由、复盘备注。' +
+      '可按股票代码过滤。用于回答"我之前怎么决定的""当时的理由/复盘是什么"类问题。',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: '可选：股票代码精确匹配' },
+        limit: { type: 'number', description: '返回条数，默认10，最大50' },
+      },
+    },
+    async execute(args) {
+      const limit = intArg(args.limit, 10, 1, 50);
+      const code = args.code ? String(args.code).trim() : '';
+      const all = await getJournal(100);
+      const filtered = code ? all.filter((e) => e.code === code) : all;
+      if (filtered.length === 0) {
+        return code ? `没有代码为 ${code} 的研究日志。` : '还没有研究日志（只记录用户写下的决定，系统不代写）。';
+      }
+      const shown = filtered.slice(0, limit);
+      return [
+        `研究日志 ${filtered.length} 条${filtered.length > shown.length ? `（显示前${shown.length}条）` : ''}：`,
+        ...shown.map((e) => {
+          const action = JOURNAL_ACTION_LABELS[e.action] || e.action;
+          const created = e.createdAt ? `｜录入 ${dateShanghai(e.createdAt)} ${formatTime(e.createdAt)}` : '';
+          const outcome = e.outcomeNote ? `\n  复盘：${clip(e.outcomeNote, 300)}` : '';
+          return `- ${e.entryDate} [${action}]${e.code ? ` ${e.code}` : ''}${created}\n  理由：${clip(e.reason, 500)}${outcome}`;
+        }),
+      ].join('\n');
+    },
+  },
+  {
+    name: 'get_source_health',
+    description:
+      '读取数据源注册表与实时健康状态：来源名称、层级、状态、最近成功时间与错误信息。' +
+      '用于回答"数据源正常吗""为什么行情/公告没更新"类问题。',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      const sources = await getSourceHealth();
+      if (sources.length === 0) return '数据源注册表为空。';
+      const counts = new Map<string, number>();
+      for (const source of sources) counts.set(source.status, (counts.get(source.status) || 0) + 1);
+      const summary = [...counts.entries()]
+        .sort((a, b) => (HEALTH_ORDER[a[0]] ?? 9) - (HEALTH_ORDER[b[0]] ?? 9))
+        .map(([status, n]) => `${HEALTH_LABELS[status] || status}${n}`)
+        .join(' / ');
+      const sorted = [...sources].sort(
+        (a, b) => (HEALTH_ORDER[a.status] ?? 9) - (HEALTH_ORDER[b.status] ?? 9),
+      );
+      return [
+        `数据源 ${sources.length} 个：${summary}`,
+        ...sorted.map((s) => {
+          const last = s.lastSuccessAt ? `｜最近成功 ${dateShanghai(s.lastSuccessAt)} ${formatTime(s.lastSuccessAt)}` : '';
+          const message = s.message ? `｜${s.message}` : '';
+          return `- [${HEALTH_LABELS[s.status] || s.status}] ${s.name}（${tierLabel(s.tier)}）${last}${message}`;
+        }),
+      ].join('\n');
+    },
+  },
+  {
+    name: 'get_market_analytics',
+    description:
+      '读取信号分析看板的聚合数据：概览统计（信号数/高分数量）、行业趋势（按时段信号量）、公司热力（被提及最多的公司）、情绪分布（利好/利空/中性）。' +
+      'view 可选 stats|industry_trend|company_heatmap|sentiment，默认 all；可按行业过滤。' +
+      '用于回答"最近信号多吗""哪些行业在升温""哪些公司被频繁提及""情绪偏多还是偏空"类问题。',
+    parameters: {
+      type: 'object',
+      properties: {
+        view: { type: 'string', description: 'stats|industry_trend|company_heatmap|sentiment，默认 all' },
+        hoursBack: { type: 'number', description: '回溯小时数，默认24，最大720' },
+        industry: { type: 'string', description: '可选：行业名过滤' },
+      },
+    },
+    async execute(args) {
+      const view = String(args.view || 'all').trim();
+      const allowed = ['stats', 'industry_trend', 'company_heatmap', 'sentiment'];
+      if (view !== 'all' && !allowed.includes(view)) {
+        return `view 仅支持 ${allowed.join('|')}（或 all）。`;
+      }
+      const hoursBack = intArg(args.hoursBack, 24, 1, 720);
+      const industry = args.industry ? String(args.industry).trim() : '';
+      const industries = industry ? [industry] : null;
+      const wanted = view === 'all' ? allowed : [view];
+
+      const [stats, trend, companies, sentimentRows] = await Promise.all([
+        wanted.includes('stats') ? getAnalysisStats(hoursBack) : null,
+        wanted.includes('industry_trend') ? getIndustryTrend(hoursBack, industries) : null,
+        wanted.includes('company_heatmap') ? getCompanyHeatmap(hoursBack, industries) : null,
+        wanted.includes('sentiment') ? getSentimentBreakdown(hoursBack, industries) : null,
+      ]);
+
+      const sections: string[] = [];
+      const scope = industry ? `，行业=${industry}` : '';
+
+      if (stats) {
+        sections.push(
+          `概览（近${hoursBack}h${scope}）：信号 ${Number(stats.total_signals) || 0} 条｜5分 ${Number(stats.critical_count) || 0}` +
+            `｜4分 ${Number(stats.significant_count) || 0}｜最高分 ${Number(stats.max_score) || 0}`,
+        );
+      }
+
+      if (trend) {
+        if (trend.length === 0) {
+          sections.push('行业趋势：该时间窗内没有数据。');
+        } else {
+          const totals = new Map<string, number>();
+          for (const row of trend) {
+            for (const [key, value] of Object.entries(row)) {
+              if (key === 'time') continue;
+              totals.set(key, (totals.get(key) || 0) + Number(value || 0));
+            }
+          }
+          const top = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+          const buckets = trend.slice(-8);
+          const lines = top.map(([name]) => {
+            const series = buckets.map((row) => `${row.time} ${Number(row[name] || 0)}`).join(' → ');
+            return `- ${name}：${series}`;
+          });
+          sections.push(
+            `行业趋势（近${hoursBack}h${scope}，信号量前${lines.length}行业，最近${buckets.length}个时段）：\n${lines.join('\n')}`,
+          );
+        }
+      }
+
+      if (companies) {
+        if (companies.length === 0) {
+          sections.push('公司热力：该时间窗内没有数据。');
+        } else {
+          const lines = companies.map((c) => `- ${String(c.company)}：${c.signalCount}条，平均分${c.avgScore}`);
+          sections.push(`公司热力（近${hoursBack}h${scope}，前${lines.length}）：\n${lines.join('\n')}`);
+        }
+      }
+
+      if (sentimentRows) {
+        const breakdown = aggregateSentimentRows(sentimentRows);
+        if (breakdown.length === 0) {
+          sections.push('情绪分布：该时间窗内没有数据。');
+        } else {
+          const totals = { positive: 0, negative: 0, neutral: 0, mixed: 0 };
+          for (const row of breakdown) {
+            totals.positive += row.positive;
+            totals.negative += row.negative;
+            totals.neutral += row.neutral;
+            totals.mixed += row.mixed;
+          }
+          const overall = (['positive', 'negative', 'neutral', 'mixed'] as const)
+            .map((key) => `${SENTIMENT_LABELS[key]} ${totals[key]}`)
+            .join(' / ');
+          const lines = breakdown.map((row) =>
+            `- ${CATEGORY_LABELS[row.category] || row.category}：${SENTIMENT_LABELS.positive}${row.positive} ` +
+            `${SENTIMENT_LABELS.negative}${row.negative} ${SENTIMENT_LABELS.neutral}${row.neutral}` +
+            `${row.mixed ? ` ${SENTIMENT_LABELS.mixed}${row.mixed}` : ''}`,
+          );
+          sections.push(`情绪分布（近${hoursBack}h${scope}）：${overall}\n${lines.join('\n')}`);
+        }
+      }
+
+      return sections.length > 0 ? sections.join('\n\n') : '没有可返回的分析数据。';
+    },
+  },
+  {
+    name: 'get_notifications',
+    description:
+      '读取站内通知（任务完成/失败、行情补库等）：严重级别、标题、正文、时间、已读状态与跳转链接。' +
+      '用于回答"有什么提醒/通知""哪些还没看"类问题。',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: '返回条数，默认10，最大50' },
+        unreadOnly: { type: 'boolean', description: '只看未读，默认 false' },
+      },
+    },
+    async execute(args) {
+      const limit = intArg(args.limit, 10, 1, 50);
+      const { items, unread } = await listNotifications(100);
+      const filtered = args.unreadOnly === true ? items.filter((n) => !n.readAt) : items;
+      if (filtered.length === 0) {
+        return args.unreadOnly === true ? '没有未读通知。' : '暂无站内通知。';
+      }
+      const shown = filtered.slice(0, limit);
+      return [
+        `站内通知（未读 ${unread} / 显示 ${shown.length} 条）：`,
+        ...shown.map((n) => {
+          const body = n.body ? `\n  ${clip(n.body, 200)}` : '';
+          const link = n.deepLink ? `\n  链接：${n.deepLink}` : '';
+          return `- [${n.severity}] ${n.title}｜${dateShanghai(n.createdAt)} ${formatTime(n.createdAt)}｜${n.readAt ? '已读' : '未读'}${body}${link}`;
+        }),
+      ].join('\n');
+    },
+  },
+  {
     name: 'get_tasks',
     description:
       '读取任务中心的最近任务：类型、状态、进度、当前步骤、失败原因与时间。' +
+      '传 taskId 可读单个任务的参数、结果与最近事件日志。' +
       '用于回答"今日简报为什么没生成""任务跑到哪了"类问题。',
     parameters: {
       type: 'object',
       properties: {
+        taskId: { type: 'string', description: '可选：任务 id，读取单个任务详情与事件' },
         status: { type: 'string', description: '可选：queued|running|succeeded|failed|canceled' },
         limit: { type: 'number', description: '返回条数，默认10，最大30' },
       },
     },
     async execute(args) {
+      const taskId = args.taskId ? String(args.taskId).trim() : '';
+      if (taskId) {
+        const task = await getTask(taskId);
+        if (!task) return `任务 ${taskId} 不存在。`;
+        const events = await getTaskEvents(taskId);
+        const shownEvents = events.slice(-20);
+        const span = task.finishedAt
+          ? `${task.createdAt} ~ ${task.finishedAt}`
+          : task.startedAt
+            ? `${task.createdAt} ~ 进行中`
+            : task.createdAt;
+        const parameterText = clip(JSON.stringify(task.params ?? {}), 500);
+        const resultText = task.result ? clip(JSON.stringify(task.result), 800) : '无';
+        return [
+          `${task.id} ${task.type} [${taskStatusLabel(task.status)}] ${Math.round(task.progress)}%｜${task.lane}｜尝试 ${task.attempts} 次｜成本 ${formatCost(task.costMicros)}｜${span}`,
+          task.step ? `当前步骤：${task.step}` : '',
+          `参数：${parameterText}`,
+          `结果：${resultText}`,
+          task.error ? `错误：${task.error}` : '',
+          shownEvents.length > 0
+            ? `最近事件（${shownEvents.length}/${events.length} 条）：\n${shownEvents.map((e) => {
+                const payload = e.payload ? ` ${clip(JSON.stringify(e.payload), 200)}` : '';
+                return `- #${e.seq} ${e.type} ${formatTime(e.createdAt)}${payload}`;
+              }).join('\n')}`
+            : '任务事件：无',
+        ].filter(Boolean).join('\n');
+      }
+
       const status = args.status ? String(args.status).trim() : '';
       const limit = intArg(args.limit, 10, 1, 30);
       const all = await listTasks(50);

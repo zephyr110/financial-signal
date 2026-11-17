@@ -6,17 +6,29 @@ const repo = vi.hoisted(() => ({
   getPortfolio: vi.fn(),
   getTheses: vi.fn(),
   getStockDetail: vi.fn(),
+  getJournal: vi.fn(),
+  getSourceHealth: vi.fn(),
 }));
 const db = vi.hoisted(() => ({
   getDb: vi.fn(),
   getSignalById: vi.fn(),
   getRelatedSignals: vi.fn(),
+  getAnalysisStats: vi.fn(),
+  getIndustryTrend: vi.fn(),
+  getCompanyHeatmap: vi.fn(),
+  getSentimentBreakdown: vi.fn(),
 }));
-const tasks = vi.hoisted(() => ({ listTasks: vi.fn() }));
+const tasks = vi.hoisted(() => ({
+  listTasks: vi.fn(),
+  getTask: vi.fn(),
+  getTaskEvents: vi.fn(),
+}));
+const notifications = vi.hoisted(() => ({ listNotifications: vi.fn() }));
 const fts = vi.hoisted(() => ({ searchSourceDocuments: vi.fn() }));
 
 vi.mock('../cockpit/repo', () => repo);
 vi.mock('../cockpit/tasks', () => tasks);
+vi.mock('../cockpit/notifications', () => notifications);
 vi.mock('../search/fts', () => fts);
 vi.mock('../db', () => db);
 
@@ -113,13 +125,14 @@ describe('get_watchlist', () => {
 
   it('输出代码、名称、涨跌、备注与论点状态', async () => {
     repo.getWatchlist.mockResolvedValue([
-      { code: '600519', name: '贵州茅台', price: 1500, changePct: -1.2, sparkline: [], note: '渠道跟踪', thesisStatus: 'weakened' },
+      { code: '600519', name: '贵州茅台', price: 1500, changePct: -1.2, sparkline: [], note: '渠道跟踪', thesisStatus: 'weakened', nextEvent: '三季报披露' },
     ]);
     const text = await tool('get_watchlist').execute({});
     expect(text).toContain('600519 贵州茅台');
     expect(text).toContain('-1.20%');
     expect(text).toContain('渠道跟踪');
     expect(text).toContain('出现反证');
+    expect(text).toContain('事件：三季报披露');
   });
 });
 
@@ -239,6 +252,144 @@ describe('get_signal_detail', () => {
   });
 });
 
+describe('get_journal', () => {
+  const rows = [
+    { id: 1, entryDate: '2026-11-10', code: '600519', action: 'buy', reason: '渠道改革落地，批价企稳', outcomeNote: '三周后批价回落，判断偏早', createdAt: '2026-11-10 15:30:00' },
+    { id: 2, entryDate: '2026-11-08', action: 'review', reason: '复盘十月的回避决定', createdAt: '2026-11-08 09:00:00' },
+  ];
+
+  it('无日志时明确说明记录边界', async () => {
+    repo.getJournal.mockResolvedValue([]);
+    expect(await tool('get_journal').execute({})).toContain('还没有研究日志');
+  });
+
+  it('输出动作、标的、理由与复盘', async () => {
+    repo.getJournal.mockResolvedValue(rows);
+    const text = await tool('get_journal').execute({});
+    expect(text).toContain('2026-11-10 [记录买入] 600519');
+    expect(text).toContain('理由：渠道改革落地');
+    expect(text).toContain('复盘：三周后批价回落');
+    expect(text).toContain('[复盘旧决定]');
+  });
+
+  it('按代码过滤，无匹配时明确说明', async () => {
+    repo.getJournal.mockResolvedValue(rows);
+    const filtered = await tool('get_journal').execute({ code: '600519' });
+    expect(filtered).toContain('600519');
+    expect(filtered).not.toContain('复盘十月的回避决定');
+
+    const none = await tool('get_journal').execute({ code: '000000' });
+    expect(none).toContain('没有代码为 000000 的研究日志');
+  });
+});
+
+describe('get_source_health', () => {
+  it('按问题优先排序，输出状态汇总与错误信息', async () => {
+    repo.getSourceHealth.mockResolvedValue([
+      { id: 'tushare', name: 'Tushare', tier: 1, status: 'ok', lastSuccessAt: '2026-11-17T08:00:00Z' },
+      { id: 'csrc', name: '证监会', tier: 0, status: 'error', lastSuccessAt: '2026-11-16T08:00:00Z', message: '抓取失败：403' },
+      { id: 'wind', name: 'Wind', tier: 2, status: 'inactive' },
+      { id: 'demo', name: '示例源', tier: 3, status: 'stale', message: '>=2h 未更新' },
+    ]);
+    const text = await tool('get_source_health').execute({});
+    expect(text).toContain('数据源 4 个：异常1 / 延迟1 / 未接入1 / 正常1');
+    expect(text).toContain('[异常] 证监会（T0 官方）');
+    expect(text).toContain('抓取失败：403');
+    expect(text.indexOf('证监会')).toBeLessThan(text.indexOf('Tushare'));
+  });
+
+  it('空注册表明确说明', async () => {
+    repo.getSourceHealth.mockResolvedValue([]);
+    expect(await tool('get_source_health').execute({})).toContain('数据源注册表为空');
+  });
+});
+
+describe('get_market_analytics', () => {
+  beforeEach(() => {
+    db.getAnalysisStats.mockReset();
+    db.getIndustryTrend.mockReset();
+    db.getCompanyHeatmap.mockReset();
+    db.getSentimentBreakdown.mockReset();
+  });
+
+  it('all 视图输出概览、行业趋势、公司热力与情绪分布', async () => {
+    db.getAnalysisStats.mockResolvedValue({ total_signals: 42, critical_count: 2, significant_count: 8, max_score: 5 });
+    db.getIndustryTrend.mockResolvedValue([
+      { time: '09:00', 半导体: 3, 政策: 1 },
+      { time: '10:00', 半导体: 5, 政策: 2 },
+    ]);
+    db.getCompanyHeatmap.mockResolvedValue([{ company: '海光信息', signalCount: 4, avgScore: 4.5 }]);
+    db.getSentimentBreakdown.mockResolvedValue([
+      { category: 'industry', sentiment: 'positive', cnt: 6 },
+      { category: 'industry', sentiment: 'negative', cnt: 2 },
+    ]);
+
+    const text = await tool('get_market_analytics').execute({});
+    expect(text).toContain('信号 42 条｜5分 2｜4分 8｜最高分 5');
+    expect(text).toContain('- 半导体：09:00 3 → 10:00 5');
+    expect(text).toContain('海光信息：4条，平均分4.5');
+    expect(text).toContain('利好 6 / 利空 2 / 中性 0 / 混合 0');
+    expect(text).toContain('- 行业：利好6 利空2 中性0');
+  });
+
+  it('单视图只查对应数据，不查其余聚合', async () => {
+    db.getAnalysisStats.mockResolvedValue({ total_signals: 5, critical_count: 0, significant_count: 1, max_score: 4 });
+    const text = await tool('get_market_analytics').execute({ view: 'stats' });
+    expect(text).toContain('信号 5 条');
+    expect(text).not.toContain('行业趋势');
+    expect(db.getIndustryTrend).not.toHaveBeenCalled();
+    expect(db.getCompanyHeatmap).not.toHaveBeenCalled();
+    expect(db.getSentimentBreakdown).not.toHaveBeenCalled();
+  });
+
+  it('未知视图明确返回可选值', async () => {
+    const text = await tool('get_market_analytics').execute({ view: 'news' });
+    expect(text).toContain('view 仅支持');
+    expect(db.getAnalysisStats).not.toHaveBeenCalled();
+  });
+
+  it('空数据时逐项说明缺口', async () => {
+    db.getAnalysisStats.mockResolvedValue({ total_signals: 0, critical_count: 0, significant_count: 0, max_score: 0 });
+    db.getIndustryTrend.mockResolvedValue([]);
+    db.getCompanyHeatmap.mockResolvedValue([]);
+    db.getSentimentBreakdown.mockResolvedValue([]);
+    const text = await tool('get_market_analytics').execute({});
+    expect(text).toContain('信号 0 条');
+    expect(text).toContain('行业趋势：该时间窗内没有数据');
+    expect(text).toContain('公司热力：该时间窗内没有数据');
+    expect(text).toContain('情绪分布：该时间窗内没有数据');
+  });
+});
+
+describe('get_notifications', () => {
+  const items = [
+    { id: 'n1', kind: 'task', severity: 'warn', title: '任务失败：每日简报', body: 'Tushare 超时', deepLink: '/tasks', createdAt: '2026-11-17T08:05:00Z' },
+    { id: 'n2', kind: 'task', severity: 'info', title: '行情补库完成', createdAt: '2026-11-17T07:00:00Z', readAt: '2026-11-17T07:30:00Z' },
+  ];
+
+  it('输出未读与已读状态', async () => {
+    notifications.listNotifications.mockResolvedValue({ items, unread: 1 });
+    const text = await tool('get_notifications').execute({});
+    expect(text).toContain('未读 1 / 显示 2 条');
+    expect(text).toContain('[warn] 任务失败：每日简报');
+    expect(text).toContain('未读');
+    expect(text).toContain('已读');
+    expect(text).toContain('链接：/tasks');
+  });
+
+  it('unreadOnly 只返回未读', async () => {
+    notifications.listNotifications.mockResolvedValue({ items, unread: 1 });
+    const text = await tool('get_notifications').execute({ unreadOnly: true });
+    expect(text).toContain('任务失败');
+    expect(text).not.toContain('行情补库完成');
+  });
+
+  it('无通知时明确说明', async () => {
+    notifications.listNotifications.mockResolvedValue({ items: [], unread: 0 });
+    expect(await tool('get_notifications').execute({})).toContain('暂无站内通知');
+  });
+});
+
 describe('get_tasks', () => {
   const rows = [
     { id: 't1', type: 'daily_brief', status: 'failed', progress: 40, step: '拉取行情', error: 'Tushare 超时', createdAt: '2026-11-17 08:00', finishedAt: '2026-11-17 08:05' },
@@ -256,5 +407,30 @@ describe('get_tasks', () => {
     expect(text).toContain('daily_brief');
     expect(text).toContain('Tushare 超时');
     expect(text).not.toContain('market_ingest');
+  });
+
+  it('按 taskId 返回参数、结果与事件日志', async () => {
+    tasks.getTask.mockResolvedValue({
+      id: 't1', type: 'daily_brief', lane: 'core', status: 'failed', progress: 40,
+      step: '拉取行情', params: { tradeDate: '2026-11-17' }, result: { docs: 3 },
+      error: 'Tushare 超时', createdAt: '2026-11-17 08:00', startedAt: '2026-11-17 08:01',
+      finishedAt: '2026-11-17 08:05', attempts: 2, costMicros: 12000,
+    });
+    tasks.getTaskEvents.mockResolvedValue([
+      { seq: 1, type: 'started', payload: null, createdAt: '2026-11-17 08:01' },
+      { seq: 2, type: 'step', payload: { step: '拉取行情' }, createdAt: '2026-11-17 08:03' },
+    ]);
+    const text = await tool('get_tasks').execute({ taskId: 't1' });
+    expect(text).toContain('t1 daily_brief [失败] 40%');
+    expect(text).toContain('参数：{"tradeDate":"2026-11-17"}');
+    expect(text).toContain('结果：{"docs":3}');
+    expect(text).toContain('错误：Tushare 超时');
+    expect(text).toContain('#2 step');
+    expect(text).toContain('"step":"拉取行情"');
+  });
+
+  it('taskId 不存在时明确说明', async () => {
+    tasks.getTask.mockResolvedValue(null);
+    expect(await tool('get_tasks').execute({ taskId: 'missing' })).toContain('任务 missing 不存在');
   });
 });
