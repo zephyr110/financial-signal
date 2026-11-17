@@ -372,9 +372,9 @@ export default function Analysis({
           >
         {/* 内容区与投研台同宽：占满侧栏右侧，水平留白一致 */}
         <div className={`w-full pb-8 ${CONTENT_GUTTER}`}>
-          <div className="flex flex-wrap items-center justify-end gap-2 pt-6 pb-5">
+          <div className="flex flex-wrap items-center justify-start gap-2 pt-6 pb-5">
             {/* 操作区按「检索 → 筛选 → 关注范围 → 提醒开关」排序，
-                同组因果相邻；搜索默认收起，展开时向左生长不挤动右侧按钮 */}
+                同组因果相邻；左对齐，搜索展开时向右推开筛选与提醒按钮 */}
             <div className="flex items-center gap-2 flex-wrap">
               <SearchBar
                 onSearch={handleSearch}
