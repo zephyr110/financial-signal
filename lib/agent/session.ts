@@ -6,8 +6,10 @@ import { chatCompletion } from '../llm/client';
 import { loadAgentMemoryPrompt } from './memory';
 import { stripToolProtocolFromAnswer } from './format';
 import type { AgentMessage } from './types';
+import { CONTEXT_COMPACT_PREFIX, stripContextCompactPrefix } from './context-compact';
 
 export { loadAgentMemoryPrompt };
+export { CONTEXT_COMPACT_PREFIX, stripContextCompactPrefix };
 
 /** 上下文 token 软预算默认值；运行时可用 LLM_CONTEXT_TOKENS 覆盖。 */
 export const CONTEXT_BUDGET_TOKENS = 12000;
@@ -27,9 +29,6 @@ export function contextBudgetTokens(): number {
 }
 /** 压缩摘要的 LLM 调用最大输出 */
 const SUMMARY_MAX_TOKENS = 800;
-
-/** 压缩摘要消息前缀（落库与历史识别） */
-export const CONTEXT_COMPACT_PREFIX = '（历史对话已压缩）';
 
 export type ContextCompactEvent =
   | { type: 'start'; messageCount: number }
@@ -60,12 +59,6 @@ async function summarizeMessages(messages: AgentMessage[]): Promise<string> {
     maxTokens: SUMMARY_MAX_TOKENS,
   });
   return stripToolProtocolFromAnswer(content).slice(0, 500);
-}
-
-export function stripContextCompactPrefix(content: string): string {
-  return content.startsWith(CONTEXT_COMPACT_PREFIX)
-    ? content.slice(CONTEXT_COMPACT_PREFIX.length)
-    : content;
 }
 
 function isContextCompactRow(row: { role: unknown; content: unknown; meta?: { contextCompact?: boolean } | null }): boolean {

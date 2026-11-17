@@ -2704,7 +2704,7 @@ export async function getSignalById(id: number) {
   const db = await getDb();
   const result = await db.execute({
     sql: `
-      SELECT a.*, n.source, n.content as news_content, n.published_at,
+      SELECT a.*, n.source, n.content as news_content, n.published_at, n.docurl,
              et.title as thread_title, et.stage as thread_stage, et.confidence as thread_confidence,
              et.id as thread_id
       FROM analysis_result a
@@ -2741,6 +2741,7 @@ export async function getSignalById(id: number) {
     source: row.source,
     content: row.news_content,
     published_at: row.published_at,
+    docurl: (row.docurl as string) || null,
     // from event_threads (conditionally present)
     event_thread: (row.thread_id != null)
       ? {
@@ -3072,6 +3073,7 @@ export async function getBacktestByIndustry(daysBack = 30) {
     avg_d1: row.avg_d1,
     avg_d3: row.avg_d3,
     avg_d7: row.avg_d7,
+    directional_count: row.directional_count,
     win_rate: row.win_rate,
   }));
 }

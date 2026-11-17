@@ -6,8 +6,9 @@ const { loadConfig } = require('./store');
 const { getSettings: getAppSettings } = require('./app-settings');
 
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
-// 防御下限:config.json 被手动写坏(0/负数)时避免 setInterval 空转烧 LLM 额度
-const MIN_INTERVAL_MS = 60 * 1000;
+// 防御下限:config.json 被手动写坏(0/负数)时避免 setInterval 空转烧 LLM 额度。
+// 与设置页校验的 5 分钟下限保持一致，避免手动改成 1 分钟后主进程照跑。
+const MIN_INTERVAL_MS = 5 * 60 * 1000;
 // 启动后延迟首轮:崩溃重启/换库后立刻全量跑会与旧实例在途轮次重叠,
 // 对同一批未分析新闻重复发起 LLM 调用。托盘"立即抓取"不受此延迟影响。
 const FIRST_RUN_DELAY_MS = 15 * 1000;
@@ -148,4 +149,4 @@ function createScheduler({
   return { start, stop, runOnce };
 }
 
-module.exports = { createScheduler, callCron, fetchLlmConfigured, DEFAULT_INTERVAL_MS };
+module.exports = { createScheduler, callCron, fetchLlmConfigured, DEFAULT_INTERVAL_MS, MIN_INTERVAL_MS };

@@ -14,6 +14,7 @@ import { CATEGORY_LABELS, sourceDisplayName } from '../constants';
 import { proposeAgentAction, type AgentActionType } from './actions';
 import { searchWeb } from './web-search';
 import { COCKPIT_TOOLS } from './cockpit-tools';
+import { sanitizeErrorMessage } from '../safe-json';
 
 /** 简洁化工具输出：限制文本长度，避免撑爆上下文 */
 function summarizeList(rows, fields, limit = 10) {
@@ -259,7 +260,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
           quality ? `数据质量提示：\n${quality}` : '',
         ].filter(Boolean).join('\n\n')
       } catch (err) {
-        return `投研台快照不可用：${(err as Error).message}`
+        return `投研台快照不可用：${sanitizeErrorMessage((err as Error).message)}`
       }
     },
   },

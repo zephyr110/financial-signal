@@ -4,6 +4,7 @@ import os from 'os'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import handler from '../pages/api/settings'
 import { getSessionUser, SESSION_COOKIE } from '../lib/auth'
+import { probeTurso } from '../lib/turso-probe'
 
 // 隔离 DB:settings 写入不能落在共享的项目 DB(并行 worker 会互相污染/锁冲突)
 process.env.NEWS_DB_PATH = path.join(os.tmpdir(), `test-settings-${process.pid}.db`)
@@ -15,6 +16,9 @@ vi.mock('../lib/auth', () => ({
   SESSION_COOKIE: 'fs_session',
   getSessionUser: vi.fn(),
 }))
+
+// 不真的连远端：连通性探测本身由 lib/turso-probe 负责
+vi.mock('../lib/turso-probe', () => ({ probeTurso: vi.fn() }))
 
 function mockReq(method = 'GET', { cookies = {}, headers = {}, body }: {
   cookies?: Record<string, string>
@@ -40,6 +44,7 @@ describe('/api/settings', () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
     vi.mocked(getSessionUser).mockReset()
+    vi.mocked(probeTurso).mockReset().mockResolvedValue(undefined)
     process.env.DB_CONFIG_PATH = dbConfigFile
     fs.rmSync(dbConfigFile, { force: true })
   })
@@ -159,6 +164,7 @@ describe('/api/settings', () => {
     await handler(mockReq('POST', {
       body: { storageBackend: 'turso', tursoUrl: 'libsql://db.turso.io', tursoToken: 'tok' },
     }), mockRes())
+    expect(probeTurso).toHaveBeenCalledWith('libsql://db.turso.io', 'tok')
     expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({
       backend: 'turso',
       tursoUrl: 'libsql://db.turso.io',
@@ -180,6 +186,33 @@ describe('/api/settings', () => {
     expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({
       backend: 'turso',
       tursoUrl: 'libsql://db2.turso.io',
+    })
+  })
+
+  it('Turso 连不上时 400 且不写配置（避免重启后锁死）', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    vi.mocked(probeTurso).mockRejectedValue(new Error('unauthorized: bad token'))
+    const res = mockRes()
+    await handler(mockReq('POST', {
+      body: { storageBackend: 'turso', tursoUrl: 'libsql://db.turso.io', tursoToken: 'bad' },
+    }), res)
+    expect(res._status).toBe(400)
+    expect(res._body.error).toMatch(/无法连接 Turso/)
+    expect(fs.existsSync(dbConfigFile)).toBe(false)
+  })
+
+  it('从 Turso 切回本地时保留已存凭据', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    await handler(mockReq('POST', {
+      body: { storageBackend: 'turso', tursoUrl: 'libsql://db.turso.io', tursoToken: 'tok' },
+    }), mockRes())
+    const res = mockRes()
+    await handler(mockReq('POST', { body: { storageBackend: 'local' } }), res)
+    expect(res._status).toBe(200)
+    expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({
+      backend: 'local',
+      tursoUrl: 'libsql://db.turso.io',
+      tursoToken: 'tok',
     })
   })
 

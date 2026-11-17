@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { getDb } from '../../lib/db';
-import { readDbConfig } from '../../lib/db-config';
+import { isRemoteDbConfigured, readDbConfig } from '../../lib/db-config';
 import { getPipelineHealth } from '../../lib/pipeline';
 import { cachedRead, readCacheKey, READ_CACHE_TTL } from '../../lib/read-cache';
 
@@ -33,9 +33,8 @@ export default async function handler(req, res) {
   // Turso/Vercel 或设置页选择 Turso 时无文件概念,该检查自然跳过,行为不变。
   // :memory: 模式不产生文件,同样跳过(保持现有"报告 ok"行为)。
   const localDbPath = process.env.NEWS_DB_PATH;
-  // 设置页选择的 Turso 也属于远端模式，同样不能因为本地文件缺失而跳过探活
-  const remoteConfigured = Boolean(process.env.TURSO_DATABASE_URL)
-    || (!process.env.DB_BACKEND && !process.env.VERCEL && readDbConfig()?.backend === 'turso');
+  // 设置页选择的 Turso 也属于远端模式；单独残留的 TURSO_DATABASE_URL 不生效，不能据此跳过首启守卫。
+  const remoteConfigured = isRemoteDbConfigured(process.env, readDbConfig());
   if (
     process.env.DESKTOP_MODE === '1'
     && !remoteConfigured

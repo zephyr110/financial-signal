@@ -74,6 +74,18 @@ describe('GET /api/health', () => {
     expect(getDb).not.toHaveBeenCalled()
   })
 
+  it('仅残留 TURSO_DATABASE_URL（后端未锁定）→ 仍按本地库处理,不跳过首启守卫', async () => {
+    vi.stubEnv('DESKTOP_MODE', '1')
+    vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
+    vi.stubEnv('TURSO_DATABASE_URL', 'https://stale.turso.io')
+    const res = mockRes()
+    await handler(mockReq(), res)
+
+    expect(res._status).toBe(200)
+    expect(res._body.db).toBe('missing')
+    expect(getDb).not.toHaveBeenCalled()
+  })
+
   it('db 文件缺失 + 无 DESKTOP_MODE(web 自托管)→ 原行为:getDb 自愈建库', async () => {
     vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
     vi.mocked(getDb).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) } as any)

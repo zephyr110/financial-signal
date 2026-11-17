@@ -3,7 +3,7 @@ import http from 'http'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { createScheduler, callCron, fetchLlmConfigured } from '../../electron/scheduler'
+import { createScheduler, callCron, fetchLlmConfigured, MIN_INTERVAL_MS } from '../../electron/scheduler'
 import { PIPELINE_JOBS } from '../../electron/scheduler-core'
 import { findFreePort } from '../../electron/server-utils'
 
@@ -110,6 +110,10 @@ describe('fetchLlmConfigured', () => {
 })
 
 describe('createScheduler', () => {
+  it('最小间隔与设置页的 5 分钟下限一致', () => {
+    expect(MIN_INTERVAL_MS).toBe(5 * 60 * 1000)
+  })
+
   function makeScheduler({
     port, intervalMs = 60000, getSettings, dbPath: db = dbPath, onRunEnd,
     isDbAvailable, getLlmConfigured,

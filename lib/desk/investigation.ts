@@ -619,8 +619,6 @@ export async function createInvestigation(input: {
   const budget = input.manual === false ? AUTO_BUDGET : MANUAL_BUDGET
   const kind = input.manual === false ? 'auto' : 'manual'
   const target = input.alertId || input.judgmentId
-  // 自动深挖按被刷新的交易日去重：隔天重跑旧交易日不能重复烧模型预算。
-  const dedupeKey = `${kind}:${target}:${input.dedupeDate || todayShanghai()}`
 
   let question = (input.question || '').trim()
   if (input.alertId) {
@@ -630,6 +628,12 @@ export async function createInvestigation(input: {
     if (!question) question = `核实预警「${str(row.title)}」：触发原因是否成立，影响路径与验证条件是什么？`
   }
   if (!question) question = '核实该判断的证据强度与失效条件。'
+  // 自动深挖按被刷新的交易日去重：隔天重跑旧交易日不能重复烧模型预算。
+  // 手动深挖同日可能针对同一目标问不同问题，必须把问题计入去重键，否则会复用旧结论。
+  const questionKey = crypto.createHash('sha1').update(question).digest('hex').slice(0, 10)
+  const dedupeKey = input.manual === false
+    ? `${kind}:${target}:${input.dedupeDate || todayShanghai()}`
+    : `${kind}:${target}:${input.dedupeDate || todayShanghai()}:${questionKey}`
   const triggerReason = input.triggerReason || (input.manual === false ? '自动触发' : '手动深挖')
 
   const id = crypto.randomUUID()

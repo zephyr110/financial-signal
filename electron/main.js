@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('./libsql-client');
 const { createServerManager, devUrl } = require('./server');
-const { createScheduler, fetchLlmConfigured } = require('./scheduler');
+const { createScheduler, fetchLlmConfigured, MIN_INTERVAL_MS: MIN_SCHEDULER_INTERVAL_MS } = require('./scheduler');
 const { createTray } = require('./tray');
 const { registerIpc } = require('./ipc');
 const { notifyNewHighSignals } = require('./notifier');
@@ -37,7 +37,6 @@ const configFile = path.join(userData, 'config.json');
 // 与 lib/db-config.ts 同路径：数据库后端选择必须先于连库生效
 const dbConfigPath = dbConfigFile(dbPath);
 const DEFAULT_SCHEDULER_INTERVAL_MS = 30 * 60 * 1000;
-const MIN_SCHEDULER_INTERVAL_MS = 5 * 60 * 1000;
 
 function isRemoteDb() {
   return readDbConfig(dbConfigPath)?.backend === 'turso';

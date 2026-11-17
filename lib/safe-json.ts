@@ -25,6 +25,14 @@ export function displayToolArgs(args: unknown): string {
   return JSON.stringify(args, (key, value) => (ID_ARG_KEY.test(key) ? '…' : value), 2) ?? 'null';
 }
 
+// 错误信息里的文件名/源码位置不是主机名：db-config.json、analysis.tsx:42 必须原样保留。
+const FILE_EXTENSIONS = new Set([
+  'json', 'jsonl', 'tsx', 'ts', 'jsx', 'js', 'mjs', 'cjs', 'db', 'sqlite', 'sqlite3', 'sql',
+  'log', 'md', 'txt', 'sh', 'py', 'css', 'html', 'htm', 'yaml', 'yml', 'toml', 'ini', 'env',
+  'local', 'lock', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'csv', 'xlsx', 'xls',
+  'zip', 'gz', 'tar', 'pem', 'key', 'crt', 'map', 'wasm', 'node', 'gitkeep',
+]);
+
 /**
  * 任务失败文案会进任务中心与站内通知：去掉接口地址、请求 ID 与模型厂牌，
  * 只留下用户能据此行动的原因。
@@ -34,7 +42,11 @@ export function sanitizeErrorMessage(text: string | null | undefined): string {
     // 停止在中文与标点前，否则「https://x/失败」会把失败原因一起吞掉。
     .replace(/https?:\/\/[^\s一-鿿，。；、）)（("'<>]*/gi, '（接口地址已隐藏）')
     // 主机名不写死 TLD 白名单；全小写后缀可避开 600519.SH 这类股票代码。
-    .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?(?:\/[^\s一-鿿，。；、）)（("'<>]*)?/g, '（接口地址已隐藏）')
+    .replace(
+      /(^|[^\w/.\-])([a-z0-9-]+(?:\.[a-z0-9-]+)*)\.([a-z]{2,})(?::\d+)?(?:\/[^\s一-鿿，。；、）)（("'<>]*)?/g,
+      (match, prefix: string, _labels: string, tld: string) =>
+        FILE_EXTENSIONS.has(tld) ? match : `${prefix}（接口地址已隐藏）`,
+    )
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g, '（接口地址已隐藏）')
     .replace(/\b(?:deepseek|openai|anthropic|qwen|claude|gemini|llama)[\w.-]*/gi, '模型服务')
     .replace(/\brequest[ _-]?id\b["']?\s*[:=]\s*["']?[A-Za-z0-9_-]+["']?/gi, '')

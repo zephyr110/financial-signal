@@ -520,7 +520,10 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
         const delta = (key: string): string => previous == null
           ? '—'
           : `${value(current, key) - value(previous, key) >= 0 ? '+' : ''}${value(current, key) - value(previous, key)}`;
-        const avgScore = current.avg_score == null ? '—' : Number(current.avg_score).toFixed(1);
+        // SUM 为空时 SQL 的 COALESCE 会给出 0，空窗口必须显示占位而不是「平均 0.0 分」。
+        const avgScore = value(current, 'total_signals') === 0 || current.avg_score == null
+          ? '—'
+          : Number(current.avg_score).toFixed(1);
         sections.push(
           `概览（近${hoursBack}h${scope}，对比前${hoursBack}h）：信号 ${value(current, 'total_signals')} 条（较前 ${delta('total_signals')}）` +
             `｜5分 ${value(current, 'critical_count')}（${delta('critical_count')}）` +

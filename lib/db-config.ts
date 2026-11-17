@@ -66,6 +66,18 @@ export function readDbConfig(file: string = dbConfigPath()): StoredDbConfig | nu
   };
 }
 
+/** 健康检查/首启守卫用：只看配置指向本地还是远端，不做连接参数校验。 */
+export function isRemoteDbConfigured(
+  env: Record<string, string | undefined> = process.env,
+  stored: StoredDbConfig | null = null,
+): boolean {
+  const envBackend = (env.DB_BACKEND || '').trim().toLowerCase();
+  if (envBackend === 'turso') return true;
+  if (envBackend === 'local') return false;
+  if (env.VERCEL) return true;
+  return stored?.backend === 'turso';
+}
+
 /** 原子写入；含鉴权 token，权限收紧到 600。 */
 export function writeDbConfig(config: StoredDbConfig, file: string = dbConfigPath()): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });

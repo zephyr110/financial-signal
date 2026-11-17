@@ -62,6 +62,9 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     activeBackend: "local", restartRequired: false,
   });
   const [storageBackend, setStorageBackend] = useState("local");
+  // 读取失败时不能按默认值保存，否则会用「本地库」覆盖已保存的 Turso 配置
+  const [storageLoadFailed, setStorageLoadFailed] = useState(false);
+  const [clearTursoToken, setClearTursoToken] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [scheduler, setScheduler] = useState(null);
 
@@ -97,6 +100,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     setApiKey("");
     setTursoUrl("");
     setTursoToken("");
+    setClearTursoToken(false);
+    setStorageLoadFailed(false);
     setTushareToken("");
     setCronSecret("");
     setWebSearchKey("");
@@ -121,10 +126,12 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
         setCronSecretSet(Boolean(d.cronSecretSet));
         setWebSearchProvider(d.webSearch?.provider ?? "");
         setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
+        setStorageLoadFailed(false);
         setLoaded(true);
       })
       .catch(() => {
         setError("读取配置失败，请稍后重试");
+        setStorageLoadFailed(true);
         setLoaded(true);
       });
     if (desktopBridge?.getScheduler) {
@@ -212,7 +219,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     const body = { storageBackend };
     if (storageBackend === "turso") {
       if (tursoUrl.trim()) body.tursoUrl = tursoUrl.trim();
-      if (tursoToken.trim()) body.tursoToken = tursoToken.trim();
+      if (clearTursoToken) body.tursoToken = null;
+      else if (tursoToken.trim()) body.tursoToken = tursoToken.trim();
     }
     try {
       const res = await fetch("/api/settings", {
@@ -234,6 +242,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       }
       setTursoUrl("");
       setTursoToken("");
+      setClearTursoToken(false);
       setOkMsg(d.restartRequired ? "已保存，重启应用后生效" : "已保存");
     } catch {
       setError("网络错误，请稍后重试");
@@ -619,7 +628,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                             type="button"
                             onClick={() => setStorageBackend(value)}
                             aria-pressed={active}
-                            disabled={!loaded || storage.locked}
+                            disabled={!loaded || storage.locked || storageLoadFailed}
                             className={cn(
                               "rounded-md border bg-background px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                               active
@@ -650,10 +659,29 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                           <label htmlFor="turso-token" className="text-sm font-medium">鉴权 Token</label>
                           <Input
                             id="turso-token"
-                            {...secretInputProps("tursoToken", tursoToken, setTursoToken, tursoTokenSet)}
+                            {...secretInputProps("tursoToken", tursoToken, (value) => {
+                              setTursoToken(value);
+                              if (value) setClearTursoToken(false);
+                            }, tursoTokenSet)}
                             className="bg-background"
                             disabled={!loaded}
                           />
+                          {tursoTokenSet && (clearTursoToken ? (
+                            <p className="text-xs text-muted-foreground">保存后将清除已存 Token（URL 保留）。</p>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="self-start"
+                              onClick={() => {
+                                setClearTursoToken(true);
+                                setTursoToken("");
+                              }}
+                            >
+                              清除已保存的 Token
+                            </Button>
+                          ))}
                         </div>
                       </>
                     )}
@@ -662,13 +690,18 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                         当前后端由环境变量（DB_BACKEND / Vercel）控制，设置中不可切换。
                       </p>
                     )}
+                    {storageLoadFailed && (
+                      <p className="text-xs text-destructive">
+                        读取存储配置失败，保存已锁定以免覆盖现有 Turso 凭据；请关闭设置后重试。
+                      </p>
+                    )}
                     {storage.restartRequired && (
                       <p className="text-xs text-amber-600 dark:text-amber-400">存储选择已保存，重启应用后生效。</p>
                     )}
                     <p className="text-xs text-muted-foreground">
                       默认使用本地 SQLite（news_archive.db），不消耗云端额度。切换到 Turso 后需重启；云端是独立空库，不会自动迁移或同步本地数据。
                     </p>
-                    {saveButton(saveStorage, storage.locked)}
+                    {saveButton(saveStorage, storage.locked || storageLoadFailed)}
                   </div>
 
                   <div className="space-y-3 rounded-lg bg-muted p-4">

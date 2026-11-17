@@ -177,8 +177,11 @@ export default function Analysis({
       console.error("Analysis refresh failed:", e);
       setError("数据更新失败，请稍后重试");
     } finally {
-      fetchingRef.current = false;
-      setFetching(false);
+      // 已被更新请求取代时不能清互斥锁，否则旧请求会放行新的并发刷新。
+      if (gen === listGenRef.current) {
+        fetchingRef.current = false;
+        setFetching(false);
+      }
     }
   }, [trendHours, watchedEff]);
 

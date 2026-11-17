@@ -3,6 +3,8 @@ import { getAllSettings, setSettings, SETTING_KEYS } from '../../lib/settings';
 import { getActiveDbTarget } from '../../lib/db';
 import { describeDbStorage, isDbBackendLocked, readDbConfig, writeDbConfig, type StoredDbConfig } from '../../lib/db-config';
 import { isLocalOrigin } from '../../lib/cronAuth';
+import { probeTurso } from '../../lib/turso-probe';
+import { sanitizeErrorMessage } from '../../lib/safe-json';
 
 /**
  * 运行设置：
@@ -71,9 +73,23 @@ export default async function handler(req: any, res: any) {
         let token = before?.tursoToken;
         if (tursoToken === null) token = undefined;
         else if (typeof tursoToken === 'string' && tursoToken.trim()) token = tursoToken.trim();
+        // 写盘前先验证地址/token：保存后必须重启，连不上就没有机会在 UI 里改回来。
+        try {
+          await probeTurso(url, token);
+        } catch (error) {
+          return res.status(400).json({
+            error: `无法连接 Turso：${sanitizeErrorMessage(error instanceof Error ? error.message : String(error))}`,
+          });
+        }
         nextDbConfig = { backend: 'turso', tursoUrl: url, ...(token ? { tursoToken: token } : {}) };
       } else {
-        nextDbConfig = { backend: 'local' };
+        const before = readDbConfig();
+        // 切回本地时保留 Turso 凭据，再次切换无需重新输入。
+        nextDbConfig = {
+          backend: 'local',
+          ...(before?.tursoUrl ? { tursoUrl: before.tursoUrl } : {}),
+          ...(before?.tursoToken ? { tursoToken: before.tursoToken } : {}),
+        };
       }
     }
 

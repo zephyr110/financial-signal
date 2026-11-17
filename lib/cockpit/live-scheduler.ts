@@ -1,4 +1,5 @@
 import { getDb, resolveDbTarget } from '../db'
+import { readDbConfig } from '../db-config'
 import { refreshOverseasQuotes } from '../desk/overseas'
 import { livePlan, shanghaiClock, shouldQueueDailyClose } from './market-hours'
 import { refreshLiveQuotes } from './sources/live-quotes'
@@ -26,7 +27,13 @@ export function liveSchedulerEnabled(
 }
 
 async function localDbReady(): Promise<boolean> {
-  const target = resolveDbTarget()
+  // 设置页选择的 Turso 也写在 db-config.json，只看环境变量会把它误当本地库。
+  let target
+  try {
+    target = resolveDbTarget(process.env, readDbConfig())
+  } catch {
+    return false
+  }
   if (!target.url.startsWith('file:')) return false
   await getDb()
   return true
