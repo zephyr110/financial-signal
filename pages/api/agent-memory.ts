@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../lib/cockpit/api'
+import { sanitizeErrorMessage } from '../../lib/safe-json'
 import {
   deleteAgentMemory,
   listAgentMemories,
@@ -50,6 +51,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
     sendData(res, { memory }, await buildMeta())
   } catch (err) {
-    sendError(req, res, 400, 'MEMORY_FAILED', err instanceof Error ? err.message : '记忆操作失败')
+    sendError(req, res, 400, 'MEMORY_FAILED', err instanceof Error ? sanitizeErrorMessage(err.message) : '记忆操作失败')
   }
 }

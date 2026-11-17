@@ -4,11 +4,13 @@
  */
 import crypto from 'crypto'
 import { getDb } from '../db'
+import { sanitizeErrorMessage } from '../safe-json'
 import { chatCompletion } from '../llm/client'
 import { getEffectiveLlmConfig, PRICING } from '../llm/config'
 import { tryParseToolCall } from '../agent/tool-call'
 import { parseToolMarkupCalls, stripToolProtocolFromAnswer } from '../agent/format'
 import { todayShanghai } from '../cockpit/format'
+import { sourceDisplayName } from '../constants'
 import { searchSourceDocuments } from '../search/fts'
 import { getOverseasQuotes } from './repo'
 import type {
@@ -155,7 +157,7 @@ export async function collectEvidence(input: {
         label: `${str(row.industry)} ${str(row.trade_date)}`,
         value: `涨跌均值 ${num(row.avg_pct)}%，广度 ${num(row.breadth)}%，成交额 ${num(row.amount)}`,
       })
-      lines.push(`${ref}｜均值 ${num(row.avg_pct)}%｜广度 ${num(row.breadth)}%｜5日动量 ${num(row.momentum_5d)}%`)
+      lines.push(`${str(row.industry)} ${str(row.trade_date)}｜均值 ${num(row.avg_pct)}%｜广度 ${num(row.breadth)}%｜5日动量 ${num(row.momentum_5d)}%`)
     }
   }
 
@@ -171,13 +173,14 @@ export async function collectEvidence(input: {
     })
     for (const row of docs.rows as unknown as Row[]) {
       const ref = `doc:${str(row.id)}`
+      const source = sourceDisplayName(str(row.source_id))
       refs.push({
         ref,
         kind: 'document',
         label: str(row.title),
-        value: `${str(row.source_id)} ${str(row.published_at)}`,
+        value: `${source} ${str(row.published_at)}`,
       })
-      lines.push(`${ref}｜${str(row.published_at)}｜${str(row.title)}`)
+      lines.push(`${str(row.published_at)}｜${str(row.title)}｜来源 ${source}`)
     }
   }
 
@@ -190,7 +193,7 @@ export async function collectEvidence(input: {
         label: quote.symbol,
         value: `${quote.changePct ?? '—'}% @ ${quote.tradeTime}`,
       })
-      lines.push(`${ref}｜${quote.symbol} ${quote.changePct ?? '—'}%（延迟 ${quote.delayMinutes ?? '?'} 分钟）`)
+      lines.push(`${quote.symbol} ${quote.changePct ?? '—'}%（延迟 ${quote.delayMinutes ?? '?'} 分钟）`)
     }
   }
 
@@ -203,7 +206,7 @@ export async function collectEvidence(input: {
 
 /**
  * 反方证据：不额外调用模型，在主证据收集后做一次确定性反查。
- * 引用同样落到证据引用号，但置信度只用正向证据计算。
+ * 引用编号只用于去重与内部追溯，digest 与结论里写来源与日期。
  */
 export async function collectCounterEvidence(input: {
   industry?: string
@@ -236,13 +239,14 @@ export async function collectCounterEvidence(input: {
   })
   for (const row of docs.rows as unknown as Row[]) {
     const ref = `doc:${str(row.id)}`
+    const source = sourceDisplayName(str(row.source_id))
     refs.push({
       ref,
       kind: 'counter',
       label: `反方：${str(row.title)}`,
-      value: `${str(row.source_id)} ${str(row.published_at)}`,
+      value: `${source} ${str(row.published_at)}`,
     })
-    lines.push(`反方文档：${ref}｜${str(row.published_at)}｜${str(row.title)}`)
+    lines.push(`反方文档：${str(row.published_at)}｜${str(row.title)}｜来源 ${source}`)
   }
 
   let industryHit = 0
@@ -262,7 +266,7 @@ export async function collectCounterEvidence(input: {
         label: `反方行业：${str(row.industry)} ${str(row.trade_date)}`,
         value: `涨跌均值 ${num(row.avg_pct)}%，广度 ${num(row.breadth)}%，5日动量 ${num(row.momentum_5d)}%`,
       })
-      lines.push(`反方行业：${ref}｜均值 ${num(row.avg_pct)}%｜广度 ${num(row.breadth)}%｜5日动量 ${num(row.momentum_5d)}%`)
+      lines.push(`反方行业：${str(row.industry)} ${str(row.trade_date)}｜均值 ${num(row.avg_pct)}%｜广度 ${num(row.breadth)}%｜5日动量 ${num(row.momentum_5d)}%`)
     }
   }
 
@@ -273,7 +277,7 @@ export async function collectCounterEvidence(input: {
       overseasHit++
       const ref = `overseas:${quote.symbol}:${quote.tradeTime}`
       refs.push({ ref, kind: 'counter', label: `反方外盘：${quote.symbol}`, value: `${quote.changePct}%` })
-      lines.push(`反方外盘：${ref}｜${quote.symbol} ${quote.changePct}%（延迟 ${quote.delayMinutes ?? '?'} 分钟）`)
+      lines.push(`反方外盘：${quote.symbol} ${quote.changePct}%（延迟 ${quote.delayMinutes ?? '?'} 分钟）`)
       if (overseasHit >= 2) break
     }
   }
@@ -295,8 +299,9 @@ async function searchDocuments(args: Record<string, unknown>): Promise<ToolResul
   const refs: EvidenceRef[] = []
   const lines = rows.map((row) => {
     const ref = `doc:${str(row.id)}`
-    refs.push({ ref, kind: 'document', label: str(row.title), value: `${str(row.source_id)} ${str(row.published_at)}` })
-    return `${ref}｜${str(row.published_at)}｜${str(row.title)}｜来源 ${str(row.source_id)}`
+    const source = sourceDisplayName(str(row.source_id))
+    refs.push({ ref, kind: 'document', label: str(row.title), value: `${source} ${str(row.published_at)}` })
+    return `${str(row.published_at)}｜${str(row.title)}｜来源 ${source}`
   })
   return { text: lines.join('\n'), refs }
 }
@@ -315,7 +320,7 @@ async function industryMetrics(args: Record<string, unknown>): Promise<ToolResul
   const lines = (res.rows as unknown as Row[]).map((row) => {
     const ref = `industry:${str(row.industry)}:${str(row.trade_date)}`
     refs.push({ ref, kind: 'industry', label: `${industry} ${str(row.trade_date)}`, value: `均值 ${num(row.avg_pct)}%` })
-    return `${ref}｜均值 ${num(row.avg_pct)}%｜中位 ${num(row.median_pct)}%｜广度 ${num(row.breadth)}%｜成交额 ${num(row.amount)}｜领涨 ${str(row.leader_name)} ${num(row.leader_pct)}%`
+    return `${industry} ${str(row.trade_date)}｜均值 ${num(row.avg_pct)}%｜中位 ${num(row.median_pct)}%｜广度 ${num(row.breadth)}%｜成交额 ${num(row.amount)}｜领涨 ${str(row.leader_name)} ${num(row.leader_pct)}%`
   })
   return { text: lines.join('\n'), refs }
 }
@@ -327,7 +332,7 @@ async function overseasQuotes(): Promise<ToolResult> {
   const lines = quotes.map((quote) => {
     const ref = `overseas:${quote.symbol}:${quote.tradeTime}`
     refs.push({ ref, kind: 'overseas', label: quote.symbol, value: `${quote.changePct ?? '—'}%` })
-    return `${ref}｜${quote.symbol} ${quote.changePct ?? '—'}%｜延迟 ${quote.delayMinutes ?? '?'} 分钟`
+    return `${quote.symbol} ${quote.changePct ?? '—'}%｜延迟 ${quote.delayMinutes ?? '?'} 分钟`
   })
   return { text: lines.join('\n'), refs }
 }
@@ -353,7 +358,7 @@ function buildSystemPrompt(budget: InvestigationBudget): string {
 准则：
 - 先核实预警是否成立，再给出可能的影响路径与验证条件
 - 初始证据已包含“反方核查”，必须单列反方证据；没有命中时说明已核查的方向与数据缺口，不得静默忽略
-- 最终回答用中文 markdown，600 字以内，必须引用证据引用号（如 doc:12、industry:半导体:2026-11-14）
+- 最终回答用中文 markdown，600 字以内，引用证据时写来源与日期（如「财联社 2026-11-17」），不要输出内部引用编号
 - 明确区分已确认事实、推测与数据缺口；不得出现买入/卖出/加仓/目标价等交易指令`
 }
 
@@ -361,15 +366,15 @@ function fallbackConclusion(bundle: EvidenceBundle, counter: EvidenceBundle, que
   const industryLines = bundle.refs.filter((ref) => ref.kind === 'industry').slice(0, 3)
   const docLines = bundle.refs.filter((ref) => ref.kind === 'document').slice(0, 3)
   const parts = [`针对「${question}」，本次共收集 ${bundle.refs.length} 条可核对证据。`]
-  if (docLines.length) parts.push(`相关文档：${docLines.map((ref) => `${ref.ref}（${ref.label}）`).join('；')}。`)
-  if (industryLines.length) parts.push(`行业信号：${industryLines.map((ref) => `${ref.ref}（${ref.value}）`).join('；')}。`)
+  if (docLines.length) parts.push(`相关文档：${docLines.map((ref) => `${ref.label}（${ref.value}）`).join('；')}。`)
+  if (industryLines.length) parts.push(`行业信号：${industryLines.map((ref) => `${ref.label}：${ref.value}`).join('；')}。`)
   parts.push(`反方核验：${counter.digest}`)
   parts.push('结论：证据不足以形成高置信判断，建议继续观察后续公告与行业广度变化，待更多同向证据再确认。')
   return parts.join('\n\n')
 }
 
 function withCitations(text: string, refs: EvidenceRef[]): string {
-  const citations = refs.slice(0, 10).map((ref) => `- ${ref.ref}｜${ref.label}`).join('\n')
+  const citations = refs.slice(0, 10).map((ref) => `- ${ref.label}${ref.value ? `｜${ref.value}` : ''}`).join('\n')
   return `${text.trim().slice(0, MAX_CONCLUSION_CHARS)}\n\n证据引用：\n${citations || '- 无可用证据'}`
 }
 
@@ -533,7 +538,9 @@ export async function runInvestigation(
               toolResult = await tool(toolCall.args || {})
             } catch (err) {
               ok = false
-              toolResult = { text: `工具失败：${(err as Error).message}`, refs: [] }
+              const message = err instanceof Error ? err.message : String(err)
+              // 步骤摘要会进深挖抽屉，错误文本不能带接口地址与请求 ID。
+              toolResult = { text: `工具失败：${sanitizeErrorMessage(message)}`, refs: [] }
             }
             refs.push(...toolResult.refs)
             await addStep({
@@ -552,7 +559,8 @@ export async function runInvestigation(
           }
         }
       } catch (err) {
-        await addStep({ kind: 'fallback', digest: `模型深挖中断，改用证据摘要：${(err as Error).message}`, ok: false })
+        const message = err instanceof Error ? err.message : String(err)
+        await addStep({ kind: 'fallback', digest: `模型深挖中断，改用证据摘要：${sanitizeErrorMessage(message)}`, ok: false })
       }
     }
     // 结论可能混入原生协议标记或纯标记；剥离后为空则回退确定性摘要
@@ -592,7 +600,7 @@ export async function runInvestigation(
     await db.execute({
       sql: `UPDATE desk_investigations SET status = 'failed', error_message = ?, finished_at = ?,
             steps_used = ?, tokens_used = ?, cost_micros = ? WHERE id = ?`,
-      args: [err instanceof Error ? err.message : String(err), new Date().toISOString(), stepNo, tokens, Math.round(costMicros), investigationId],
+      args: [sanitizeErrorMessage(err instanceof Error ? err.message : String(err)), new Date().toISOString(), stepNo, tokens, Math.round(costMicros), investigationId],
     })
     throw err
   }

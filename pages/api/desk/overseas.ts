@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildMeta, ensureMethod, sendData, sendError } from '../../../lib/cockpit/api'
+import { sanitizeErrorMessage } from '../../../lib/safe-json'
 import { getOverseasQuotes } from '../../../lib/desk/repo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -7,6 +8,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     sendData(res, await getOverseasQuotes(), await buildMeta())
   } catch (err) {
-    sendError(req, res, 500, 'OVERSEAS_FAILED', err instanceof Error ? err.message : '读取外盘行情失败')
+    sendError(req, res, 500, 'OVERSEAS_FAILED', err instanceof Error ? sanitizeErrorMessage(err.message) : '读取外盘行情失败')
   }
 }

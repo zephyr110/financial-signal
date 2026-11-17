@@ -85,7 +85,7 @@ export default function WatchlistPanel({ items, threads, heatmap = null }: Props
         <div className="mb-3">
           <span className="text-xs text-muted-foreground block mb-1.5">跟踪信号</span>
           <ul className="space-y-1">
-            {signals.map((w) => {
+            {signals.map((w, index) => {
               const sig = signalMeta.get(w.id);
               return (
                 <li key={`signal-${w.id}`} className="flex items-center gap-2">
@@ -93,7 +93,7 @@ export default function WatchlistPanel({ items, threads, heatmap = null }: Props
                     href={`/signal/${w.id}`}
                     className="text-sm text-foreground hover:text-primary truncate flex-1"
                   >
-                    {sig?.summary || `信号 #${w.id}`}
+                    {sig?.summary || `跟踪信号 ${index + 1}`}
                   </Link>
                   <button
                     type="button"
@@ -114,7 +114,7 @@ export default function WatchlistPanel({ items, threads, heatmap = null }: Props
         <div>
           <span className="text-xs text-muted-foreground block mb-1.5">跟踪线索</span>
           <ul className="space-y-1">
-            {threadItems.map((w) => {
+            {threadItems.map((w, index) => {
               const t = threadMeta.get(w.id);
               return (
                 <li key={`thread-${w.id}`} className="flex items-center gap-2">
@@ -125,7 +125,7 @@ export default function WatchlistPanel({ items, threads, heatmap = null }: Props
                       !t && "text-muted-foreground"
                     )}
                   >
-                    {t?.title || `线索 #${w.id}`}
+                    {t?.title || `跟踪线索 ${index + 1}`}
                   </Link>
                   <button
                     type="button"

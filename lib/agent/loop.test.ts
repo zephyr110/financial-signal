@@ -48,6 +48,9 @@ vi.mock('./session', () => ({
   estimateContextTokens: vi.fn().mockReturnValue(0),
   loadAgentMemoryPrompt: vi.fn().mockResolvedValue(''),
 }));
+vi.mock('./personal-context', () => ({
+  loadPersonalContextPrompt: vi.fn().mockResolvedValue(''),
+}));
 
 import { tryParseToolCall, runAgentTurn } from './loop';
 

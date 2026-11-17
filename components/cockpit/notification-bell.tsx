@@ -3,6 +3,7 @@ import { useRouter } from 'next/router'
 import { Bell, CheckCheck } from 'lucide-react'
 import type { NotificationRecord } from '@/lib/cockpit/types'
 import { formatTime } from '@/lib/cockpit/format'
+import { sanitizeAnswerText } from '@/lib/safe-json'
 import { Button } from '@/components/ui/button'
 
 interface NotificationPayload {
@@ -13,16 +14,17 @@ interface NotificationPayload {
 async function showBrowserNotification(item: NotificationRecord): Promise<void> {
   if (typeof window === 'undefined' || !('Notification' in window)) return
   if (window.Notification.permission !== 'granted') return
+  const title = sanitizeAnswerText(item.title)
   const options: NotificationOptions = {
-    body: item.body || '',
+    body: sanitizeAnswerText(item.body || ''),
     tag: item.id,
     icon: '/cockpit-192.png',
     data: { url: item.deepLink || '/tasks' },
   }
   try {
     const registration = await navigator.serviceWorker?.getRegistration()
-    if (registration) await registration.showNotification(item.title, options)
-    else new window.Notification(item.title, options)
+    if (registration) await registration.showNotification(title, options)
+    else new window.Notification(title, options)
   } catch {
     /* 浏览器通知不可用时，站内通知仍然可见 */
   }
@@ -216,8 +218,8 @@ export function NotificationBell() {
                   >
                     <span className={`ck-notify-dot is-${item.severity}`} aria-hidden="true" />
                     <span className="ck-notify-copy">
-                      <strong>{item.title}</strong>
-                      {item.body && <span>{item.body}</span>}
+                      <strong>{sanitizeAnswerText(item.title)}</strong>
+                      {item.body && <span>{sanitizeAnswerText(item.body)}</span>}
                       <time dateTime={item.createdAt}>{formatTime(item.createdAt)}</time>
                     </span>
                   </button>

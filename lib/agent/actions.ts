@@ -3,7 +3,8 @@
  * 执行入口统一走 resolveAgentAction，payload 按类型白名单校验。
  */
 import crypto from 'crypto'
-import { getDb } from '../db'
+import { getDb, getEventThreadById } from '../db'
+import { sanitizeErrorMessage } from '../safe-json'
 import { createNotification } from '../cockpit/notifications'
 import { enqueueTask, scheduleTaskDrain, TASK_TYPES } from '../cockpit/tasks'
 import type { TaskType } from '../cockpit/types'
@@ -104,8 +105,10 @@ export function validateActionPayload(type: AgentActionType, payload: Record<str
       if (taskType === 'symbol_deep_dive' && (typeof params.code !== 'string' || !params.code.trim())) {
         throw new Error('个股深挖需要 code')
       }
-      if (taskType === 'desk_investigation' && (typeof params.investigationId !== 'string' || !params.investigationId.trim())) {
-        throw new Error('深挖任务需要 investigationId')
+      // Agent 的工具输出不含内部调查 id，按预警/判断引用发起才可达。
+      if (taskType === 'desk_investigation'
+        && !['investigationId', 'alertId', 'judgmentId'].some((k) => typeof params[k] === 'string' && String(params[k]).trim())) {
+        throw new Error('深挖任务需要 investigationId、alertId 或 judgmentId')
       }
       return { type: taskType, params }
     }
@@ -147,6 +150,14 @@ export async function proposeAgentAction(input: {
   userId?: number | null
 }): Promise<AgentActionView> {
   const payload = validateActionPayload(input.type, input.payload)
+  // 通知标题必须有可读名称：事件线程 id 无法辨认，提案时补出线程标题。
+  if (input.type === 'watch_event' && !payload.title && payload.eventId) {
+    const threadId = Number(payload.eventId)
+    if (Number.isFinite(threadId)) {
+      const thread = await getEventThreadById(threadId).catch(() => null)
+      if (thread?.title) payload.title = String(thread.title).slice(0, 200)
+    }
+  }
   const db = await getDb()
   const payloadJson = JSON.stringify(payload)
   const owner = input.userId == null ? 'user_id IS NULL' : 'user_id = ?'
@@ -226,7 +237,8 @@ async function executeAction(action: AgentActionView): Promise<Record<string, un
   switch (action.type) {
     case 'watch_event': {
       const code = str(payload.code)
-      const title = str(payload.title) || str(payload.eventId) || code
+      // eventId 是内部编号，不能拿来当展示名。
+      const title = str(payload.title) || code || '自选事件'
       const note = str(payload.note).trim()
       if (code) {
         const db = await getDb()
@@ -330,9 +342,10 @@ export async function resolveAgentAction(
     })
     return getAgentAction(id, userId)
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
     await db.execute({
       sql: "UPDATE agent_action SET status = 'failed', error_message = ? WHERE id = ?",
-      args: [(err as Error).message.slice(0, 500), id],
+      args: [sanitizeErrorMessage(message).slice(0, 500), id],
     })
     return getAgentAction(id, userId)
   }

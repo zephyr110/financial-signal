@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildMeta, ensureMethod, ensureSameOrigin, queryInt, queryString, sendData, sendError } from '../../../lib/cockpit/api'
 import { acknowledgeAlert, listAlerts } from '../../../lib/desk/repo'
+import { sanitizeErrorMessage } from '../../../lib/safe-json'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!ensureMethod(req, res, ['GET', 'POST'])) return
@@ -25,6 +26,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!alert) return sendError(req, res, 404, 'ALERT_NOT_FOUND', '预警不存在')
     sendData(res, alert, await buildMeta())
   } catch (err) {
-    sendError(req, res, 500, 'ALERTS_FAILED', err instanceof Error ? err.message : '预警操作失败')
+    sendError(req, res, 500, 'ALERTS_FAILED', err instanceof Error ? sanitizeErrorMessage(err.message) : '预警操作失败')
   }
 }

@@ -14,11 +14,12 @@ import { parseItemTime, formatTime, formatDate } from "@/lib/format";
 import { track } from "@/lib/track";
 
 // A股惯例：红涨绿跌；方向另有文字标签，不靠颜色单独传达
-const SENTIMENT_TONE: Record<string, string> = {
-  positive: "text-red-600 dark:text-red-400",
-  negative: "text-emerald-600 dark:text-emerald-400",
-  neutral: "text-muted-foreground",
-  mixed: "text-amber-600 dark:text-amber-400",
+const SENTIMENT_BADGE: Record<string, string> = {
+  positive: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
+  negative: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  // 不加 bg-muted：#6b7280 落在 #f3f4f6 上只有 4.39:1，11px 文字要 4.5。
+  neutral: "border-border text-muted-foreground",
+  mixed: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
 };
 
 export default function AnalysisNewsCard({ item }) {
@@ -28,7 +29,7 @@ export default function AnalysisNewsCard({ item }) {
   const companies = item.companies || [];
 
   const card = (
-    <Card className="group cursor-pointer py-0 transition-colors duration-200 hover:ring-primary hover:shadow-sm">
+    <Card className="group cursor-pointer py-0 transition-colors duration-200 hover:bg-muted/50">
       <CardContent className="px-3 py-2.5">
         <div className="flex items-start gap-2.5">
           <span className={cn(
@@ -57,9 +58,12 @@ export default function AnalysisNewsCard({ item }) {
               </Badge>
 
               {SENTIMENT_LABELS[item.sentiment] && (
-                <span className={cn("text-[11px] font-medium", SENTIMENT_TONE[item.sentiment])}>
+                <Badge
+                  variant="outline"
+                  className={cn("h-[18px] text-[11px] px-1.5 py-0", SENTIMENT_BADGE[item.sentiment])}
+                >
                   {SENTIMENT_LABELS[item.sentiment]}
-                </span>
+                </Badge>
               )}
 
               {item.source && (

@@ -75,9 +75,39 @@ export const SOURCE_LABELS: Record<string, string> = {
   wallstreetcn: '华尔街见闻',
   eastmoney: '东方财富',
   cls: '财联社',
+  // 与 lib/cockpit/sources/registry.ts 的 source id 对齐，漏一个就会在深挖摘要里露出英文 id。
+  sse: '上海证券交易所',
+  cninfo: '巨潮资讯',
+  csrc: '中国证监会',
+  tushare: 'Tushare Pro',
+  tencent: '腾讯财经',
+  akshare: 'AKShare',
+  cboe: 'CBOE 延迟行情',
+  realtime: '实时行情',
 };
 
 export function sourceDisplayName(source: string | null | undefined): string {
   if (!source) return '未知';
   return SOURCE_LABELS[source] ?? source;
+}
+
+// --- 证据类型展示名（落库为英文 kind） ---
+
+export const EVIDENCE_KIND_LABELS: Record<string, string> = {
+  fact: '事实',
+  inference: '推断',
+  counter: '反证',
+  conclusion: '结论',
+  breadth: '广度',
+  return: '涨跌',
+  momentum: '动量',
+  document: '事件',
+  turnover: '成交',
+  index: '指数',
+  overseas: '外盘',
+};
+
+export function evidenceKindLabel(kind: string | null | undefined): string {
+  if (!kind) return '';
+  return EVIDENCE_KIND_LABELS[kind] ?? kind;
 }

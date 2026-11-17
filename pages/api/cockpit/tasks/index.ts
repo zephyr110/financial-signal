@@ -78,7 +78,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (type === 'symbol_deep_dive' && (typeof params.code !== 'string' || !params.code.trim())) {
       return sendError(req, res, 400, 'INVALID_CODE', '股票代码不能为空')
     }
-    if (type === 'desk_investigation' && (typeof params.investigationId !== 'string' || !params.investigationId.trim())) {
+    if (type === 'desk_investigation'
+      && !['investigationId', 'alertId', 'judgmentId'].some((k) => typeof params[k] === 'string' && String(params[k]).trim())) {
       return sendError(req, res, 400, 'INVALID_INVESTIGATION', '调查 ID 不能为空')
     }
     const idempotencyKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()

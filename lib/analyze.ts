@@ -107,7 +107,7 @@ function scoreToImpact(score) {
 export async function analyzeUnanalyzedNews(batchSize = 5, maxBatches = 2) {
   const cfg = await getEffectiveLlmConfig();
   if (!cfg.apiKey) {
-    throw new Error('LLM_API_KEY not configured. Set LLM_API_KEY (or DEEPSEEK_API_KEY) environment variable, or configure it in 设置 → 模型.');
+    throw new Error('LLM_API_KEY not configured. Set the LLM_API_KEY environment variable or configure it in 设置 → 模型.');
   }
 
   // 环境变量可调批大小（serverless 60s 时限内安全：默认 5×2=10 条/次）

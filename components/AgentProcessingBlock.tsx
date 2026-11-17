@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import type { ProcessingBlock, ToolCallInfo } from "@/types/agent-chat";
 import { getToolLabel } from "@/lib/agent/tool-labels";
 import { stripToolProtocolFromAnswer } from "@/lib/agent/format";
+import { displayToolArgs, sanitizeToolSummary } from "@/lib/safe-json";
 
 interface AgentProcessingBlockProps {
   processing: ProcessingBlock;
@@ -252,7 +253,7 @@ function CompactionRow({
             <CollapsibleContent>
               <Separator className="" />
               <p className="bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-                {stripToolProtocolFromAnswer(compaction.summary)}
+                {sanitizeToolSummary(stripToolProtocolFromAnswer(compaction.summary))}
               </p>
             </CollapsibleContent>
           )}
@@ -329,7 +330,7 @@ function ToolStepRow({
                       参数
                     </p>
                     <pre className="overflow-x-auto rounded-md bg-background/80 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground ring-1 ring-foreground/6 whitespace-pre-wrap">
-                      {JSON.stringify(tool.args, null, 2)}
+                      {displayToolArgs(tool.args)}
                     </pre>
                   </div>
                   {tool.summary && (
@@ -338,7 +339,7 @@ function ToolStepRow({
                         结果摘要
                       </p>
                       <p className="rounded-md bg-background/80 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground ring-1 ring-foreground/6 whitespace-pre-wrap break-all">
-                        {tool.summary}
+                        {sanitizeToolSummary(tool.summary)}
                       </p>
                     </div>
                   )}

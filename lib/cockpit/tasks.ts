@@ -11,7 +11,8 @@ import { ingestAkshare } from './sources/akshare'
 import { normalizeCode } from './codes'
 import { ingestOfficialDocuments } from './sources/official'
 import { refreshDesk } from '../desk/engine'
-import { listInvestigations, queueAutoInvestigations, runInvestigation } from '../desk/investigation'
+import { createInvestigation, listInvestigations, queueAutoInvestigations, runInvestigation } from '../desk/investigation'
+import { sanitizeErrorMessage } from '../safe-json'
 import type { TaskEvent, TaskLane, TaskRecord, TaskStatus, TaskType } from './types'
 
 export const TASK_TYPES: TaskType[] = [
@@ -612,8 +613,20 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       return { ...result, autoInvestigations: autoIds.length }
     }
     case 'desk_investigation': {
-      const investigationId = typeof params.investigationId === 'string' ? params.investigationId : ''
-      if (!investigationId) throw new Error('缺少调查 ID')
+      let investigationId = typeof params.investigationId === 'string' ? params.investigationId : ''
+      if (!investigationId) {
+        const alertId = typeof params.alertId === 'string' ? params.alertId : undefined
+        const judgmentId = typeof params.judgmentId === 'string' ? params.judgmentId : undefined
+        if (!alertId && !judgmentId) throw new Error('缺少调查 ID')
+        // 研究助手只能看到预警/判断，拿不到内部调查 id：入队时按引用创建或复用当天调查。
+        const { investigation } = await createInvestigation({
+          alertId,
+          judgmentId,
+          triggerReason: '研究助手发起深挖',
+          question: typeof params.question === 'string' ? params.question : undefined,
+        })
+        investigationId = investigation.id
+      }
       const result = await runInvestigation(investigationId, {
         onProgress: (progress, step) => setProgress(task.id, progress, step),
       })
@@ -810,7 +823,7 @@ export async function processNextTask(lane?: TaskLane): Promise<TaskRecord | nul
     return await finishTask(task, 'succeeded', { progress: 100, step: '完成', result })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    const safeMessage = message.slice(0, 500)
+    const safeMessage = sanitizeErrorMessage(message).slice(0, 500)
     if (task.attempts < MAX_ATTEMPTS) {
       return await finishTask(task, 'queued', {
         step: '等待重试',

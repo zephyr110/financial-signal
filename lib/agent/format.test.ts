@@ -12,6 +12,9 @@ import {
   validateToolArgs,
   looksLikeJson,
   parseJsonLike,
+  formatEvidenceLines,
+  formatBacktestRows,
+  publicJson,
 } from './format';
 
 // 线上截图原文：DeepSeek 原生协议是 DSML + 双竖线（旧夹具曾误写成 DSLM + 单竖线）
@@ -356,5 +359,60 @@ describe('validateToolArgs', () => {
 
   it('非必填字段缺失不报错', () => {
     expect(validateToolArgs(tool, { query: '存储' })).toBeNull();
+  });
+});
+
+describe('formatEvidenceLines', () => {
+  it('标注证据类型、值、来源，并限制条数', () => {
+    const text = formatEvidenceLines([
+      { kind: 'fact', label: '两融余额回升', value: '+120 亿', detail: '连续三日净流入', source: { name: '交易所' } },
+      { kind: 'inference', label: '库存下降', sourceName: '渠道调研' },
+      { kind: 'conclusion', label: '结论' },
+    ], 2);
+    expect(text).toContain('- [事实] 两融余额回升（+120 亿）：连续三日净流入｜来源 交易所');
+    expect(text).toContain('- [推断] 库存下降｜来源 渠道调研');
+    expect(text).toContain('…另有 1 条证据未列出');
+    expect(text).not.toContain('[结论]');
+  });
+
+  it('空数组返回空串', () => {
+    expect(formatEvidenceLines([])).toBe('');
+    expect(formatEvidenceLines(undefined)).toBe('');
+  });
+});
+
+describe('formatBacktestRows', () => {
+  it('按样本分层：积累中隐藏数字，仅供参考加 ~ 前缀', () => {
+    const text = formatBacktestRows([
+      { industry: '半导体', samples: 40, directional_count: 40, avg_d1: 0.5, avg_d3: 1.2, avg_d7: 2, win_rate: 60 },
+      { industry: '银行', samples: 15, directional_count: 15, avg_d1: -0.1, avg_d3: 0.2, avg_d7: 0.3, win_rate: 52.5 },
+      { industry: '煤炭', samples: 8, directional_count: 2 },
+    ]);
+    expect(text).toContain('- 半导体：样本充足｜方向样本 40（总事件 40）');
+    expect(text).toContain('命中率 60.0%');
+    expect(text).toContain('- 银行：仅供参考｜方向样本 15');
+    expect(text).toContain('命中率 ~52.5%');
+    expect(text).toContain('- 煤炭：数据积累中（多空样本 2/10），样本不足，暂不展示收益与命中率');
+  });
+
+  it('空数组返回空串', () => {
+    expect(formatBacktestRows([])).toBe('');
+  });
+});
+
+describe('publicJson', () => {
+  it('递归剔除模型名、会话/请求 ID 与密钥', () => {
+    const text = publicJson({
+      model: 'hidden-model',
+      requestId: 'req-1',
+      nested: { sessionId: 's-1', keep: 'ok', model: 'x' },
+      items: [{ taskId: 't-1', summary: '保留' }],
+    });
+    expect(text).not.toContain('hidden-model');
+    expect(text).not.toContain('req-1');
+    expect(text).not.toContain('s-1');
+    expect(text).not.toContain('t-1');
+    expect(text).toContain('"keep":"ok"');
+    expect(text).toContain('"summary":"保留"');
   });
 });

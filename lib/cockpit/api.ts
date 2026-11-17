@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { sanitizeErrorMessage } from '../safe-json'
 import { getSourceHealth } from './repo'
 import type { ApiMeta } from './types'
 
@@ -33,10 +34,11 @@ export function sendError(
   details?: unknown,
 ): void {
   noStore(res)
+  // 所有错误文案的唯一出口：兜住直接把 err.message 透传的路由（接口地址、模型厂牌不外泄）。
   res.status(status).json({
     error: {
       code,
-      message,
+      message: sanitizeErrorMessage(message),
       details: details ?? null,
       requestId: requestId(req),
     },

@@ -1,3 +1,6 @@
+import { getBacktestTier, shouldShowNumbers, TIER_LABELS, tierProgress } from '../backtest';
+import { evidenceKindLabel } from '../constants';
+
 /**
  * 研究 Agent — 输出质量保障层（确定性格式化引擎）
  *
@@ -508,3 +511,76 @@ export function validateToolArgs(
   }
   return null;
 }
+
+function clipText(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…（已截断）` : text;
+}
+
+interface EvidenceLike {
+  kind?: string;
+  label: string;
+  value?: string;
+  detail?: string;
+  source?: { name?: string; asOf?: string };
+  sourceName?: string;
+  asOf?: string;
+}
+
+/** 证据条目 → 紧凑文本；证据链是简报/个股/投研台的核心，别只给数量。 */
+export function formatEvidenceLines(
+  items: EvidenceLike[] | undefined,
+  max = 6,
+  indent = '  ',
+): string {
+  if (!items || items.length === 0) return '';
+  const shown = items.slice(0, max);
+  const lines = shown.map((item) => {
+    const kind = item.kind ? `[${evidenceKindLabel(item.kind)}] ` : '';
+    const value = item.value && !item.label.includes(item.value) ? `（${item.value}）` : '';
+    const detail = item.detail ? `：${clipText(item.detail, 180)}` : '';
+    const sourceName = item.source?.name || item.sourceName;
+    const asOf = item.asOf || item.source?.asOf;
+    const source = sourceName
+      ? `｜来源 ${sourceName}${asOf ? `（${asOf}）` : ''}`
+      : '';
+    return `${indent}- ${kind}${item.label}${value}${detail}${source}`;
+  });
+  if (items.length > shown.length) {
+    lines.push(`${indent}…另有 ${items.length - shown.length} 条证据未列出`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * 行业回测行 → 文本。按方向样本数分层：积累中的小样本不展示收益与命中率，
+ * 与页面 P2.3 的可信度分层保持一致，避免模型把 2 个样本的 100% 当结论。
+ */
+export function formatBacktestRows(rows: Array<Record<string, unknown>>, max = 10): string {
+  if (rows.length === 0) return '';
+  const ret = (value: unknown): string => {
+    const n = Number(value);
+    return value == null || !Number.isFinite(n) ? '—' : `${n.toFixed(2)}%`;
+  };
+  const shown = rows.slice(0, max);
+  const lines = shown.map((row) => {
+    const industry = String(row.industry ?? '未知行业');
+    const samples = Number(row.samples ?? 0);
+    const directional = Number(row.directional_count ?? samples);
+    const tier = getBacktestTier(directional);
+    if (!shouldShowNumbers(tier)) {
+      return `- ${industry}：${TIER_LABELS[tier]}（${tierProgress(directional)}），样本不足，暂不展示收益与命中率`;
+    }
+    const winRate = row.win_rate == null
+      ? '—'
+      : `${tier === 'reference' ? '~' : ''}${Number(row.win_rate).toFixed(1)}%`;
+    return `- ${industry}：${TIER_LABELS[tier]}｜方向样本 ${directional}（总事件 ${samples}）` +
+      `｜T+1 ${ret(row.avg_d1)} T+3 ${ret(row.avg_d3)} T+7 ${ret(row.avg_d7)}｜命中率 ${winRate}`;
+  });
+  if (rows.length > shown.length) {
+    lines.push(`…另有 ${rows.length - shown.length} 个行业未列出`);
+  }
+  return lines.join('\n');
+}
+
+/** 内部字段不进入模型上下文：模型名、请求/会话 ID、密钥都不是研究事实。 */
+export { publicJson } from '../safe-json';

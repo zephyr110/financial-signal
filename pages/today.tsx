@@ -117,10 +117,9 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
           {payload.narrative && (
             <Disclosure
               className="ck-hero-extra"
-              title="模型叙述"
-              hint={payload.narrative.model}
+              title="AI 叙述"
               headingLevel={3}
-              summaryLabel={`模型叙述，不改写数字与来源，模型 ${payload.narrative.model}`}
+              summaryLabel="AI 叙述，不改写数字与来源"
             >
               <p className="ck-hero-narrative">{stripToolProtocolFromAnswer(payload.narrative.text)}</p>
             </Disclosure>
@@ -148,7 +147,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
                 )
               })}
             </div>
-            <p className="ck-confidence-note">四项由服务端按固定规则计算；缺数据、过期或来源冲突会压低分数，不由模型自评。</p>
+            <p className="ck-confidence-note">四项由服务端按固定规则计算；缺数据、过期或来源冲突会压低分数，不由生成内容自评。</p>
           </Disclosure>
 
           <MarketPulse indices={indices} breadth={breadth} turnover={turnover} embedded />

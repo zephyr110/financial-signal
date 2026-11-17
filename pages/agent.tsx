@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Head from "next/head";
 import { MessageSquareText, Send, Loader2, Copy, Check, Share2, Pencil, X, BookOpen, ThumbsUp, ThumbsDown, RefreshCw, Globe } from "lucide-react";
 import { getToolLabel } from "@/lib/agent/tool-labels";
+import { sanitizeAnswerText, sanitizeToolSummary } from "@/lib/safe-json";
 import AppShell from "../components/app-shell";
 import SessionSidebarGroup from "../components/SessionSidebarGroup";
 import { AgentAvatar } from "@/components/AgentAvatar";
@@ -806,7 +807,7 @@ export default function AgentPage() {
                 if (m.role === "system") {
                   return (
                     <div key={m.id} className="text-center text-xs text-muted-foreground py-1">
-                      {m.content}
+                      {sanitizeAnswerText(m.content)}
                     </div>
                   );
                 }
@@ -857,7 +858,7 @@ export default function AgentPage() {
                                         <span className={cn("shrink-0 font-medium", tool.status === "error" ? "text-destructive" : "text-foreground/80")}>
                                           {getToolLabel(tool.name)}
                                         </span>
-                                        <span className="min-w-0 break-words">{tool.summary || "已执行"}</span>
+                                        <span className="min-w-0 break-words">{tool.summary ? sanitizeToolSummary(tool.summary) : "已执行"}</span>
                                       </li>
                                     ))}
                                   </ul>
@@ -888,7 +889,7 @@ export default function AgentPage() {
                                 type="button"
                                 variant="ghost"
                                 size="xs"
-                                onClick={() => void copyMessage(m.id, m.content)}
+                                onClick={() => void copyMessage(m.id, sanitizeAnswerText(m.content))}
                                 aria-label="复制回复"
                               >
                                 {copiedId === m.id ? (

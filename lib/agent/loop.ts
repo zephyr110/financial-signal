@@ -26,11 +26,13 @@ import { getEffectiveLlmConfig, PRICING } from '../llm/config';
 import type { AgentTurnResult } from './types';
 import { getTool, buildToolPrompt } from './tools';
 import { loadAgentContext, estimateContextTokens, loadAgentMemoryPrompt } from './session';
+import { loadPersonalContextPrompt } from './personal-context';
 import { looksLikeJson, parseJsonLike, formatFinalAnswer, hasToolProtocolTokens, hasPartialToolProtocolToken, parseToolMarkupCalls, stripToolProtocolFromAnswer, validateToolArgs } from './format';
 import { getAgentMaxSteps, MAX_CORRECTION_STEPS } from './limits';
 import { AGENT_SYSTEM_PROMPT, buildAgentSystemPrompt } from './prompts';
 import { acquireAgentSessionLock } from './lock';
 import { findActionableTradeInstruction } from '../cockpit/validators';
+import { sanitizeErrorMessage, sanitizeToolSummary } from '../safe-json';
 
 export { AGENT_SYSTEM_PROMPT } from './prompts';
 
@@ -115,7 +117,7 @@ export async function runAgentTurn(
   const { apiKey, model: configuredModel } = await getEffectiveLlmConfig();
   if (!apiKey) {
     throw new Error(
-      'LLM_API_KEY not configured. Set LLM_API_KEY (or DEEPSEEK_API_KEY) environment variable, or configure it in 设置 → 模型.'
+      'LLM_API_KEY not configured. Set the LLM_API_KEY environment variable or configure it in 设置 → 模型.'
     );
   }
 
@@ -244,8 +246,12 @@ export async function runAgentTurn(
       },
     });
     contextTokens = estimateContextTokens(history);
-    const memoryPrompt = await loadAgentMemoryPrompt(12, opts.userId);
-    const systemPrompt = buildAgentSystemPrompt(buildToolPrompt(toolScope), memoryPrompt);
+    // 记忆与面板上下文互不依赖，并行读取；个人上下文读取失败时为空串，不阻断对话
+    const [memoryPrompt, personalPrompt] = await Promise.all([
+      loadAgentMemoryPrompt(12, opts.userId),
+      loadPersonalContextPrompt(),
+    ]);
+    const systemPrompt = buildAgentSystemPrompt(buildToolPrompt(toolScope), memoryPrompt, personalPrompt);
 
     while (llmCalls < maxLlmCalls) {
       llmCalls++;
@@ -398,10 +404,12 @@ export async function runAgentTurn(
           }
         } catch (err) {
           ok = false;
-          resultText = `工具执行失败: ${(err as Error).message}`;
+          const message = err instanceof Error ? err.message : String(err);
+          // 摘要会展示在「来源与工具记录」，错误文本同样不能带接口地址与请求 ID。
+          resultText = `工具执行失败: ${sanitizeErrorMessage(message)}`;
         }
         toolSteps++;
-        const summary = resultText.split('\n')[0].slice(0, 100);
+        const summary = sanitizeToolSummary(resultText.split('\n')[0]).slice(0, 100);
         toolLog.push({
           name: tool.name,
           args: call.args || {},

@@ -6,6 +6,7 @@ import { Bot } from "lucide-react";
 import AppShell from "../../../components/app-shell";
 import { getSharedSession } from "../../../lib/db";
 import { stripToolProtocolFromAnswer } from "../../../lib/agent/format";
+import { sanitizeAnswerText } from "../../../lib/safe-json";
 
 /**
  * 会话分享公开页（只读）：通过分享链接访问，无输入框、无编辑。
@@ -66,7 +67,7 @@ export default function SharedAgentPage({ title, messages, notFound }: any) {
                             ),
                           }}
                         >
-                          {stripToolProtocolFromAnswer(String(r.content || ""))}
+                          {sanitizeAnswerText(stripToolProtocolFromAnswer(String(r.content || "")))}
                         </ReactMarkdown>
                       </div>
                     </div>

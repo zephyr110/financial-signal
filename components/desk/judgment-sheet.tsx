@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { RiskCard } from '@/components/ui/risk-card'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { formatSignedPct } from '@/lib/cockpit/format'
+import { evidenceKindLabel } from '@/lib/constants'
 import type { JudgmentView } from '@/lib/desk/types'
 import { ConfidenceBadge, StanceBadge } from './ui'
 
@@ -77,7 +78,7 @@ export function JudgmentSheet({
                           {item.value && <p className="line-clamp-2 text-muted-foreground">{item.value}</p>}
                           {item.sourceName && <p className="text-xs text-muted-foreground">{item.sourceName}{item.asOf ? ` · ${item.asOf}` : ''}</p>}
                         </div>
-                        <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[11px]">{item.kind}</Badge>
+                        <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[11px]">{evidenceKindLabel(item.kind)}</Badge>
                       </li>
                     ))}
                   </ul>

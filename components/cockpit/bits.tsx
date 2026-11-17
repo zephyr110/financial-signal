@@ -16,6 +16,7 @@ import {
   tierLabel,
 } from '@/lib/cockpit/format'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { sanitizeErrorMessage } from '@/lib/safe-json'
 import { Badge } from '@/components/ui/badge'
 import { Hint } from '@/components/ui/hint'
 import {
@@ -352,7 +353,7 @@ export function SourceHealthRail({ sources }: { sources: SourceHealth[] }) {
               <span className="ck-rail-row-meta">
                 {STATUS_TEXT[source.status]}
                 {meta.last ? ` · ${formatTime(meta.last)}` : ''}
-                {detail ? ` · ${detail}` : ''}
+                {detail ? ` · ${sanitizeErrorMessage(detail)}` : ''}
               </span>
             </div>
           </li>
@@ -382,7 +383,7 @@ export function BriefQualityList({ items }: { items: DataQualityItem[] }) {
                 <span className="ck-rail-row-meta">
                   {STATUS_TEXT[item.status]}
                   {item.asOf ? ` · ${formatTime(item.asOf)}` : ''}
-                  {detail ? ` · ${detail}` : ''}
+                  {detail ? ` · ${sanitizeErrorMessage(detail)}` : ''}
                 </span>
               </div>
             </li>
