@@ -217,7 +217,7 @@ export function SideRail({ onChanged }: { onChanged?: () => void }) {
                     </span>
                   </div>
                   <p className="mt-1 line-clamp-2 text-[13px] leading-5">{actionSummary(action)}</p>
-                  {action.sessionId && <p className="mt-0.5 text-[11px] text-muted-foreground">来自会话 {action.sessionId}</p>}
+                  {action.sessionId && <p className="mt-0.5 text-[11px] text-muted-foreground">由研究助手提出</p>}
                   <div className="mt-2 flex gap-1.5">
                     <Button size="xs" disabled={busy === action.id} onClick={() => void decide(action, 'confirm')}>
                       <Check className="size-3.5" />确认

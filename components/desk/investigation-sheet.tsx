@@ -216,7 +216,7 @@ export function InvestigationSheet({
                   <Badge variant="outline">{STRENGTH_LABEL[investigation.evidenceStrength]}</Badge>
                 )}
                 <span className="text-xs text-muted-foreground">
-                  {investigation.stepsUsed} 步 · {investigation.tokensUsed} tokens
+                  {investigation.stepsUsed} 步
                 </span>
               </div>
 

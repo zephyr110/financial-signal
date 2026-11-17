@@ -5,10 +5,13 @@
  * 包装为模型可调用的工具。新增工具 = 在 TOOLS 数组追加一项。
  */
 import type { ToolDefinition } from './types';
-import { searchSignals, getEventThreads, getEventThreadById, getIndustryHeatmap, getIndustryTrend, getBacktestByIndustry } from '../db';
-import { fixMarkdown, repairJson } from './format';
-import { getDeskSnapshot, listAlerts, listJudgments } from '../desk/repo';
+import { searchSignals, getEventThreads, getEventThreadById, getIndustryHeatmap, getBacktestByIndustry } from '../db';
+import { fixMarkdown, repairJson, formatBacktestRows, formatEvidenceLines } from './format';
+import { getDeskSnapshot, getDeskStatus, listAlerts, listJudgments } from '../desk/repo';
 import { getInvestigation, listInvestigations } from '../desk/investigation';
+import { getThreadMarketContext } from '../market';
+import { CATEGORY_LABELS, sourceDisplayName } from '../constants';
+import { formatCost } from '../cockpit/format';
 import { proposeAgentAction, type AgentActionType } from './actions';
 import { searchWeb } from './web-search';
 import { COCKPIT_TOOLS } from './cockpit-tools';
@@ -16,6 +19,31 @@ import { COCKPIT_TOOLS } from './cockpit-tools';
 /** 简洁化工具输出：限制文本长度，避免撑爆上下文 */
 function summarizeList(rows, fields, limit = 10) {
   return rows.slice(0, limit).map((r) => fields.map((f) => r[f]).join(' | ')).join('\n');
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…（已截断）` : text;
+}
+
+function signedPct(value: unknown): string {
+  const n = Number(value);
+  return value == null || !Number.isFinite(n) ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
+}
+
+interface ThreadSignalRow {
+  id: unknown;
+  signal_score: unknown;
+  category?: string;
+  summary: unknown;
+  published_at: unknown;
+  content?: string;
+  docurl?: string;
+  source?: string;
+}
+
+interface SectorRow {
+  name?: unknown;
+  change_pct?: unknown;
 }
 
 /** 事件线索重点个股（数据层已按成员新闻情绪加权），无方向时明确说无。 */
@@ -60,7 +88,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
         `共 ${result.total} 条匹配，显示前 ${result.items.length} 条：`,
         summarizeList(
           result.items,
-          ['id', 'signal_score', 'category', 'industries', 'summary', 'published_at'],
+          ['id', 'signal_score', 'category', 'industries', 'summary', 'source', 'published_at'],
           10
         ),
         '（引用时请标注 signal id）',
@@ -131,17 +159,15 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
         ? rows.filter((r) => (r.industry as string).includes(String(args.industry)))
         : rows;
       if (filtered.length === 0) return `没有找到行业"${args.industry}"的回测数据。`;
-      const lines = filtered.slice(0, 10).map((r) =>
-        `${r.industry}: ${r.samples}次样本 1日${r.avg_d1}% 3日${r.avg_d3}% 7日${r.avg_d7}% 命中率${r.win_rate == null ? '—' : `${r.win_rate}%`}（方向口径,${r.directional_count ?? 0}个多/空事件计入分母）`
-      );
-      return `行业信号回测统计（近${numArg(args.daysBack, 30)}天）：\n${lines.join('\n')}`;
+      return `行业信号回测统计（近${numArg(args.daysBack, 30)}天，命中率为方向口径，中性/混合不计入分母）：` +
+        `\n${formatBacktestRows(filtered as unknown as Array<Record<string, unknown>>, 10)}`;
     },
   },
   {
     name: 'watch_event',
     description:
-      '查询单个事件线索的完整详情：事件发展叙事、关联信号列表（含时间线与内容）、后续关注点。' +
-      '用于回答"某事件现在到哪个阶段了"类问题。',
+      '查询单个事件线索的完整详情：事件发展叙事、关联信号列表（id、时间线、原文摘录、来源与链接）、' +
+      '后续关注点、相关板块涨跌与行业回测。用于回答"某事件现在到哪个阶段了""市场反应如何"类问题。',
     parameters: {
       type: 'object',
       properties: {
@@ -155,18 +181,33 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       if (!Number.isFinite(id) || id <= 0) return 'eventId 必须是大于 0 的数字。';
       const thread = await getEventThreadById(id);
       if (!thread) return `事件线索 ${id} 不存在（可能已过期，可用 get_event_threads 查看最新线索）。`;
-      const signalLines = thread.signals.map((s) =>
-        `${s.published_at} [${s.signal_score}分/${s.category}] ${s.summary}`
-      ).join('\n');
+      const context = await getThreadMarketContext((thread.industries || []) as string[])
+        .catch(() => null);
+      const signalLines = (thread.signals as ThreadSignalRow[]).map((s) => {
+        const category = CATEGORY_LABELS[s.category as keyof typeof CATEGORY_LABELS] || s.category;
+        const excerpt = s.content ? `\n  摘录：${clip(String(s.content), 240)}` : '';
+        const docurl = s.docurl ? `\n  原文：${String(s.docurl)}` : '';
+        const source = s.source ? `\n  来源：${sourceDisplayName(s.source)}` : '';
+        return `${s.published_at} #${s.id} [${s.signal_score}分/${category}] ${s.summary}${excerpt}${docurl}${source}`;
+      }).join('\n\n');
+      const market = context?.market?.length
+        ? `相关板块（最近交易日）：\n${(context.market as unknown as SectorRow[]).map((m) =>
+            `- ${String(m.name)}（${signedPct(m.change_pct)}）`).join('\n')}`
+        : '';
+      const backtest = context?.backtest?.length
+        ? `行业回测（近30天）：\n${formatBacktestRows(context.backtest as unknown as Array<Record<string, unknown>>, 8)}`
+        : '';
       return [
         `事件线索 #${thread.id}: ${thread.title}`,
-        `阶段: ${thread.stage} | 置信度: ${thread.confidence}`,
+        `阶段: ${thread.stage} | 置信度: ${thread.confidence}｜生成于 ${thread.created_at}`,
         `叙事: ${thread.narrative}`,
         `涉及行业: ${(thread.industries || []).join('/') || '无'}`,
         `关注点: ${(thread.watch_points || []).join('；') || '无'}`,
         focusStocksLine(thread),
+        market,
+        backtest,
         `\n关联信号（${thread.signals.length}条）:\n${signalLines || '无'}`,
-      ].join('\n');
+      ].filter(Boolean).join('\n');
     },
   },
   {
@@ -182,24 +223,35 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
     },
     async execute(args) {
       try {
-        const snapshot = await getDeskSnapshot(args.tradeDate ? String(args.tradeDate) : undefined)
+        const [snapshot, status] = await Promise.all([
+          getDeskSnapshot(args.tradeDate ? String(args.tradeDate) : undefined),
+          getDeskStatus().catch(() => null),
+        ])
         if (!snapshot.tradeDate) return '投研台还没有快照，请先在 /desk 触发刷新。'
+        const judgmentMeta = (j: typeof snapshot.industries[number]): string => [
+          j.status,
+          j.relation ? `关联 ${j.relation === 'holding' ? '持仓' : '自选'}` : '',
+          j.reviewAt ? `复核 ${String(j.reviewAt).slice(0, 10)}` : '',
+        ].filter(Boolean).join('｜')
         const market = snapshot.market
-          ? `市场判断：${snapshot.market.headline}（${snapshot.market.stance}/${snapshot.market.confidence}）`
+          ? `市场判断：${snapshot.market.headline}（${snapshot.market.stance}/${snapshot.market.confidence}）｜${judgmentMeta(snapshot.market)}`
           : '市场判断：暂无'
         const industries = snapshot.industries.slice(0, 8).map((j) =>
-          `- ${j.industry}：${j.stance}/${j.confidence} ${j.headline}`).join('\n')
+          `- ${j.industry}：${j.stance}/${j.confidence} ${j.headline}｜${judgmentMeta(j)}`).join('\n')
         const alerts = snapshot.alerts.slice(0, 6).map((a) =>
-          `- [${a.severity}] ${a.title}${a.industry ? `（${a.industry}）` : ''}`).join('\n')
+          `- [${a.severity}] ${a.title}${a.industry ? `（${a.industry}）` : ''}${a.symbolCode ? ` ${a.symbolCode}` : ''}：${a.summary}`).join('\n')
         const realtime = snapshot.realtime.slice(0, 6).map((q) =>
-          `- ${q.code}${q.name ? ` ${q.name}` : ''} ${q.price}（${q.changePct == null ? '—' : `${q.changePct}%`}，延迟${q.delaySeconds}秒）`).join('\n')
+          `- ${q.code}${q.name ? ` ${q.name}` : ''} ${q.price}（${signedPct(q.changePct)}，延迟${q.delaySeconds}秒，${q.tradeTime}）`).join('\n')
         const overseas = snapshot.overseas.map((q) =>
-          `- ${q.symbol} ${q.changePct == null ? '—' : `${q.changePct}%`}（延迟 ${q.delayMinutes ?? '?'} 分钟）`).join('\n')
+          `- ${q.symbol} ${q.price}（${signedPct(q.changePct)}，延迟 ${q.delayMinutes ?? '?'} 分钟，${q.tradeTime}）`).join('\n')
         const quality = snapshot.dataQuality
           .filter((q) => q.status !== 'ok')
           .map((q) => `- ${q.name}：${q.status}${q.message ? `，${q.message}` : ''}`).join('\n')
+        const freshness = status
+          ? `｜最后计算 ${status.lastComputedAt ?? '—'}${status.stale ? '（数据可能过期）' : ''}`
+          : ''
         return [
-          `交易日 ${snapshot.tradeDate}${snapshot.isDemo ? '（示例数据）' : ''}`,
+          `交易日 ${snapshot.tradeDate}${snapshot.isDemo ? '（示例数据）' : ''}｜快照更新于 ${snapshot.asOf}${freshness}`,
           market,
           industries ? `行业判断：\n${industries}` : '行业判断：暂无',
           alerts ? `未处理预警：\n${alerts}` : '未处理预警：无',
@@ -215,7 +267,7 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
   {
     name: 'get_open_alerts',
     description:
-      '列出未处理预警（严重度、行业、为什么是现在、证据数量）。用于回答"现在有哪些风险提示"类问题。',
+      '列出未处理预警（严重度、行业、摘要、为什么是现在、证据）。用于回答"现在有哪些风险提示"类问题。',
     parameters: {
       type: 'object',
       properties: {
@@ -229,20 +281,26 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       // 先按 severity 在库里过滤再取条数，否则最新 30 条之外的同级预警会被误报为“没有”。
       const filtered = await listAlerts({ status: 'open', severity, limit })
       if (!filtered.length) return '当前没有未处理预警。'
-      return filtered.map((a) =>
-        `#${a.id} [${a.severity}] ${a.title}${a.industry ? `（${a.industry}）` : ''}\n` +
-        `触发原因：${a.whyNow}｜证据 ${a.evidence.length} 条｜${a.triggeredAt}`).join('\n\n')
+      return filtered.map((a) => [
+        `#${a.id} [${a.severity}] ${a.title}${a.symbolCode ? ` ${a.symbolCode}` : ''}${a.industry ? `（${a.industry}）` : ''}｜${a.category}｜交易日 ${a.tradeDate}${a.isDemo ? '｜示例数据' : ''}`,
+        `摘要：${a.summary}`,
+        `触发原因：${a.whyNow}`,
+        `触发于 ${a.triggeredAt}｜证据 ${a.evidence.length} 条${a.judgmentId ? `｜关联判断 #${a.judgmentId}` : ''}`,
+        formatEvidenceLines(a.evidence, 3),
+      ].filter(Boolean).join('\n')).join('\n\n')
     },
   },
   {
     name: 'get_judgments',
     description:
-      '查询投研台判断台账（市场/行业判断、方向、置信度、摘要与证据数量）。用于回答"哪些行业被看多/看空"类问题。',
+      '查询投研台判断台账（市场/行业判断、方向、置信度、评分、状态、驱动/风险、复核时间与评估结果）。用于回答"哪些行业被看多/看空"类问题。',
     parameters: {
       type: 'object',
       properties: {
         industry: { type: 'string', description: '可选行业名' },
         kind: { type: 'string', description: 'market 或 industry' },
+        from: { type: 'string', description: '可选起始交易日 YYYY-MM-DD' },
+        to: { type: 'string', description: '可选结束交易日 YYYY-MM-DD' },
         limit: { type: 'number', description: '返回条数，默认 10' },
       },
     },
@@ -251,18 +309,35 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       const result = await listJudgments({
         kind,
         industry: args.industry ? String(args.industry) : undefined,
+        from: args.from ? String(args.from) : undefined,
+        to: args.to ? String(args.to) : undefined,
         limit: numArg(args.limit, 10),
       })
       if (!result.items.length) return '没有匹配的判断。'
-      return result.items.map((j) =>
-        `#${j.id} [${j.kind === 'market' ? '市场' : j.industry}] ${j.headline}\n` +
-        `${j.stance}/${j.confidence}｜${j.tradeDate}｜证据 ${j.evidence.length} 条｜${j.summary}`).join('\n\n')
+      return result.items.map((j) => {
+        const relation = j.relation ? `｜关联 ${j.relation === 'holding' ? '持仓' : '自选'}` : ''
+        const evaluations = j.evaluations.slice(-3).map((e) => {
+          const ret = e.returnPct == null ? '—' : signedPct(e.returnPct)
+          const bench = e.benchmarkPct == null ? '' : `（基准 ${signedPct(e.benchmarkPct)}）`
+          return `T+${e.horizonDays} ${e.hit ? '命中' : '未中'} ${ret}${bench} ${e.evalDate}`
+        })
+        return [
+          `#${j.id} [${j.kind === 'market' ? '市场' : j.industry}] ${j.headline}`,
+          `${j.stance}/${j.confidence}｜评分 ${j.score}｜状态 ${j.status}｜交易日 ${j.tradeDate}${relation}${j.isDemo ? '｜示例数据' : ''}`,
+          `摘要：${j.summary}`,
+          j.drivers.length ? `驱动：${j.drivers.join('；')}` : '',
+          j.risks.length ? `风险：${j.risks.join('；')}` : '',
+          `复核 ${j.reviewAt ? String(j.reviewAt).slice(0, 10) : '未设置'}｜证据 ${j.evidence.length} 条｜版本 v${j.version}｜计算于 ${j.computedAt}`,
+          formatEvidenceLines(j.evidence, 3),
+          evaluations.length ? `事后评估：${evaluations.join('；')}` : '事后评估：暂无',
+        ].filter(Boolean).join('\n')
+      }).join('\n\n')
     },
   },
   {
     name: 'get_investigation',
     description:
-      '读取预警深挖的调查结论、置信度、证据强度与工具步骤；可按调查 id 或预警 id 查询。',
+      '读取预警深挖的调查结论、置信度、证据强度、触发原因、进度与工具步骤；可按调查 id 或预警 id 查询。',
     parameters: {
       type: 'object',
       properties: {
@@ -279,11 +354,22 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
         investigation = items[0] || null
       }
       if (!investigation) return '没有找到该预警的深挖调查。'
+      const steps = investigation.steps.slice(0, 15).map((s) =>
+        `- 第${s.stepNo}步 [${s.kind}${s.tool ? `·${s.tool}` : ''}] ${s.ok ? '成功' : '失败'}` +
+        `${s.durationMs != null ? `｜${s.durationMs}ms` : ''}｜${s.tokens} tokens\n  ${clip(s.digest, 200)}` +
+        `${s.refs.length ? `\n  引用：${s.refs.slice(0, 6).join('、')}` : ''}`)
       return [
-        `调查 ${investigation.id}｜${investigation.status}｜置信度 ${investigation.confidence || '—'}｜证据强度 ${investigation.evidenceStrength || '—'}`,
+        `调查 ${investigation.id}｜${investigation.status}｜进度 ${investigation.progress}%｜置信度 ${investigation.confidence || '—'}｜证据强度 ${investigation.evidenceStrength || '—'}`,
+        `触发原因：${investigation.triggerReason}${investigation.alertId ? `｜预警 #${investigation.alertId}` : ''}${investigation.judgmentId ? `｜判断 #${investigation.judgmentId}` : ''}`,
         `问题：${investigation.question}`,
-        investigation.conclusion || investigation.errorMessage || '尚未生成结论。',
-      ].join('\n\n')
+        `消耗：${investigation.stepsUsed} 步｜${investigation.tokensUsed} tokens｜${formatCost(investigation.costMicros)}`,
+        `创建 ${investigation.createdAt}${investigation.startedAt ? `｜开始 ${investigation.startedAt}` : ''}${investigation.finishedAt ? `｜完成 ${investigation.finishedAt}` : ''}`,
+        investigation.conclusion ? `结论：${investigation.conclusion}` : investigation.errorMessage ? `失败原因：${investigation.errorMessage}` : '尚未生成结论。',
+        investigation.feedback
+          ? `用户反馈：${{ useful: '有用', wrong: '结论有误', incomplete: '信息不完整' }[investigation.feedback]}`
+          : '',
+        steps.length ? `工具步骤（${investigation.steps.length} 条，最多列 15 条）：\n${steps.join('\n')}` : '',
+      ].filter(Boolean).join('\n\n')
     },
   },
   // 驾驶舱面板数据（今日简报/自选/持仓/论点/个股/公告/任务）

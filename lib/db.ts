@@ -2976,6 +2976,7 @@ export async function getAnalysisStatsWithComparison(
         SELECT
           COUNT(*) as total_signals,
           COALESCE(MAX(a.signal_score), 0) as max_score,
+          COALESCE(ROUND(AVG(a.signal_score), 1), 0) as avg_score,
           COALESCE(SUM(CASE WHEN a.signal_score = 5 THEN 1 ELSE 0 END), 0) as critical_count,
           COALESCE(SUM(CASE WHEN a.signal_score = 4 THEN 1 ELSE 0 END), 0) as significant_count
         FROM analysis_result a
@@ -2991,7 +2992,7 @@ export async function getAnalysisStatsWithComparison(
     queryStats(previousSince, previousUntil),
   ]);
 
-  const defaultStats = { total_signals: 0, max_score: 0, critical_count: 0, significant_count: 0 };
+  const defaultStats = { total_signals: 0, max_score: 0, avg_score: 0, critical_count: 0, significant_count: 0 };
 
   return {
     current: (currentResult.rows[0] as Record<string, unknown>) || defaultStats,

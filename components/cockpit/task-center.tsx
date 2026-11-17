@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { TaskRecord } from '@/lib/cockpit/types'
 import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
+import { publicJson } from '@/lib/safe-json'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -199,7 +200,7 @@ function resultView(task: TaskRecord): TaskResultView | null {
         ].filter(Boolean).join('\n'),
       }
     default:
-      return { title: '任务完成', body: JSON.stringify(result, null, 2).slice(0, 600) }
+      return { title: '任务完成', body: publicJson(result).slice(0, 600) }
   }
 }
 
@@ -516,8 +517,6 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
                   {task.error && <p className="ck-task-error">{task.error}</p>}
                   <div className="ck-task-meta">
                     <span>{formatTime(task.createdAt)}</span>
-                    <span className="ck-sep">·</span>
-                    <code>{task.id.slice(0, 8)}</code>
                     {task.attempts > 1 && (
                       <>
                         <span className="ck-sep">·</span>

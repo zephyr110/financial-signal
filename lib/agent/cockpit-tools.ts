@@ -5,9 +5,11 @@
  * 研究论点、个股详情、单条信号与任务状态接给模型，回答"我的仓位/我的简报"类问题。
  */
 import type { ToolDefinition } from './types';
+import type { DocumentSummary } from '../cockpit/types';
 import { intArg } from './args';
 import {
-  getAnalysisStats,
+  getAnalysisStatsWithComparison,
+  getBacktestByIndustry,
   getCompanyHeatmap,
   getDb,
   getIndustryTrend,
@@ -15,6 +17,8 @@ import {
   getSentimentBreakdown,
   getSignalById,
 } from '../db';
+import { getTodayMarketData } from '../market';
+import { formatBacktestRows, formatEvidenceLines, publicJson } from './format';
 import {
   dateShanghai,
   formatCost,
@@ -67,6 +71,35 @@ function dateOnly(value: unknown): string {
   return dateShanghai(value as string) || String(value ?? '').slice(0, 10);
 }
 
+/** 公告行对齐 DocumentList：机构、文号、标的、生效日期、状态与原文链接都要在。 */
+function documentLine(doc: DocumentSummary): string {
+  const meta = [
+    doc.issuer,
+    doc.documentNo,
+    doc.subjectCode ? `标的 ${doc.subjectCode}` : '',
+  ].filter(Boolean).join(' · ');
+  const effective = doc.effectiveAt ? `，生效 ${dateOnly(doc.effectiveAt)}` : '';
+  const status = doc.status ? `｜状态 ${doc.status}` : '';
+  const url = doc.url ? `\n  ${doc.url}` : '';
+  return `- #${doc.id} ${dateOnly(doc.publishedAt)}${effective} [${doc.source.name}] ${doc.title}` +
+    `${meta ? `（${meta}）` : ''}${status}${url}`;
+}
+
+/** 页面按方向样本数分层展示回测；这里沿用同一规则并过滤到信号/事件相关行业。 */
+function relevantBacktestRows(
+  rows: Array<Record<string, unknown>>,
+  industries: string[] | undefined,
+): Array<Record<string, unknown>> {
+  const names = (industries || []).map((name) => String(name || '').trim()).filter(Boolean);
+  if (names.length === 0) return [];
+  return rows.filter((row) => {
+    const industry = String(row.industry ?? '');
+    return industry !== '' && names.some(
+      (name) => industry === name || industry.includes(name) || name.includes(industry),
+    );
+  });
+}
+
 export const COCKPIT_TOOLS: ToolDefinition[] = [
   {
     name: 'get_today_brief',
@@ -89,19 +122,31 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
       const indices = payload.indices
         .map((i) => `${i.name} ${i.close.toFixed(2)}（${pct(i.changePct)}）`)
         .join('；');
-      const impacts = payload.impacts.slice(0, 8).map((i) =>
-        `- ${i.code} ${i.name}：${i.headline}${i.thesisStatus ? `（论点：${thesisStatusLabel(i.thesisStatus)}）` : ''}`,
-      );
-      const documents = payload.documents.slice(0, 8).map((d) =>
-        `- #${d.id} ${dateOnly(d.publishedAt)} [${d.source.name}] ${d.title}${d.issuer ? `（${d.issuer}）` : ''}`,
-      );
+      const confidence = payload.hero.confidence;
+      const confidenceInputs = [
+        ['数据完整度', confidence.inputs.completeness],
+        ['时效性', confidence.inputs.freshness],
+        ['指标一致性', confidence.inputs.agreement],
+        ['来源质量', confidence.inputs.sourceQuality],
+      ].map(([label, value]) => `${label} ${Math.round(Number(value) * 100)}`).join('｜');
+      const heroEvidence = formatEvidenceLines(payload.hero.evidence, 8);
+      const impacts = payload.impacts.slice(0, 8).map((impact) => {
+        const thesis = impact.thesisStatus ? `（论点：${thesisStatusLabel(impact.thesisStatus)}）` : '';
+        const evidence = formatEvidenceLines(impact.evidence, 4, '    ');
+        return `- ${impact.code} ${impact.name}：${impact.headline}${thesis}` +
+          `\n  说明：${impact.detail}` +
+          (evidence ? `\n  证据：\n${evidence}` : '');
+      });
+      const documents = payload.documents.slice(0, 8).map(documentLine);
       const quality = payload.dataQuality
         .filter((q) => q.status !== 'ok')
         .map((q) => `- ${q.name}：${q.status}${q.message ? `，${q.message}` : ''}`);
 
       return [
-        `交易日 ${payload.tradeDate}｜第 ${payload.issueNo} 期${payload.isDemo ? '（示例数据）' : ''}`,
-        `收盘判断：${payload.hero.claim}（置信度 ${payload.hero.confidence.label}·${Math.round(payload.hero.confidence.score * 100)}）`,
+        `交易日 ${payload.tradeDate}｜第 ${payload.issueNo} 期｜生成于 ${dateShanghai(payload.generatedAt)} ${formatTime(payload.generatedAt)}${payload.isDemo ? '（示例数据）' : ''}`,
+        `收盘判断：${payload.hero.claim}（置信度 ${confidence.label}·${Math.round(confidence.score * 100)}）`,
+        `置信度构成：${confidenceInputs}（0-100，服务端规则计算）`,
+        heroEvidence ? `判断依据：\n${heroEvidence}` : '判断依据：暂无证据条目',
         indices ? `指数：${indices}` : '',
         `涨跌广度：${breadth}`,
         `成交额：${formatCny(payload.turnover.value, true)}（${pct(payload.turnover.changePct)}）`,
@@ -113,7 +158,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
           ? `政策与公告（共${payload.documents.length}条，显示前${documents.length}条）：\n${documents.join('\n')}`
           : '政策与公告：无',
         quality.length ? `数据质量提示：\n${quality.join('\n')}` : '',
-        payload.narrative?.text ? `模型叙述：${payload.narrative.text}` : '',
+        payload.narrative?.text ? `AI 叙述：${payload.narrative.text}` : '',
         '（引用时标注交易日；公告引用标注文档 id 与来源）',
       ].filter(Boolean).join('\n');
     },
@@ -185,7 +230,8 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
           const thesis = it.thesisStatus ? `｜论点：${thesisStatusLabel(it.thesisStatus)}` : '';
           const nextEvent = it.nextEvent ? `｜事件：${it.nextEvent}` : '';
           const backfill = it.backfill ? `｜行情补库：${it.backfill}` : '';
-          return `- ${it.code} ${it.name}：${formatPrice(it.price)}（${pct(it.changePct)}）${note}${thesis}${nextEvent}${backfill}`;
+          const source = it.source?.name ? `｜来源 ${it.source.name}` : '';
+          return `- ${it.code} ${it.name}：${formatPrice(it.price)}（${pct(it.changePct)}）${note}${thesis}${nextEvent}${backfill}${source}`;
         }),
       ].join('\n');
     },
@@ -211,7 +257,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
         ...shown.map((p) =>
           `- ${p.code} ${p.name} ${p.shares}股｜现价 ${formatPrice(p.price)}｜成本 ${formatPrice(p.avgCost)}` +
           `｜市值 ${formatCny(p.marketValue, true)}｜盈亏 ${formatCny(p.pnl, true)}（${pct(p.pnlPct)}）` +
-          `｜权重 ${p.weight.toFixed(1)}%｜${p.industry}`,
+          `｜权重 ${p.weight.toFixed(1)}%｜${p.industry}${p.source?.name ? `｜来源 ${p.source.name}` : ''}`,
         ),
         exposure ? `行业暴露：${exposure}` : '',
         risks.length ? `风险提示：\n${risks.join('\n')}` : '',
@@ -255,7 +301,8 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
   {
     name: 'get_stock_detail',
     description:
-      '读取单个标的详情：名称/行业、最新价与涨跌幅、近60日日线、相关公告与现有研究论点。' +
+      '读取单个标的详情：名称/行业、最新价与涨跌幅、近60日区间与近10日价格表、证据链、' +
+      '相关公告（含文号与原文链接）与现有研究论点（含失效条件、证据计数）。' +
       '用于回答"某只股票最近走势/公告/论点"类问题。',
     parameters: {
       type: 'object',
@@ -277,20 +324,35 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
       };
       const first = detail.bars[0];
       const last = detail.bars[detail.bars.length - 1];
-      const documents = detail.documents
-        .slice(0, 5)
-        .map((d) => `- ${dateOnly(d.publishedAt)} ${d.title}${d.issuer ? `（${d.issuer}）` : ''}`);
+      const low = closes.length > 0 ? Math.min(...closes) : null;
+      const high = closes.length > 0 ? Math.max(...closes) : null;
+      const recentBars = detail.bars.slice(-10).reverse()
+        .map((bar) => `${bar.date} ${formatPrice(bar.close)}`)
+        .join('；');
+      const evidence = formatEvidenceLines(detail.evidence, 8);
+      const documents = detail.documents.slice(0, 10).map(documentLine);
       const thesis = detail.thesis
-        ? `研究论点：${detail.thesis.title}｜${thesisStatusLabel(detail.thesis.status)}｜${detail.thesis.claim}`
+        ? [
+          `研究论点：${detail.thesis.title}｜${thesisStatusLabel(detail.thesis.status)}` +
+            `｜置信度 ${detail.thesis.confidence}｜期限 ${detail.thesis.horizon}`,
+          `主张：${detail.thesis.claim}`,
+          `失效条件：${detail.thesis.invalidation.join('；') || '未设置'}`,
+          `证据：支持 ${detail.thesis.supportCount} / 反证 ${detail.thesis.opposeCount}` +
+            `｜${detail.thesis.lastReviewedAt ? `复核于 ${dateShanghai(detail.thesis.lastReviewedAt)} ${formatTime(detail.thesis.lastReviewedAt)}` : '尚未复核'}`,
+        ].join('\n')
         : '研究论点：暂无';
 
       return [
         `${detail.code} ${detail.name}（${detail.exchange}/${detail.industry}）${detail.isDemo ? '（示例数据）' : ''}`,
         `现价 ${formatPrice(detail.price)}（${pct(detail.changePct)}）｜近5日 ${changeOver(5)}｜近20日 ${changeOver(20)}｜数据截至 ${detail.asOf || '—'}`,
-        detail.bars.length > 0 ? `日线 ${detail.bars.length} 条：${first?.date} ~ ${last?.date}` : '日线：暂无',
-        documents.length ? `相关公告：\n${documents.join('\n')}` : '相关公告：暂无',
+        detail.bars.length > 0
+          ? `日线 ${detail.bars.length} 条：${first?.date} ~ ${last?.date}｜区间 ${formatPrice(low)} ~ ${formatPrice(high)}`
+          : '日线：暂无',
+        recentBars ? `近10个交易日（新→旧）：${recentBars}` : '',
+        evidence ? `证据链：\n${evidence}` : '证据链：暂无',
+        documents.length ? `相关公告（共${detail.documents.length}条，显示前${documents.length}条）：\n${documents.join('\n')}` : '相关公告：暂无',
         thesis,
-      ].join('\n');
+      ].filter(Boolean).join('\n');
     },
   },
   {
@@ -318,22 +380,37 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
       } catch {
         related = [];
       }
+      let backtestRows: Array<Record<string, unknown>> = [];
+      try {
+        backtestRows = relevantBacktestRows(await getBacktestByIndustry(30), signal.industries as string[] | undefined);
+      } catch {
+        backtestRows = [];
+      }
       const deep = signal.deep_analysis
         ? `深度分析：${clip(String(signal.deep_analysis), 1500)}`
-        : signal.content
-          ? `原文摘录：${clip(String(signal.content), 800)}`
-          : '深度分析：暂无';
+        : '深度分析：暂无（可能仍在生成）';
+      const content = signal.content ? `原文摘录：${clip(String(signal.content), 1200)}` : '原文摘录：暂无';
+      const rawDocurl = (signal as { docurl?: unknown }).docurl;
+      const docurl = rawDocurl ? `原文链接：${String(rawDocurl)}` : '';
+      const category = CATEGORY_LABELS[String(signal.category) as keyof typeof CATEGORY_LABELS] || signal.category;
+      const sentiment = SENTIMENT_LABELS[String(signal.sentiment) as keyof typeof SENTIMENT_LABELS] || signal.sentiment;
 
       return [
-        `#${signal.id} ${signal.signal_score}分/${signal.category}/${signal.impact_level}/${signal.sentiment}｜${signal.published_at}｜${signal.source}`,
+        `#${signal.id} ${signal.signal_score}分/${category}/${signal.impact_level}/${sentiment}｜${signal.published_at}｜${signal.source}`,
         `行业：${industries}｜公司：${companies}${tags ? `｜标签：${tags}` : ''}`,
         `摘要：${signal.summary}`,
         deep,
+        content,
+        docurl,
+        backtestRows.length > 0
+          ? `相关行业回测（近30天）：\n${formatBacktestRows(backtestRows, 8)}`
+          : '相关行业回测：暂无匹配行业数据',
         signal.event_thread
           ? `事件线索：#${signal.event_thread.id} ${signal.event_thread.title}（${signal.event_thread.stage}/${signal.event_thread.confidence}）`
           : '',
         related.length > 0
-          ? `相关信号：\n${related.map((r) => `- #${r.id} ${r.signal_score}分 ${r.summary}`).join('\n')}`
+          ? `相关信号：\n${related.map((r) =>
+              `- ${dateOnly(r.published_at)} #${r.id} ${r.signal_score}分 ${r.summary}`).join('\n')}`
           : '',
       ].filter(Boolean).join('\n');
     },
@@ -401,20 +478,21 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
   {
     name: 'get_market_analytics',
     description:
-      '读取信号分析看板的聚合数据：概览统计（信号数/高分数量）、行业趋势（按时段信号量）、公司热力（被提及最多的公司）、情绪分布（利好/利空/中性）。' +
-      'view 可选 stats|industry_trend|company_heatmap|sentiment，默认 all；可按行业过滤。' +
-      '用于回答"最近信号多吗""哪些行业在升温""哪些公司被频繁提及""情绪偏多还是偏空"类问题。',
+      '读取信号分析看板的聚合数据：概览统计与环比（信号数/高分数量/平均分）、行业趋势（按时段信号量）、' +
+      '公司热力（被提及最多的公司）、情绪分布（利好/利空/中性）与板块行情（最近交易日行业/概念板块涨跌）。' +
+      'view 可选 stats|industry_trend|company_heatmap|sentiment|sectors，默认 all；可按行业过滤聚合统计。' +
+      '用于回答"最近信号多吗""哪些行业在升温""哪些公司被频繁提及""情绪偏多还是偏空""板块涨跌如何"类问题。',
     parameters: {
       type: 'object',
       properties: {
-        view: { type: 'string', description: 'stats|industry_trend|company_heatmap|sentiment，默认 all' },
+        view: { type: 'string', description: 'stats|industry_trend|company_heatmap|sentiment|sectors，默认 all' },
         hoursBack: { type: 'number', description: '回溯小时数，默认24，最大720' },
-        industry: { type: 'string', description: '可选：行业名过滤' },
+        industry: { type: 'string', description: '可选：行业名过滤（sectors 为全市场精选板块，不受此过滤）' },
       },
     },
     async execute(args) {
       const view = String(args.view || 'all').trim();
-      const allowed = ['stats', 'industry_trend', 'company_heatmap', 'sentiment'];
+      const allowed = ['stats', 'industry_trend', 'company_heatmap', 'sentiment', 'sectors'];
       if (view !== 'all' && !allowed.includes(view)) {
         return `view 仅支持 ${allowed.join('|')}（或 all）。`;
       }
@@ -423,20 +501,31 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
       const industries = industry ? [industry] : null;
       const wanted = view === 'all' ? allowed : [view];
 
-      const [stats, trend, companies, sentimentRows] = await Promise.all([
-        wanted.includes('stats') ? getAnalysisStats(hoursBack) : null,
+      const [stats, trend, companies, sentimentRows, sectors] = await Promise.all([
+        wanted.includes('stats') ? getAnalysisStatsWithComparison(hoursBack, hoursBack, industries) : null,
         wanted.includes('industry_trend') ? getIndustryTrend(hoursBack, industries) : null,
         wanted.includes('company_heatmap') ? getCompanyHeatmap(hoursBack, industries) : null,
         wanted.includes('sentiment') ? getSentimentBreakdown(hoursBack, industries) : null,
+        // 行情数据未入库时不影响信号聚合的返回。
+        wanted.includes('sectors') ? getTodayMarketData(8).catch(() => []) : null,
       ]);
 
       const sections: string[] = [];
       const scope = industry ? `，行业=${industry}` : '';
 
       if (stats) {
+        const current = stats.current as Record<string, unknown>;
+        const previous = stats.previous as Record<string, unknown> | null;
+        const value = (row: Record<string, unknown> | null, key: string): number => Number(row?.[key]) || 0;
+        const delta = (key: string): string => previous == null
+          ? '—'
+          : `${value(current, key) - value(previous, key) >= 0 ? '+' : ''}${value(current, key) - value(previous, key)}`;
+        const avgScore = current.avg_score == null ? '—' : Number(current.avg_score).toFixed(1);
         sections.push(
-          `概览（近${hoursBack}h${scope}）：信号 ${Number(stats.total_signals) || 0} 条｜5分 ${Number(stats.critical_count) || 0}` +
-            `｜4分 ${Number(stats.significant_count) || 0}｜最高分 ${Number(stats.max_score) || 0}`,
+          `概览（近${hoursBack}h${scope}，对比前${hoursBack}h）：信号 ${value(current, 'total_signals')} 条（较前 ${delta('total_signals')}）` +
+            `｜5分 ${value(current, 'critical_count')}（${delta('critical_count')}）` +
+            `｜4分 ${value(current, 'significant_count')}（${delta('significant_count')}）` +
+            `｜最高分 ${value(current, 'max_score')}（${delta('max_score')}）｜平均分 ${avgScore}`,
         );
       }
 
@@ -493,6 +582,20 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
             `${row.mixed ? ` ${SENTIMENT_LABELS.mixed}${row.mixed}` : ''}`,
           );
           sections.push(`情绪分布（近${hoursBack}h${scope}）：${overall}\n${lines.join('\n')}`);
+        }
+      }
+
+      if (sectors) {
+        if (sectors.length === 0) {
+          sections.push('板块行情：暂无最近交易日板块数据（行情可能尚未入库）。');
+        } else {
+          const lines = sectors.map((row) => {
+            const name = String(row.name ?? '未知板块');
+            const close = Number(row.close);
+            const change = Number(row.change_pct);
+            return `- ${name} ${Number.isFinite(close) ? close.toFixed(2) : '—'}（${pct(Number.isFinite(change) ? change : null)}）`;
+          });
+          sections.push(`板块行情（最近交易日收盘，按绝对涨跌幅前${lines.length}）：\n${lines.join('\n')}`);
         }
       }
 
@@ -555,8 +658,8 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
           : task.startedAt
             ? `${task.createdAt} ~ 进行中`
             : task.createdAt;
-        const parameterText = clip(JSON.stringify(task.params ?? {}), 500);
-        const resultText = task.result ? clip(JSON.stringify(task.result), 800) : '无';
+        const parameterText = clip(publicJson(task.params ?? {}), 500);
+        const resultText = task.result ? clip(publicJson(task.result), 800) : '无';
         return [
           `${task.id} ${task.type} [${taskStatusLabel(task.status)}] ${Math.round(task.progress)}%｜${task.lane}｜尝试 ${task.attempts} 次｜成本 ${formatCost(task.costMicros)}｜${span}`,
           task.step ? `当前步骤：${task.step}` : '',
@@ -565,7 +668,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
           task.error ? `错误：${task.error}` : '',
           shownEvents.length > 0
             ? `最近事件（${shownEvents.length}/${events.length} 条）：\n${shownEvents.map((e) => {
-                const payload = e.payload ? ` ${clip(JSON.stringify(e.payload), 200)}` : '';
+                const payload = e.payload ? ` ${clip(publicJson(e.payload), 200)}` : '';
                 return `- #${e.seq} ${e.type} ${formatTime(e.createdAt)}${payload}`;
               }).join('\n')}`
             : '任务事件：无',

@@ -106,7 +106,7 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
       onSubmit={(event) => void submit(event)}
     >
       <h2 className="ck-form-title">{editing ? '编辑研究论点' : '新建研究论点'}</h2>
-      <p className="ck-form-hint">模型只能引用已入库的证据；数字、来源与置信度不由表单以外的内容改写。</p>
+      <p className="ck-form-hint">论点只能引用已入库的证据；数字、来源与置信度不由表单以外的内容改写。</p>
       <div className="ck-form-row">
         <div className="ck-field">
           <label className="ck-label" htmlFor="thesis-code">股票代码</label>

@@ -116,7 +116,7 @@ export async function runAgentTurn(
   const { apiKey, model: configuredModel } = await getEffectiveLlmConfig();
   if (!apiKey) {
     throw new Error(
-      'LLM_API_KEY not configured. Set LLM_API_KEY (or DEEPSEEK_API_KEY) environment variable, or configure it in 设置 → 模型.'
+      'LLM_API_KEY not configured. Set the LLM_API_KEY environment variable or configure it in 设置 → 模型.'
     );
   }
 
