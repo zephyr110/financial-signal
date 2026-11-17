@@ -59,7 +59,7 @@ pnpm install
 pnpm dev        # http://localhost:3000
 pnpm build
 pnpm start
-pnpm test       # Vitest，821 项
+pnpm test       # Vitest，832 项
 pnpm typecheck  # tsc --noEmit
 ```
 
@@ -75,23 +75,23 @@ pnpm typecheck  # tsc --noEmit
 | `TUSHARE_TOKEN` | Tushare Pro 行情/日历凭证（也可在应用内设置） | — |
 | `CRON_SECRET` | 保护 `/api/cron/*` 机器端点 | — |
 | `COCKPIT_DEMO` | `1` 时播种示例数据，仅本地演示 | — |
-| `DB_BACKEND` | `local`（默认）或 `turso`；设置后锁定设置页的切换 | `local`（Vercel 默认 `turso`） |
-| `TURSO_DATABASE_URL` | Turso 数据库地址（仅 `DB_BACKEND=turso` 时使用） | — |
-| `TURSO_AUTH_TOKEN` | Turso 鉴权 token（仅 `DB_BACKEND=turso` 时使用） | — |
-| `DB_CONFIG_PATH` | 设置页保存的存储选择 | 与 `NEWS_DB_PATH` 同目录的 `db-config.json` |
+| `DB_BACKEND` | `local` 或 `turso`；覆盖并锁定设置页的选择 | `local`（Vercel 默认 `turso`） |
+| `TURSO_DATABASE_URL` | 部署用 Turso 地址；仅 Vercel 或 `DB_BACKEND=turso` 时生效 | — |
+| `TURSO_AUTH_TOKEN` | 部署用 Turso token；仅 Vercel 或 `DB_BACKEND=turso` 时生效 | — |
+| `DB_CONFIG_PATH` | 覆盖设置页存储选择的保存位置（仅自托管/服务端；桌面端固定使用数据目录） | 与 `NEWS_DB_PATH` 同目录的 `db-config.json` |
 | `NEWS_DB_PATH` | 本地 SQLite 路径 | `news_archive.db` |
 | `AUTH_DB_PATH` | 独立认证库（桌面端） | 与 `NEWS_DB_PATH` 同目录 |
 
-数据库默认使用本地 SQLite。需要云端时在 **设置 → 数据与存储** 切换到 Turso；选择与凭据写入 `db-config.json`（权限 0600、已 gitignore），重启应用后生效。显式设置 `DB_BACKEND` 或部署在 Vercel 时，设置页不可切换。
+解析顺序：显式 `DB_BACKEND` → Vercel（强制 Turso）→ 设置页选择 → 本地文件。只残留一个 `TURSO_DATABASE_URL` 不会生效，避免旧凭据把已有安装悄悄重定向。设置页的凭据只写入数据库旁的 `db-config.json`（权限 0600、已 gitignore）；切换后端或修改 Turso 凭据后需重启应用。
 
 ## 桌面端（Electron）
 
-离线自给自足：内置抓取与分析管线、本地 SQLite、托盘通知与自动更新。
+离线自给自足：内置抓取与分析管线、默认本地 SQLite（可在设置中切换 Turso）、托盘通知与自动更新。
 
 - **开发**：`pnpm dev:desktop`（Next dev + Electron 窗口）
 - **本地打包（mac）**：`NEWS_DB_PATH=./seed/news_archive.db pnpm dist:dir`
 - **发布**：推 `v*` tag，CI 三平台打包上传 GitHub Releases。mac 包当前未签名，首次打开会被 Gatekeeper 拦截：右键 → 打开，或 `xattr -cr "/Applications/Financial Signal.app"`。未签名的 mac 包无法自动更新，需手动下载新版本。
-- **数据目录**：macOS `~/Library/Application Support/financial-signal/`、Windows `%APPDATA%/financial-signal`、Linux `~/.config/financial-signal`
+- **数据目录**：macOS `~/Library/Application Support/financial-signal/`、Windows `%APPDATA%/financial-signal`、Linux `~/.config/financial-signal`。内含 `news_archive.db`；切换存储后还会写入 `db-config.json`。
 - **首次启动**：可导入现有 `news_archive.db` 或全新开始；在设置里配置 LLM key 后分析管线自动启用。
 - **调度**：内置调度器默认每 30 分钟运行一次，可在 设置 → 自动刷新 中启停或调整间隔；本地库与 Turso 均可使用。
 
@@ -99,12 +99,14 @@ pnpm typecheck  # tsc --noEmit
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zephyr110/financial-signal)
 
-自托管默认使用本地 SQLite；需要云端时在 设置 → 数据与存储 切换到 Turso，或设置 `DB_BACKEND=turso`。Vercel 因文件系统非持久，未显式指定时仍默认使用 Turso。
+自托管默认使用本地 SQLite；需要云端时在 设置 → 数据与存储 切换到 Turso（凭据留在宿主机 `db-config.json`），或设置 `DB_BACKEND=turso` 并提供 `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`。Vercel 因文件系统非持久，必须使用 Turso，未显式指定时自动选择。
 
 1. 在 [Turso](https://turso.tech) 创建数据库。
-2. Vercel 配置 `TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`、`LLM_API_KEY`、`CRON_SECRET`。
+2. Vercel 配置 `TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`、`LLM_API_KEY`、`CRON_SECRET`（无需 `DB_BACKEND`）。
 3. GitHub Secrets 配置 `APP_URL` 与 `CRON_SECRET` 供兜底工作流使用。
 4. 手动触发一次 `fetch` 与 `analyze` 初始化数据。
+
+自托管若通过设置页使用 Turso，请把 `db-config.json` 放在与数据库相同的可写持久卷上；切换后端或凭据后需重启进程。
 
 桌面端由内置调度器驱动（默认 30 分钟，可在设置中调整）。Web 部署没有常驻调度：由 GitHub Actions（每天北京时间 05:17 跑全管线）、Vercel Cron（`fetch` + `analyze`）和可选 QStash 承担。所有端点幂等、自带节流，并受 `CRON_SECRET` 保护。
 

@@ -610,7 +610,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                     <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="数据库存储">
                       {[
                         ["local", "本地数据库", "默认 · 无云端用量限制"],
-                        ["turso", "Turso 云端", "可选 · 多设备共享"],
+                        ["turso", "Turso 云端", "可选 · 多设备共享同一远端库"],
                       ].map(([value, title, desc]) => {
                         const active = storageBackend === value;
                         return (
@@ -666,7 +666,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                       <p className="text-xs text-amber-600 dark:text-amber-400">存储选择已保存，重启应用后生效。</p>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      默认使用本地 SQLite（news_archive.db），不消耗云端额度。切换到 Turso 后需重启；云端是独立空库，不会自动迁移本地数据。
+                      默认使用本地 SQLite（news_archive.db），不消耗云端额度。切换到 Turso 后需重启；云端是独立空库，不会自动迁移或同步本地数据。
                     </p>
                     {saveButton(saveStorage, storage.locked)}
                   </div>

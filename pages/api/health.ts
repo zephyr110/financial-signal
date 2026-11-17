@@ -30,7 +30,7 @@ export default async function handler(req, res) {
   // waitForHealthy 只看状态码,serverManager.start() 照常通过。
   // 非桌面端(next start 自托管,缺文件)必须保持原行为:getDb 自愈建库,
   // 缺文件 → 503 让探活服务报警,而不是永久伪装 200。
-  // Turso/Vercel 模式无文件概念,该检查自然跳过,行为不变。
+  // Turso/Vercel 或设置页选择 Turso 时无文件概念,该检查自然跳过,行为不变。
   // :memory: 模式不产生文件,同样跳过(保持现有"报告 ok"行为)。
   const localDbPath = process.env.NEWS_DB_PATH;
   // 设置页选择的 Turso 也属于远端模式，同样不能因为本地文件缺失而跳过探活

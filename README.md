@@ -59,7 +59,7 @@ pnpm install
 pnpm dev        # http://localhost:3000
 pnpm build
 pnpm start
-pnpm test       # Vitest, 821 tests
+pnpm test       # Vitest, 832 tests
 pnpm typecheck  # tsc --noEmit
 ```
 
@@ -75,23 +75,23 @@ Copy `.env.example` to `.env.local` and fill in what you need. The app is behind
 | `TUSHARE_TOKEN` | Tushare Pro token for quotes and calendar (also settable in-app) | — |
 | `CRON_SECRET` | Protects `/api/cron/*` machine endpoints | — |
 | `COCKPIT_DEMO` | `1` seeds sample data for local demos only | — |
-| `DB_BACKEND` | `local` (default) or `turso`; setting it locks the choice in Settings | `local` (`turso` on Vercel) |
-| `TURSO_DATABASE_URL` | Turso database URL (only with `DB_BACKEND=turso`) | — |
-| `TURSO_AUTH_TOKEN` | Turso auth token (only with `DB_BACKEND=turso`) | — |
-| `DB_CONFIG_PATH` | Storage choice saved by Settings → 数据与存储 | `db-config.json` beside `NEWS_DB_PATH` |
+| `DB_BACKEND` | `local` or `turso`; overrides and locks the in-app choice | `local` (`turso` on Vercel) |
+| `TURSO_DATABASE_URL` | Turso URL for deployment; ignored unless on Vercel or `DB_BACKEND=turso` | — |
+| `TURSO_AUTH_TOKEN` | Turso token for deployment; ignored unless on Vercel or `DB_BACKEND=turso` | — |
+| `DB_CONFIG_PATH` | Where the Settings storage choice is saved (server/self-host only; the desktop app always uses its data directory) | `db-config.json` beside `NEWS_DB_PATH` |
 | `NEWS_DB_PATH` | Local SQLite path | `news_archive.db` |
 | `AUTH_DB_PATH` | Separate auth database (desktop) | beside `NEWS_DB_PATH` |
 
-Database backend defaults to the local SQLite file. Switch to Turso in **Settings → 数据与存储**; the choice and credentials are written to `db-config.json` (mode 0600, git-ignored) and take effect after an app restart. An explicit `DB_BACKEND` or running on Vercel locks the switch.
+Resolution order: explicit `DB_BACKEND` → Vercel (Turso required) → in-app setting → local file. A leftover `TURSO_DATABASE_URL` alone is ignored, so stale credentials cannot silently redirect an existing install. In-app credentials are written only to `db-config.json` (mode 0600, git-ignored) beside the database; switching the backend or changing Turso credentials requires an app restart.
 
 ## Desktop app (Electron)
 
-Fully self-contained: built-in fetch and analysis pipelines, local SQLite, tray notifications and auto-update.
+Fully self-contained: built-in fetch and analysis pipelines, local SQLite by default (Turso optional in Settings), tray notifications and auto-update.
 
 - **Develop**: `pnpm dev:desktop` (Next dev server + Electron window)
 - **Package locally (mac)**: `NEWS_DB_PATH=./seed/news_archive.db pnpm dist:dir`
 - **Release**: push a `v*` tag; CI builds all three platforms and uploads to GitHub Releases. macOS builds are currently unsigned, so Gatekeeper blocks the first launch: right-click → Open, or `xattr -cr "/Applications/Financial Signal.app"`. Unsigned macOS builds cannot auto-update; download the new version manually.
-- **Data directory**: macOS `~/Library/Application Support/financial-signal/`, Windows `%APPDATA%/financial-signal`, Linux `~/.config/financial-signal`
+- **Data directory**: macOS `~/Library/Application Support/financial-signal/`, Windows `%APPDATA%/financial-signal`, Linux `~/.config/financial-signal`. It holds `news_archive.db` and, after switching storage, `db-config.json`.
 - **First run**: import an existing `news_archive.db` or start fresh, then set the LLM key in Settings.
 - **Scheduling**: the built-in scheduler runs every 30 minutes; enable, pause or change the interval in Settings → 自动刷新. It works with both local and Turso storage.
 
@@ -99,12 +99,14 @@ Fully self-contained: built-in fetch and analysis pipelines, local SQLite, tray 
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zephyr110/financial-signal)
 
-Self-hosted runs default to a local SQLite file. To use Turso, pick it in Settings → 数据与存储 or set `DB_BACKEND=turso`; on Vercel Turso remains the default because the filesystem is ephemeral.
+Self-hosted runs default to a local SQLite file. To use Turso, pick it in Settings → 数据与存储 (credentials stay on the host in `db-config.json`) or set `DB_BACKEND=turso` with `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`. On Vercel, Turso is required and selected automatically because the filesystem is ephemeral.
 
 1. Create a database on [Turso](https://turso.tech).
-2. Set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `LLM_API_KEY` and `CRON_SECRET` in Vercel.
+2. Set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `LLM_API_KEY` and `CRON_SECRET` in Vercel (no `DB_BACKEND` needed).
 3. Configure GitHub Secrets `APP_URL` and `CRON_SECRET` for the fallback workflow.
 4. Trigger `fetch` and `analyze` once to seed initial data.
+
+When using Settings-based Turso on a self-hosted server, keep `db-config.json` on the same persistent, writable volume as the database and restart after changing the backend or credentials.
 
 Desktop builds run a built-in scheduler (30 minutes by default, configurable in Settings). Web deployments have no resident scheduler: GitHub Actions (daily full pipeline at 05:17 Beijing time), Vercel Cron (`fetch` + `analyze`) and optional QStash cover that role. All endpoints are idempotent, self-throttle, and are protected by `CRON_SECRET`.
 

@@ -175,7 +175,7 @@ export async function ensureTradingCalendar(options: {
   let fetched = false
   if (!fresh) {
     const token = (options.token || await resolveToken())?.trim()
-    if (!token) throw new Error('未配置 Tushare token；请在设置的数据源中填写，或设置 TUSHARE_TOKEN')
+    if (!token) throw new Error('未配置 Tushare token；请在设置的「数据与存储」中填写，或设置 TUSHARE_TOKEN')
     const rows = await tushareFetch(
       'trade_cal',
       { exchange: 'SSE', start_date: compact(startDate), end_date: compact(anchorDate) },
@@ -409,7 +409,7 @@ export async function ingestTushare(options: {
   await assertNoDemoData()
 
   const token = (options.token || await resolveToken())?.trim()
-  if (!token) throw new Error('未配置 Tushare token；请在设置的数据源中填写，或设置 TUSHARE_TOKEN')
+  if (!token) throw new Error('未配置 Tushare token；请在设置的「数据与存储」中填写，或设置 TUSHARE_TOKEN')
 
   const warnings: string[] = []
   try {
