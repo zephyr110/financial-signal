@@ -50,7 +50,12 @@ function enqueueRestart(task, label) {
   return p;
 }
 
-function registerIpc({ getDbPath, onImported, onFreshDb, onFetchNow }) {
+function registerIpc({
+  getDbPath, onImported, onFreshDb, onFetchNow,
+  isRemoteDb = () => false,
+  getSchedulerConfig = () => ({ enabled: true, intervalMs: 30 * 60 * 1000 }),
+  setSchedulerConfig = () => ({ enabled: true, intervalMs: 30 * 60 * 1000 }),
+}) {
   ipcMain.handle('app:select-and-import-db', async (event) => {
     if (denyUntrusted(event)) return { ok: false, error: 'Forbidden' };
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -96,9 +101,12 @@ function registerIpc({ getDbPath, onImported, onFreshDb, onFetchNow }) {
     const dbPath = getDbPath();
     // prod:db 存在且含必要表才算导入完成(防 0 字节/未初始化空库把欢迎页跳过)
     // dev:userData 的 db 只有 createFreshDb 会碰,existsSync 足够,且 dev 无 server 建表
-    const imported = isDev
-      ? fs.existsSync(dbPath)
-      : (await validateDbFile(dbPath)).ok;
+    // Turso: 数据在远端,本地没有库文件也要视为已就绪
+    const imported = isRemoteDb()
+      ? true
+      : isDev
+        ? fs.existsSync(dbPath)
+        : (await validateDbFile(dbPath)).ok;
     return { version: app.getVersion(), dbPath, imported };
   });
 
@@ -106,6 +114,20 @@ function registerIpc({ getDbPath, onImported, onFreshDb, onFetchNow }) {
     if (denyUntrusted(event)) return { ok: false, error: 'Forbidden' };
     if (onFetchNow) await onFetchNow();
     return { ok: true };
+  });
+
+  ipcMain.handle('app:get-scheduler', async (event) => {
+    if (denyUntrusted(event)) return { ok: false, error: 'Forbidden' };
+    return { ok: true, ...getSchedulerConfig() };
+  });
+
+  ipcMain.handle('app:set-scheduler', async (event, patch) => {
+    if (denyUntrusted(event)) return { ok: false, error: 'Forbidden' };
+    try {
+      return { ok: true, ...setSchedulerConfig(patch || {}) };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   });
 }
 

@@ -59,7 +59,7 @@ pnpm install
 pnpm dev        # http://localhost:3000
 pnpm build
 pnpm start
-pnpm test       # Vitest, 583 tests
+pnpm test       # Vitest, 821 tests
 pnpm typecheck  # tsc --noEmit
 ```
 
@@ -75,11 +75,14 @@ Copy `.env.example` to `.env.local` and fill in what you need. The app is behind
 | `TUSHARE_TOKEN` | Tushare Pro token for quotes and calendar (also settable in-app) | — |
 | `CRON_SECRET` | Protects `/api/cron/*` machine endpoints | — |
 | `COCKPIT_DEMO` | `1` seeds sample data for local demos only | — |
-| `DB_BACKEND` | `local` (default) or `turso`; remote DB only with `turso` | `local` (`turso` on Vercel) |
-| `TURSO_DATABASE_URL` | Turso database URL (used when `DB_BACKEND=turso`) | — |
-| `TURSO_AUTH_TOKEN` | Turso auth token | — |
+| `DB_BACKEND` | `local` (default) or `turso`; setting it locks the choice in Settings | `local` (`turso` on Vercel) |
+| `TURSO_DATABASE_URL` | Turso database URL (only with `DB_BACKEND=turso`) | — |
+| `TURSO_AUTH_TOKEN` | Turso auth token (only with `DB_BACKEND=turso`) | — |
+| `DB_CONFIG_PATH` | Storage choice saved by Settings → 数据与存储 | `db-config.json` beside `NEWS_DB_PATH` |
 | `NEWS_DB_PATH` | Local SQLite path | `news_archive.db` |
 | `AUTH_DB_PATH` | Separate auth database (desktop) | beside `NEWS_DB_PATH` |
+
+Database backend defaults to the local SQLite file. Switch to Turso in **Settings → 数据与存储**; the choice and credentials are written to `db-config.json` (mode 0600, git-ignored) and take effect after an app restart. An explicit `DB_BACKEND` or running on Vercel locks the switch.
 
 ## Desktop app (Electron)
 
@@ -90,19 +93,20 @@ Fully self-contained: built-in fetch and analysis pipelines, local SQLite, tray 
 - **Release**: push a `v*` tag; CI builds all three platforms and uploads to GitHub Releases. macOS builds are currently unsigned, so Gatekeeper blocks the first launch: right-click → Open, or `xattr -cr "/Applications/Financial Signal.app"`. Unsigned macOS builds cannot auto-update; download the new version manually.
 - **Data directory**: macOS `~/Library/Application Support/financial-signal/`, Windows `%APPDATA%/financial-signal`, Linux `~/.config/financial-signal`
 - **First run**: import an existing `news_archive.db` or start fresh, then set the LLM key in Settings.
+- **Scheduling**: the built-in scheduler runs every 30 minutes; enable, pause or change the interval in Settings → 自动刷新. It works with both local and Turso storage.
 
 ## Deployment
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zephyr110/financial-signal)
 
-Self-hosted runs default to a local SQLite file. Turso is only used with `DB_BACKEND=turso`; on Vercel it remains the default because the filesystem is ephemeral.
+Self-hosted runs default to a local SQLite file. To use Turso, pick it in Settings → 数据与存储 or set `DB_BACKEND=turso`; on Vercel Turso remains the default because the filesystem is ephemeral.
 
 1. Create a database on [Turso](https://turso.tech).
 2. Set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `LLM_API_KEY` and `CRON_SECRET` in Vercel.
 3. Configure GitHub Secrets `APP_URL` and `CRON_SECRET` for the fallback workflow.
 4. Trigger `fetch` and `analyze` once to seed initial data.
 
-Three complementary schedules keep data fresh: GitHub Actions (daily full pipeline at 05:17 Beijing time), Vercel Cron (`fetch` + `analyze`), and optional QStash for high-frequency runs. All endpoints are idempotent and self-throttle.
+Desktop builds run a built-in scheduler (30 minutes by default, configurable in Settings). Web deployments have no resident scheduler: GitHub Actions (daily full pipeline at 05:17 Beijing time), Vercel Cron (`fetch` + `analyze`) and optional QStash cover that role. All endpoints are idempotent, self-throttle, and are protected by `CRON_SECRET`.
 
 ## Documentation
 

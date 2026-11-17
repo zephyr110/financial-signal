@@ -5,11 +5,13 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('./libsql-client');
 const { createServerManager, devUrl } = require('./server');
-const { createScheduler } = require('./scheduler');
+const { createScheduler, fetchLlmConfigured } = require('./scheduler');
 const { createTray } = require('./tray');
 const { registerIpc } = require('./ipc');
 const { notifyNewHighSignals } = require('./notifier');
 const { initUpdater } = require('./updater');
+const { dbConfigFile, readDbConfig } = require('./db-config');
+const { loadConfig, saveConfig } = require('./store');
 
 // Windows 通知依赖 AppUserModelID(与 electron-builder appId 一致,缺失则托盘通知
 // 静默不显示)。须在 whenReady 之前调用;mac/Linux 上是 no-op,安全。
@@ -32,6 +34,50 @@ const dbPath = isDev
   ? path.join(process.cwd(), 'news_archive.db')
   : path.join(userData, 'news_archive.db');
 const configFile = path.join(userData, 'config.json');
+// 与 lib/db-config.ts 同路径：数据库后端选择必须先于连库生效
+const dbConfigPath = dbConfigFile(dbPath);
+const DEFAULT_SCHEDULER_INTERVAL_MS = 30 * 60 * 1000;
+const MIN_SCHEDULER_INTERVAL_MS = 5 * 60 * 1000;
+
+function isRemoteDb() {
+  return readDbConfig(dbConfigPath)?.backend === 'turso';
+}
+
+/** 本地库有没有可用的库文件；远端库由设置文件决定，不依赖本地文件。 */
+function dbAvailable() {
+  return isRemoteDb() || fs.existsSync(dbPath);
+}
+
+function readSchedulerConfig() {
+  const cfg = loadConfig(configFile, {});
+  const raw = Number(cfg.intervalMs);
+  return {
+    enabled: cfg.schedulerEnabled !== false,
+    intervalMs: Math.max(
+      MIN_SCHEDULER_INTERVAL_MS,
+      Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_SCHEDULER_INTERVAL_MS,
+    ),
+  };
+}
+
+/** 改配置后立即重启调度器；返回落盘后的完整配置。 */
+function updateSchedulerConfig(patch = {}) {
+  const next = loadConfig(configFile, {});
+  if (typeof patch.enabled === 'boolean') next.schedulerEnabled = patch.enabled;
+  if (patch.intervalMinutes != null) {
+    const minutes = Number(patch.intervalMinutes);
+    if (!Number.isFinite(minutes) || minutes < 5 || minutes > 24 * 60) {
+      throw new Error('调度间隔需在 5 分钟到 24 小时之间');
+    }
+    next.intervalMs = Math.round(minutes) * 60 * 1000;
+  }
+  saveConfig(configFile, next);
+  if (!isDev) {
+    stopScheduler();
+    if (readSchedulerConfig().enabled && dbAvailable()) startScheduler();
+  }
+  return readSchedulerConfig();
+}
 
 /** 停掉并丢弃调度器(3 处共用:启动替换、换库重启、崩溃后重建)。 */
 function stopScheduler() {
@@ -123,8 +169,15 @@ function ensureScheduler() {
     baseUrl: serverUrl || devUrl(),
     dbPath,
     configFile,
+    isDbAvailable: dbAvailable,
+    // Turso 模式下设置存在远端，本地 app_settings 不可用
+    ...(isRemoteDb()
+      ? { getLlmConfigured: () => fetchLlmConfigured(serverUrl || devUrl()) }
+      : {}),
     onRunStart: (sequence) => console.log(`[scheduler] run: ${sequence.join(' → ')}`),
     onRunEnd: () => {
+      // 桌面通知按本地 news 表增量查询；Turso 模式下本地库不更新，跳过避免误报
+      if (isRemoteDb()) return;
       // 通知失败不能打断调度循环,吞掉错误只记日志
       notifyNewHighSignals({
         dbPath,
@@ -138,6 +191,10 @@ function ensureScheduler() {
 
 async function startScheduler() {
   if (!serverUrl) return;
+  if (!readSchedulerConfig().enabled || !dbAvailable()) {
+    stopScheduler();
+    return;
+  }
   // 幂等:已存在则先停再建(崩溃重启后端口变化,调度器必须绑新 URL)
   stopScheduler();
   ensureScheduler();
@@ -148,7 +205,7 @@ async function startScheduler() {
  * /api/health 在文件缺失时不触发 getDb(见 pages/api/health.ts)。用户做出
  * 选择后 restartAfterDbChange 内会无条件 startScheduler()(此时 db 必已存在)。 */
 function maybeStartScheduler() {
-  if (!isDev && fs.existsSync(dbPath)) startScheduler();
+  if (!isDev && dbAvailable()) startScheduler();
 }
 
 /** 手动抓取:prod 走调度器 runOnce;dev 无调度器轮询,也建实例按需跑一轮。 */
@@ -270,6 +327,9 @@ if (!gotLock) {
         onImported,
         onFreshDb: createFreshDb,
         onFetchNow: runFetchNow,
+        isRemoteDb,
+        getSchedulerConfig: readSchedulerConfig,
+        setSchedulerConfig: updateSchedulerConfig,
       });
       try {
         tray = createTray({

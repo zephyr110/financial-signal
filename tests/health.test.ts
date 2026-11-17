@@ -133,4 +133,21 @@ describe('GET /api/health', () => {
     expect(res._status).toBe(200)
     expect(res._body.db).toBe('ok')
   })
+
+  it('设置页选的 Turso:本地文件缺失也照常 getDb(不误报 db:"missing")', async () => {
+    const cfg = path.join(dir, 'db-config.json')
+    fs.writeFileSync(cfg, JSON.stringify({ backend: 'turso', tursoUrl: 'libsql://x.turso.io' }))
+    vi.stubEnv('DESKTOP_MODE', '1')
+    vi.stubEnv('NEWS_DB_PATH', path.join(dir, 'nope.db'))
+    vi.stubEnv('DB_CONFIG_PATH', cfg)
+    vi.mocked(getDb).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) } as any)
+    vi.mocked(getPipelineHealth).mockResolvedValue({ hours: 24, jobs: [] } as any)
+
+    const res = mockRes()
+    await handler(mockReq(), res)
+
+    expect(getDb).toHaveBeenCalledTimes(1)
+    expect(res._status).toBe(200)
+    expect(res._body.db).toBe('ok')
+  })
 })

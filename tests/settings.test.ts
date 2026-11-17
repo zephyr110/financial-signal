@@ -1,11 +1,14 @@
+import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import handler from '../pages/api/settings'
 import { getSessionUser, SESSION_COOKIE } from '../lib/auth'
 
 // 隔离 DB:settings 写入不能落在共享的项目 DB(并行 worker 会互相污染/锁冲突)
 process.env.NEWS_DB_PATH = path.join(os.tmpdir(), `test-settings-${process.pid}.db`)
+
+const dbConfigFile = path.join(os.tmpdir(), `test-settings-db-config-${process.pid}.json`)
 
 // 桌面分支不走会话:getSessionUser 必须被跳过;web 分支用它做 401 判定
 vi.mock('../lib/auth', () => ({
@@ -37,6 +40,13 @@ describe('/api/settings', () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
     vi.mocked(getSessionUser).mockReset()
+    process.env.DB_CONFIG_PATH = dbConfigFile
+    fs.rmSync(dbConfigFile, { force: true })
+  })
+
+  afterEach(() => {
+    fs.rmSync(dbConfigFile, { force: true })
+    delete process.env.DB_CONFIG_PATH
   })
 
   it('web 模式无会话 → 401', async () => {
@@ -111,5 +121,75 @@ describe('/api/settings', () => {
     const res = mockRes()
     await handler(mockReq('POST', { headers: { origin: 'https://evil.example' }, body: { llmModel: 'gpt-x' } }), res)
     expect(res._status).toBe(200)
+  })
+
+  it('GET 返回存储状态:默认本地库、未锁定、无需重启', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    const res = mockRes()
+    await handler(mockReq('GET'), res)
+    expect(res._status).toBe(200)
+    expect(res._body.storage).toMatchObject({
+      backend: 'local',
+      locked: false,
+      activeBackend: 'local',
+      restartRequired: false,
+    })
+  })
+
+  it('POST 明确切回本地库 → 写配置并提示重启', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    const res = mockRes()
+    await handler(mockReq('POST', { body: { storageBackend: 'local' } }), res)
+    expect(res._status).toBe(200)
+    expect(res._body).toEqual({ ok: true, restartRequired: true })
+    expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({ backend: 'local' })
+  })
+
+  it('POST 选 Turso 但缺 URL → 400 且不写文件', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    const res = mockRes()
+    await handler(mockReq('POST', { body: { storageBackend: 'turso' } }), res)
+    expect(res._status).toBe(400)
+    expect(res._body.error).toMatch(/URL/)
+    expect(fs.existsSync(dbConfigFile)).toBe(false)
+  })
+
+  it('POST 选 Turso 写入 URL/token；再次保存留空 token 时沿用旧值', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    await handler(mockReq('POST', {
+      body: { storageBackend: 'turso', tursoUrl: 'libsql://db.turso.io', tursoToken: 'tok' },
+    }), mockRes())
+    expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({
+      backend: 'turso',
+      tursoUrl: 'libsql://db.turso.io',
+      tursoToken: 'tok',
+    })
+
+    await handler(mockReq('POST', {
+      body: { storageBackend: 'turso', tursoUrl: 'libsql://db2.turso.io', tursoToken: '' },
+    }), mockRes())
+    expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({
+      backend: 'turso',
+      tursoUrl: 'libsql://db2.turso.io',
+      tursoToken: 'tok',
+    })
+
+    await handler(mockReq('POST', {
+      body: { storageBackend: 'turso', tursoToken: null },
+    }), mockRes())
+    expect(JSON.parse(fs.readFileSync(dbConfigFile, 'utf8'))).toEqual({
+      backend: 'turso',
+      tursoUrl: 'libsql://db2.turso.io',
+    })
+  })
+
+  it('DB_BACKEND 由环境变量锁定时拒绝在设置中切换', async () => {
+    vi.stubEnv('DB_BACKEND', 'local')
+    vi.mocked(getSessionUser).mockResolvedValue('admin')
+    const res = mockRes()
+    await handler(mockReq('POST', { body: { storageBackend: 'turso', tursoUrl: 'libsql://x.turso.io' } }), res)
+    expect(res._status).toBe(400)
+    expect(res._body.error).toMatch(/环境变量/)
+    expect(fs.existsSync(dbConfigFile)).toBe(false)
   })
 })

@@ -96,6 +96,17 @@ describe('buildServerEnv', () => {
     }
   })
 
+  it('不透传 DB_BACKEND:后端由 db-config.json 决定,避免宿主环境锁死设置页', () => {
+    const saved = process.env.DB_BACKEND
+    process.env.DB_BACKEND = 'turso'
+    try {
+      expect(buildServerEnv({ port: 1 }).DB_BACKEND).toBeUndefined()
+    } finally {
+      if (saved === undefined) delete process.env.DB_BACKEND
+      else process.env.DB_BACKEND = saved
+    }
+  })
+
   it('不泄漏宿主 env:TURSO 凭据不进子进程,LLM 配置照常透传', () => {
     const saved = { turso: process.env.TURSO_DATABASE_URL, llm: process.env.LLM_API_KEY }
     process.env.TURSO_DATABASE_URL = 'libsql://leak-me.turso.io'

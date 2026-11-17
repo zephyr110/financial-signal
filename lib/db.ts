@@ -4,45 +4,31 @@ import { industryDisplayName } from './constants';
 import { cachedRead, readCacheKey, READ_CACHE_TTL, clearReadCache } from './read-cache';
 import { ftsMatchQuery, hasFtsTable } from './search/fts';
 import crypto from 'crypto';
-import path from 'path';
+import { readDbConfig, resolveDbTarget, type DbTarget } from './db-config';
 
 /**
- * 默认本地文件 SQLite；显式 DB_BACKEND=turso 才连 Turso。
+ * 默认本地文件 SQLite；Turso 仅在设置里显式选择或 DB_BACKEND=turso 时使用。
  * 环境里遗留的 TURSO_* 不再隐式生效——远程配额耗尽不会把整站拖到不可用。
  * Vercel 无持久磁盘，未显式指定后端时仍要求 Turso。
  */
-export function resolveDbTarget(env: Record<string, string | undefined> = process.env): { url: string; authToken?: string } {
-  // 测试必须隔离在本地文件库:测试含破坏性操作(改密/清会话/去重 DELETE),
-  // 若开发机 shell 导出了 TURSO_DATABASE_URL(生产标配),不经此分支会直连共享库
-  if (env.NODE_ENV === 'test') {
-    const filePath = env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db');
-    return { url: `file:${filePath}` };
-  }
-  const backend = (env.DB_BACKEND || '').trim().toLowerCase();
-  if (backend && backend !== 'local' && backend !== 'turso') {
-    throw new Error(`DB_BACKEND 只能是 local 或 turso（当前 "${backend}"）`);
-  }
-  if (backend === 'turso' || (!backend && env.VERCEL)) {
-    if (!env.TURSO_DATABASE_URL) {
-      throw new Error('DB_BACKEND=turso 需要 TURSO_DATABASE_URL 与 TURSO_AUTH_TOKEN');
-    }
-    return { url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN };
-  }
-  if (env.VERCEL) {
-    throw new Error('Vercel 无持久磁盘，不能使用本地数据库；请删除 DB_BACKEND=local 并配置 TURSO_DATABASE_URL。');
-  }
-  const filePath = env.NEWS_DB_PATH || path.join(process.cwd(), 'news_archive.db');
-  return { url: `file:${filePath}` };
+export { resolveDbTarget };
+export type { StoredDbConfig } from './db-config';
+
+let activeDbTarget: DbTarget | null = null;
+
+/** 当前进程实际连着的库；null 表示还没建过连接。 */
+export function getActiveDbTarget(): DbTarget | null {
+  return activeDbTarget;
 }
 
 let warnedIgnoredTurso = false;
 
 function resolveClientConfig() {
-  const target = resolveDbTarget(process.env);
+  const target = resolveDbTarget(process.env, readDbConfig());
   if (!warnedIgnoredTurso && process.env.NODE_ENV !== 'test'
     && target.url.startsWith('file:') && process.env.TURSO_DATABASE_URL) {
     warnedIgnoredTurso = true;
-    console.warn('[db] 检测到 TURSO_DATABASE_URL，但当前使用本地数据库；如需远端库请设置 DB_BACKEND=turso');
+    console.warn('[db] 检测到 TURSO_DATABASE_URL，但当前使用本地数据库；如需远端库请在设置中选择 Turso 或设置 DB_BACKEND=turso');
   }
   return target;
 }
@@ -138,8 +124,10 @@ let schemaReady;
 
 export async function getDb() {
   if (!client) {
-    const raw = createClient(resolveClientConfig());
-    client = resolveClientConfig().url.startsWith('file:') ? createGuardedClient(raw) : raw;
+    const target = resolveClientConfig();
+    activeDbTarget = target;
+    const raw = createClient(target);
+    client = target.url.startsWith('file:') ? createGuardedClient(raw) : raw;
   }
   let m = schemaReady;
   if (!m) {
