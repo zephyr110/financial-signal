@@ -32,7 +32,7 @@ interface SearchBarProps {
 
 /**
  * 搜索 + 分数 + 时间范围。搜索框默认收成一枚图标，
- * 聚焦或点击后展开，宽度动画向左生长，不挤动右侧按钮。
+ * 聚焦或点击后展开，宽度动画向右生长；菜单左对齐，贴左摆放时不会溢出屏幕。
  */
 export default function SearchBar({
   onSearch,
@@ -254,7 +254,7 @@ export default function SearchBar({
         {showScoreDropdown && (
           <div
             role="menu"
-            className="absolute right-0 top-full mt-1 bg-card border rounded-lg shadow-lg py-1 z-20 min-w-[88px]"
+            className="absolute left-0 top-full mt-1 bg-card border rounded-lg shadow-lg py-1 z-20 min-w-[88px]"
           >
             {SCORE_OPTIONS.map((opt) => (
               <button
@@ -298,7 +298,7 @@ export default function SearchBar({
         {showTimeDropdown && (
           <div
             role="menu"
-            className="absolute right-0 top-full mt-1 bg-card border rounded-lg shadow-lg py-1 z-20 min-w-[88px]"
+            className="absolute left-0 top-full mt-1 bg-card border rounded-lg shadow-lg py-1 z-20 min-w-[88px]"
           >
             {TIME_OPTIONS.map((opt) => (
               <button
