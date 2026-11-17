@@ -26,7 +26,7 @@ export default function IndustrySelector({ industries, watched, onToggle, onClea
         type="button"
         onClick={() => setOpen(!open)}
         className={cn(
-          "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-all border",
+          "inline-flex h-8 items-center gap-1.5 px-2.5 rounded-full text-xs font-medium transition-all border",
           watched.length > 0
             ? "border-primary bg-primary/10 text-primary"
             : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground"
