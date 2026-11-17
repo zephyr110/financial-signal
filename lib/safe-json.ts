@@ -26,11 +26,16 @@ export function displayToolArgs(args: unknown): string {
 }
 
 // 错误信息里的文件名/源码位置不是主机名：db-config.json、analysis.tsx:42 必须原样保留。
+// 故意不收 md/py/zip/sh/local：它们同时是真实顶级域名，放进来会让主机名漏过脱敏。
 const FILE_EXTENSIONS = new Set([
   'json', 'jsonl', 'tsx', 'ts', 'jsx', 'js', 'mjs', 'cjs', 'db', 'sqlite', 'sqlite3', 'sql',
-  'log', 'md', 'txt', 'sh', 'py', 'css', 'html', 'htm', 'yaml', 'yml', 'toml', 'ini', 'env',
-  'local', 'lock', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'csv', 'xlsx', 'xls',
-  'zip', 'gz', 'tar', 'pem', 'key', 'crt', 'map', 'wasm', 'node', 'gitkeep',
+  'log', 'txt', 'css', 'html', 'htm', 'yaml', 'yml', 'toml', 'ini', 'env',
+  'lock', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'csv', 'xlsx', 'xls',
+  'gz', 'tar', 'pem', 'key', 'crt', 'map', 'wasm', 'node', 'gitkeep',
+]);
+
+const CURRENCY_CODES = new Set([
+  'USD', 'CNY', 'EUR', 'JPY', 'HKD', 'GBP', 'AUD', 'CAD', 'CHF', 'SGD', 'KRW', 'TWD', 'MOP',
 ]);
 
 /**
@@ -39,15 +44,24 @@ const FILE_EXTENSIONS = new Set([
  */
 export function sanitizeErrorMessage(text: string | null | undefined): string {
   return String(text ?? '')
-    // 停止在中文与标点前，否则「https://x/失败」会把失败原因一起吞掉。
-    .replace(/https?:\/\/[^\s一-鿿，。；、）)（("'<>]*/gi, '（接口地址已隐藏）')
-    // 主机名不写死 TLD 白名单；文件名后缀与 6 位股票代码（600519.SH）不是主机名。
+    // 任意 scheme（https/libsql/ws/file…）都算接口地址；停止在中文与标点前，
+    // 否则「https://x/失败」会把失败原因一起吞掉。
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s一-鿿，。；、）)（("'<>]*/gi, '（接口地址已隐藏）')
+    // 主机名不写死 TLD 白名单；文件名后缀、股票代码、异常类名与汇率对不是主机名。
     .replace(
       /(^|[^\w/.\-])([a-z0-9-]+(?:\.[a-z0-9-]+)*)\.([a-z]{2,})(?::\d+)?(?:\/[^\s一-鿿，。；、）)（("'<>]*)?/gi,
-      (match, prefix: string, labels: string, tld: string) =>
-        FILE_EXTENSIONS.has(tld.toLowerCase()) || /^\d{6}$/.test(labels)
+      (match, prefix: string, labels: string, tld: string) => {
+        const upperTld = tld.toUpperCase();
+        // 带点的 labels 是主机名（api.example.json），不当成文件名放行。
+        const isFile = !labels.includes('.') && FILE_EXTENSIONS.has(tld.toLowerCase());
+        const isStock = (/^\d{6}$/.test(labels) && /^(?:SH|SZ|BJ)$/i.test(tld))
+          || (/^\d{5}$/.test(labels) && /^HK$/i.test(tld));
+        const isExceptionClass = /(?:Error|Exception)$/.test(tld);
+        const isCurrencyPair = CURRENCY_CODES.has(labels.toUpperCase()) && CURRENCY_CODES.has(upperTld);
+        return isFile || isStock || isExceptionClass || isCurrencyPair
           ? match
-          : `${prefix}（接口地址已隐藏）`,
+          : `${prefix}（接口地址已隐藏）`;
+      },
     )
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g, '（接口地址已隐藏）')
     .replace(/\b(?:deepseek|openai|anthropic|qwen|claude|gemini|llama)[\w.-]*/gi, '模型服务')

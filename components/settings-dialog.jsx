@@ -64,6 +64,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   const [storageBackend, setStorageBackend] = useState("local");
   // 读取失败时不能按默认值保存，否则会用「本地库」覆盖已保存的 Turso 配置
   const [storageLoadFailed, setStorageLoadFailed] = useState(false);
+  // 远端库连不上时只能读存储状态；此时保存服务配置会清空未知字段，必须禁用。
+  const [settingsUnavailable, setSettingsUnavailable] = useState(false);
   const [clearTursoToken, setClearTursoToken] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [scheduler, setScheduler] = useState(null);
@@ -88,9 +90,12 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
 
   // 打开时拉取当前配置（仅在打开/关闭转换时重置；账号改名回调更新 username prop 时保持 okMsg 可见）
   const prevOpen = useRef(false);
+  // 关掉再打开时，旧请求可能晚于新请求失败；迟到的响应不能覆盖/锁死当前面板。
+  const openRun = useRef(0);
   useEffect(() => {
     if (prevOpen.current === open) return;
     prevOpen.current = open;
+    const run = ++openRun.current;
     if (!open) return;
     setPanel(PANELS[0].id);
     setLoaded(false);
@@ -102,6 +107,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     setTursoToken("");
     setClearTursoToken(false);
     setStorageLoadFailed(false);
+    setSettingsUnavailable(false);
     setTushareToken("");
     setCronSecret("");
     setWebSearchKey("");
@@ -115,6 +121,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     fetch("/api/settings")
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((d) => {
+        if (run !== openRun.current) return;
         setModel(d.llm?.model ?? "");
         setBaseUrl(d.llm?.baseUrl ?? "");
         setApiKeySet(Boolean(d.llm?.apiKeySet));
@@ -126,18 +133,29 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
         setCronSecretSet(Boolean(d.cronSecretSet));
         setWebSearchProvider(d.webSearch?.provider ?? "");
         setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
+        // 存储状态仍可用，不能因为设置表读不到就锁死切回本地库的入口。
+        setSettingsUnavailable(Boolean(d.settingsUnavailable));
+        if (d.settingsUnavailable) {
+          setError("读取已保存的设置失败，暂时无法修改服务配置；存储配置仍可调整。");
+        }
         setStorageLoadFailed(false);
         setLoaded(true);
       })
       .catch(() => {
+        if (run !== openRun.current) return;
         setError("读取配置失败，请稍后重试");
+        setSettingsUnavailable(true);
         setStorageLoadFailed(true);
         setLoaded(true);
       });
     if (desktopBridge?.getScheduler) {
       desktopBridge.getScheduler()
-        .then((r) => { if (r?.ok) setScheduler({ enabled: r.enabled, intervalMs: r.intervalMs }); })
-        .catch(() => setScheduler(null));
+        .then((r) => {
+          if (run === openRun.current && r?.ok) setScheduler({ enabled: r.enabled, intervalMs: r.intervalMs });
+        })
+        .catch(() => {
+          if (run === openRun.current) setScheduler(null);
+        });
     }
   }, [open, username]);
 
@@ -164,6 +182,10 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
   });
 
   const saveSettings = async () => {
+    if (settingsUnavailable) {
+      setError("读取设置失败，暂时无法保存，请稍后重试");
+      return;
+    }
     setSaving(true);
     setError(null);
     setOkMsg(null);
@@ -187,22 +209,31 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
         setError(d.error || "保存失败，请重试");
         return;
       }
-      // 刷新掩码状态
-      const d = await fetch("/api/settings").then((r) => r.json());
-      setApiKeySet(Boolean(d.llm?.apiKeySet));
-      setTursoUrlSet(Boolean(d.storage?.urlSet));
-      setTursoTokenSet(Boolean(d.storage?.tokenSet));
-      setStorage(d.storage || {});
-      setTushareTokenSet(Boolean(d.tushare?.tokenSet));
-      setCronSecretSet(Boolean(d.cronSecretSet));
-      setWebSearchProvider(d.webSearch?.provider ?? "");
-      setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
+      // 刷新掩码状态；保存已成功，刷新失败不能伪装成保存失败。
+      const d = await fetch("/api/settings")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      if (d) {
+        setApiKeySet(Boolean(d.llm?.apiKeySet));
+        setTursoUrlSet(Boolean(d.storage?.urlSet));
+        setTursoTokenSet(Boolean(d.storage?.tokenSet));
+        setStorage(d.storage || {});
+        setTushareTokenSet(Boolean(d.tushare?.tokenSet));
+        setCronSecretSet(Boolean(d.cronSecretSet));
+        setWebSearchProvider(d.webSearch?.provider ?? "");
+        setWebSearchKeySet(Boolean(d.webSearch?.apiKeySet));
+        setSettingsUnavailable(Boolean(d.settingsUnavailable));
+      }
       setClearedKeys(new Set());
       setApiKey("");
       setTursoToken("");
       setTushareToken("");
       setCronSecret("");
       setWebSearchKey("");
+      // 保存其他面板不应保留未提交的存储改动/清除标记，否则稍后保存存储会误删 Token。
+      setStorageBackend(storage.backend === "turso" ? "turso" : "local");
+      setTursoUrl("");
+      setClearTursoToken(false);
       setOkMsg("已保存");
     } catch {
       setError("网络错误，请稍后重试");
@@ -217,11 +248,10 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     setError(null);
     setOkMsg(null);
     const body = { storageBackend };
-    if (storageBackend === "turso") {
-      if (tursoUrl.trim()) body.tursoUrl = tursoUrl.trim();
-      if (clearTursoToken) body.tursoToken = null;
-      else if (tursoToken.trim()) body.tursoToken = tursoToken.trim();
-    }
+    if (storageBackend === "turso" && tursoUrl.trim()) body.tursoUrl = tursoUrl.trim();
+    // 清除 Token 会同时切回本地库，因此本地分支也要带上显式 null。
+    if (clearTursoToken) body.tursoToken = null;
+    else if (storageBackend === "turso" && tursoToken.trim()) body.tursoToken = tursoToken.trim();
     try {
       const res = await fetch("/api/settings", {
         method: "POST",
@@ -233,7 +263,9 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
         setError(d.error || "保存失败，请重试");
         return;
       }
-      const fresh = await fetch("/api/settings").then((r) => r.json()).catch(() => null);
+      const fresh = await fetch("/api/settings")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
       if (fresh?.storage) {
         setStorage(fresh.storage);
         setStorageBackend(fresh.storage.backend === "turso" ? "turso" : "local");
@@ -552,7 +584,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">模型/接口/Key 保存在应用内（app_settings 表），保存后约 30 秒内热生效，无需重启。</p>
-                    {saveButton(saveSettings)}
+                    {saveButton(saveSettings, settingsUnavailable)}
                   </div>
                 </section>
 
@@ -603,7 +635,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                     <p className="text-xs text-muted-foreground">
                       自动：按已配置的 BOCHA_API_KEY / TAVILY_API_KEY 推断（优先博查）。仅在研究助手打开「联网」开关后调用；保存后约 30 秒内热生效。
                     </p>
-                    {saveButton(saveSettings)}
+                    {saveButton(saveSettings, settingsUnavailable)}
                   </div>
                 </section>
 
@@ -626,7 +658,11 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                           <button
                             key={value}
                             type="button"
-                            onClick={() => setStorageBackend(value)}
+                            onClick={() => {
+                              setStorageBackend(value);
+                              // 重新选择 Turso 视为放弃"清除 Token"。
+                              if (value === "turso") setClearTursoToken(false);
+                            }}
                             aria-pressed={active}
                             disabled={!loaded || storage.locked || storageLoadFailed}
                             className={cn(
@@ -642,6 +678,11 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                         );
                       })}
                     </div>
+                    {clearTursoToken && (
+                      <p className="text-xs text-muted-foreground">
+                        保存后将切回本地数据库，并清除已存 Token（URL 保留）。
+                      </p>
+                    )}
                     {storageBackend === "turso" && !storage.locked && (
                       <>
                         <div className="space-y-2">
@@ -666,9 +707,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                             className="bg-background"
                             disabled={!loaded}
                           />
-                          {tursoTokenSet && (clearTursoToken ? (
-                            <p className="text-xs text-muted-foreground">保存后将清除已存 Token（URL 保留）。</p>
-                          ) : (
+                          {tursoTokenSet && (
                             <Button
                               type="button"
                               variant="outline"
@@ -677,11 +716,13 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                               onClick={() => {
                                 setClearTursoToken(true);
                                 setTursoToken("");
+                                // 无 token 无法探测 Turso；清除即切回本地库，服务端才允许删凭据。
+                                setStorageBackend("local");
                               }}
                             >
                               清除已保存的 Token
                             </Button>
-                          ))}
+                          )}
                         </div>
                       </>
                     )}
@@ -718,7 +759,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">Tushare 只提供 T1 行情/交易日历；官方公告与政策直接取交易所、巨潮、证监会页面。Token 保存后约 30 秒热生效。</p>
-                    {saveButton(saveSettings)}
+                    {saveButton(saveSettings, settingsUnavailable)}
                   </div>
                 </section>
 
@@ -808,7 +849,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
                     <p className="text-xs text-muted-foreground">
                       仅在使用 Vercel Cron / QStash / GitHub Actions 触发时需要；桌面端内置调度无需填写。保存在应用内，约 30 秒内热生效。
                     </p>
-                    {saveButton(saveSettings)}
+                    {saveButton(saveSettings, settingsUnavailable)}
                   </div>
                 </section>
               </div>

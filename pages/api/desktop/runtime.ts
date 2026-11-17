@@ -1,4 +1,4 @@
-import { getAllSettings, SETTING_KEYS } from '../../../lib/settings';
+import { getEffectiveLlmConfig } from '../../../lib/llm/config';
 import { isLocalOrigin } from '../../../lib/cronAuth';
 
 /**
@@ -17,12 +17,9 @@ export default async function handler(req: any, res: any) {
   }
   res.setHeader('Cache-Control', 'no-store');
   try {
-    const all = await getAllSettings();
-    res.status(200).json({
-      llmConfigured: Boolean(
-        all[SETTING_KEYS.LLM_API_KEY] || process.env.LLM_API_KEY || process.env.DEEPSEEK_API_KEY,
-      ),
-    });
+    // 与真实分析链路共用同一套 key 解析，避免新增来源后这里漏判导致只抓取不分析。
+    const { apiKey } = await getEffectiveLlmConfig();
+    res.status(200).json({ llmConfigured: Boolean(apiKey) });
   } catch (error) {
     console.error('[api/desktop/runtime] Error:', error);
     res.status(500).json({ error: '读取运行状态失败' });
