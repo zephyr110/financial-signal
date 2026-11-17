@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeErrorMessage } from '../lib/safe-json'
+import { sanitizeErrorMessage, sanitizeToolSummary } from '../lib/safe-json'
 
 describe('sanitizeErrorMessage', () => {
   it('隐藏接口地址与 IP，但保留可行动的失败原因', () => {
@@ -22,5 +22,17 @@ describe('sanitizeErrorMessage', () => {
   it('股票代码与普通小数不误伤', () => {
     expect(sanitizeErrorMessage('600519.SH 行情缺失')).toBe('600519.SH 行情缺失')
     expect(sanitizeErrorMessage('平均分 4.5')).toBe('平均分 4.5')
+  })
+
+  it('大写主机名同样脱敏', () => {
+    expect(sanitizeErrorMessage('API.TUSHARE.PRO timeout')).toBe('（接口地址已隐藏） timeout')
+  })
+})
+
+describe('sanitizeToolSummary', () => {
+  it('保留 6 位股票代码，去掉预警/判断编号', () => {
+    expect(sanitizeToolSummary('贵州茅台 #600519 收盘 1680.00')).toBe('贵州茅台 #600519 收盘 1680.00')
+    expect(sanitizeToolSummary('中芯国际 #688981.SH 放量')).toBe('中芯国际 #688981.SH 放量')
+    expect(sanitizeToolSummary('预警 #123 alert:2026-01-01:policy:ab')).toBe('预警')
   })
 })

@@ -223,4 +223,12 @@ describe('scheduler IPC', () => {
     const r = await handlers['app:set-scheduler'](trustedEvent(), { intervalMinutes: 1 })
     expect(r).toEqual({ ok: false, error: '调度间隔不合法' })
   })
+
+  it('文件系统错误不回传绝对路径', async () => {
+    registerWithScheduler(() => {
+      throw new Error("EACCES: permission denied, open '/Users/someone/Library/Application Support/scheduler.json'")
+    })
+    const r = await handlers['app:set-scheduler'](trustedEvent(), { enabled: false })
+    expect(r).toEqual({ ok: false, error: '保存调度设置失败' })
+  })
 })

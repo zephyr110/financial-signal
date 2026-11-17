@@ -126,7 +126,9 @@ function registerIpc({
     try {
       return { ok: true, ...setSchedulerConfig(patch || {}) };
     } catch (e) {
-      return { ok: false, error: e.message };
+      // 校验错误能指导用户修改；文件系统错误会带绝对路径，只回固定文案。
+      const message = e && typeof e.message === 'string' ? e.message : '';
+      return { ok: false, error: message.startsWith('调度间隔') ? message : '保存调度设置失败' };
     }
   });
 }

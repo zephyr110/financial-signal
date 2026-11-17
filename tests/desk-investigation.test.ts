@@ -133,6 +133,18 @@ describe('desk investigation', () => {
     expect(b.investigation.id).not.toBe(a.investigation.id)
   })
 
+  it('判断不存在时拒绝入队', async () => {
+    await expect(
+      inv.createInvestigation({ judgmentId: 'no-such-judgment', manual: true }),
+    ).rejects.toThrow('判断不存在')
+    const db = await dbModule.getDb()
+    const row = await db.execute({
+      sql: 'SELECT COUNT(*) AS n FROM desk_investigations WHERE judgment_id = ?',
+      args: ['no-such-judgment'],
+    })
+    expect(Number(row.rows[0].n)).toBe(0)
+  })
+
   it('自动深挖按刷新交易日去重，服务端按 alertId 精确查找', async () => {
     const first = await inv.createInvestigation({ alertId, manual: false, dedupeDate: '2026-01-05' })
     expect(first.created).toBe(true)

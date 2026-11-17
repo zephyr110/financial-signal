@@ -19,6 +19,7 @@ import {
 } from '../db';
 import { getTodayMarketData } from '../market';
 import { formatBacktestRows, formatEvidenceLines, publicJson } from './format';
+import { sanitizeErrorMessage } from '../safe-json';
 import {
   dateShanghai,
   formatCost,
@@ -668,7 +669,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
           task.step ? `当前步骤：${task.step}` : '',
           `参数：${parameterText}`,
           `结果：${resultText}`,
-          task.error ? `错误：${task.error}` : '',
+          task.error ? `错误：${sanitizeErrorMessage(task.error)}` : '',
           shownEvents.length > 0
             ? `最近事件（${shownEvents.length}/${events.length} 条）：\n${shownEvents.map((e) => {
                 const payload = e.payload ? ` ${clip(publicJson(e.payload), 200)}` : '';
@@ -688,7 +689,7 @@ export const COCKPIT_TOOLS: ToolDefinition[] = [
         `最近任务 ${filtered.length} 条${filtered.length > shown.length ? `（显示前${shown.length}条）` : ''}：`,
         ...shown.map((t) => {
           const step = t.step ? `｜${t.step}` : '';
-          const error = t.error ? `｜错误：${t.error}` : '';
+          const error = t.error ? `｜错误：${sanitizeErrorMessage(t.error)}` : '';
           const span = t.finishedAt ? `${t.createdAt} ~ ${t.finishedAt}` : t.createdAt;
           return `- ${t.id} ${t.type} [${taskStatusLabel(t.status)}] ${Math.round(t.progress)}%${step}${error}｜${span}`;
         }),

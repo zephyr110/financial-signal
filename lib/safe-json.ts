@@ -41,11 +41,13 @@ export function sanitizeErrorMessage(text: string | null | undefined): string {
   return String(text ?? '')
     // 停止在中文与标点前，否则「https://x/失败」会把失败原因一起吞掉。
     .replace(/https?:\/\/[^\s一-鿿，。；、）)（("'<>]*/gi, '（接口地址已隐藏）')
-    // 主机名不写死 TLD 白名单；全小写后缀可避开 600519.SH 这类股票代码。
+    // 主机名不写死 TLD 白名单；文件名后缀与 6 位股票代码（600519.SH）不是主机名。
     .replace(
-      /(^|[^\w/.\-])([a-z0-9-]+(?:\.[a-z0-9-]+)*)\.([a-z]{2,})(?::\d+)?(?:\/[^\s一-鿿，。；、）)（("'<>]*)?/g,
-      (match, prefix: string, _labels: string, tld: string) =>
-        FILE_EXTENSIONS.has(tld) ? match : `${prefix}（接口地址已隐藏）`,
+      /(^|[^\w/.\-])([a-z0-9-]+(?:\.[a-z0-9-]+)*)\.([a-z]{2,})(?::\d+)?(?:\/[^\s一-鿿，。；、）)（("'<>]*)?/gi,
+      (match, prefix: string, labels: string, tld: string) =>
+        FILE_EXTENSIONS.has(tld.toLowerCase()) || /^\d{6}$/.test(labels)
+          ? match
+          : `${prefix}（接口地址已隐藏）`,
     )
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g, '（接口地址已隐藏）')
     .replace(/\b(?:deepseek|openai|anthropic|qwen|claude|gemini|llama)[\w.-]*/gi, '模型服务')
@@ -61,8 +63,9 @@ export function sanitizeToolSummary(text: string): string {
     .split('\n')
     .map((line) =>
       line
-        // 预警/判断 id 是 alert:日期:类别:哈希 这样的冒号链，必须整段吃掉。
-        .replace(/#[A-Za-z0-9_-]+(?::[A-Za-z0-9_.:-]+)*/g, '')
+        // 预警/判断 id 是 alert:日期:类别:哈希 这样的冒号链，必须整段吃掉；
+        // 但 6 位股票代码（#600519 / #600519.SH）要留给读者。
+        .replace(/#(?!\d{6}(?:\.[A-Za-z]{2})?(?![\w-]))[\w-]+(?::[\w.:-]+)*/g, '')
         .replace(REF_CODE_PATTERN, '$1')
         .replace(UUID_PATTERN, '')
         .replace(/^[｜|]+/, '')

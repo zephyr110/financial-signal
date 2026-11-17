@@ -627,6 +627,10 @@ export async function createInvestigation(input: {
     if (!row) throw new Error('预警不存在')
     if (!question) question = `核实预警「${str(row.title)}」：触发原因是否成立，影响路径与验证条件是什么？`
   }
+  if (input.judgmentId) {
+    const judgment = await db.execute({ sql: 'SELECT id FROM judgments WHERE id = ?', args: [input.judgmentId] })
+    if (!judgment.rows[0]) throw new Error('判断不存在')
+  }
   if (!question) question = '核实该判断的证据强度与失效条件。'
   // 自动深挖按被刷新的交易日去重：隔天重跑旧交易日不能重复烧模型预算。
   // 手动深挖同日可能针对同一目标问不同问题，必须把问题计入去重键，否则会复用旧结论。
