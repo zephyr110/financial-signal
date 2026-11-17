@@ -6,6 +6,7 @@ import { formatDateCn, formatTime } from '@/lib/cockpit/format'
 import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
 import { getSourceHealth, getTodayPayload } from '@/lib/cockpit/repo'
 import { serializable } from '@/lib/cockpit/page-data'
+import { stripToolProtocolFromAnswer } from '@/lib/agent/format'
 import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { EvidenceSpine } from '@/components/cockpit/evidence-spine'
 import { MarketPulse, MarketSnapshot } from '@/components/cockpit/market-pulse'
@@ -121,7 +122,7 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
               headingLevel={3}
               summaryLabel={`模型叙述，不改写数字与来源，模型 ${payload.narrative.model}`}
             >
-              <p className="ck-hero-narrative">{payload.narrative.text}</p>
+              <p className="ck-hero-narrative">{stripToolProtocolFromAnswer(payload.narrative.text)}</p>
             </Disclosure>
           )}
 

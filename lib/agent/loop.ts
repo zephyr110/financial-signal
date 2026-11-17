@@ -26,7 +26,7 @@ import { getEffectiveLlmConfig, PRICING } from '../llm/config';
 import type { AgentTurnResult } from './types';
 import { getTool, buildToolPrompt } from './tools';
 import { loadAgentContext, estimateContextTokens, loadAgentMemoryPrompt } from './session';
-import { looksLikeJson, parseJsonLike, formatFinalAnswer, hasToolProtocolTokens, stripToolProtocolFromAnswer, validateToolArgs } from './format';
+import { looksLikeJson, parseJsonLike, formatFinalAnswer, hasToolProtocolTokens, hasPartialToolProtocolToken, parseToolMarkupCalls, stripToolProtocolFromAnswer, validateToolArgs } from './format';
 import { getAgentMaxSteps, MAX_CORRECTION_STEPS } from './limits';
 import { AGENT_SYSTEM_PROMPT, buildAgentSystemPrompt } from './prompts';
 import { acquireAgentSessionLock } from './lock';
@@ -268,6 +268,8 @@ export async function runAgentTurn(
           if (looksLikeJson(stepBuffer.trim())) return;
           // 工具标记不逐字透出；正文若有前置说明，之前的 delta 已正常发出
           if (hasToolProtocolTokens(stepBuffer)) return;
+          // 标记可能被拆成多个 delta（如 <||DS），补全前同样不能透出
+          if (hasPartialToolProtocolToken(stepBuffer)) return;
           emit({ type: 'delta', text });
         },
       });
@@ -280,7 +282,9 @@ export async function runAgentTurn(
       }
 
       const toolCall = tryParseToolCall(contentText);
-      if (!toolCall?.tool) {
+      // 原生 DSML 块等价于模型发起的工具调用：能解析就直接执行，保留其检索意图
+      const nativeCalls = toolCall?.tool ? [] : parseToolMarkupCalls(contentText);
+      if (!toolCall?.tool && nativeCalls.length === 0) {
         // 工具调用形状但解析失败（截断/损坏的 JSON）→ 回喂模型重试，绝不让损坏的
         // JSON 落最终回答出口（否则用户直接看到原始截断文本，如 {"tool":...,"args":{"）
         if (looksLikeJson(contentText) && parseJsonLike(contentText) === null) {
@@ -291,10 +295,10 @@ export async function runAgentTurn(
           await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
           continue;
         }
-        // 原生工具标记（如 <| DSLM | calls>）被当正文输出：剥离后无可读内容则回喂纠错，
-        // 否则用户只会看到工具块、没有回答。
+        // 原生工具标记（如 <||DSML||calls>）无法解析成调用（截断/畸形）→ 回喂纠错。
+        // 即使剥离后有正文也不放行：模型显然想调工具，残缺回答对用户没有价值。
         const stripped = stripToolProtocolFromAnswer(contentText);
-        if (hasToolProtocolTokens(contentText) && !stripped.trim()) {
+        if (hasToolProtocolTokens(contentText)) {
           corrections++;
           if (corrections > MAX_CORRECTION_STEPS) {
             reply = '模型这次没有返回可展示的回答，请重试或换个问法。';
@@ -309,7 +313,7 @@ export async function runAgentTurn(
             return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated: false, userMessageId, assistantMessageId, stats };
           }
           const feedback =
-            '【格式错误】你把工具协议标记（如 <| DSLM | ...>）当作正文输出了，用户看不到这类内容。需要调用工具时只输出严格 JSON：{"tool":"<工具名>","args":{...}}；不再调用工具时，请直接用中文 markdown 总结给用户。';
+            '【格式错误】你把模型内部的工具调用标记当成正文输出了，用户看不到这类内容。需要调用工具时只输出严格 JSON：{"tool":"<工具名>","args":{...}}；不再调用工具时，请直接用中文 markdown 总结给用户。';
           turnMessages.push({ role: 'user', content: feedback });
           await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
           continue;
@@ -352,66 +356,87 @@ export async function runAgentTurn(
         return { sessionId, turnId, reply, steps: llmCalls, toolLog, truncated, userMessageId, assistantMessageId, stats };
       }
 
-      const tool = getTool(toolCall.tool, toolScope);
-      if (!tool) {
-        corrections++;
-        if (corrections > MAX_CORRECTION_STEPS) break;
-        const feedback = `【工具不存在】工具 "${toolCall.tool}" 未注册。可用工具：${buildToolPrompt(toolScope).split('\n').map((l) => l.split(':')[0]).join(', ')}。请重试。`;
-        turnMessages.push({ role: 'user', content: feedback });
-        await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
-        continue;
-      }
+      const callsToRun = toolCall?.tool ? [toolCall] : nativeCalls;
+      let executedInStep = 0;
+      let capReached = false;
 
-      const argError = validateToolArgs(tool, toolCall.args || {});
-      if (argError) {
-        corrections++;
-        if (corrections > MAX_CORRECTION_STEPS) break;
-        const feedback = `【参数错误】工具 "${tool.name}" 参数无效：${argError}。请按参数 schema 重新构造：{"tool":"${tool.name}","args":{...}}。`;
-        turnMessages.push({ role: 'user', content: feedback });
-        await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
-        continue;
-      }
-
-      if (toolSteps >= maxToolSteps) break;
-
-      emit({ type: 'tool_start', tool: tool.name, args: toolCall.args || {} });
-
-      let resultText: string;
-      let ok = true;
-      try {
-        resultText = await tool.execute(toolCall.args || {}, { sessionId, turnId, userId: opts.userId ?? null });
-        if (resultText.length > TOOL_RESULT_MAX_CHARS) {
-          resultText = resultText.slice(0, TOOL_RESULT_MAX_CHARS) + '\n…(结果过长已截断)';
+      // 一个原生 calls 块可能含多个 invoke（如同时查两个关键词），逐个执行再回喂
+      for (const call of callsToRun) {
+        const tool = getTool(call.tool, toolScope);
+        if (!tool) {
+          corrections++;
+          if (corrections > MAX_CORRECTION_STEPS) break;
+          const feedback = `【工具不存在】工具 "${call.tool}" 未注册。可用工具：${buildToolPrompt(toolScope).split('\n').map((l) => l.split(':')[0]).join(', ')}。请重试。`;
+          turnMessages.push({ role: 'user', content: feedback });
+          await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
+          continue;
         }
-      } catch (err) {
-        ok = false;
-        resultText = `工具执行失败: ${(err as Error).message}`;
+
+        const argError = validateToolArgs(tool, call.args || {});
+        if (argError) {
+          corrections++;
+          if (corrections > MAX_CORRECTION_STEPS) break;
+          const feedback = `【参数错误】工具 "${tool.name}" 参数无效：${argError}。请按参数 schema 重新构造：{"tool":"${tool.name}","args":{...}}。`;
+          turnMessages.push({ role: 'user', content: feedback });
+          await appendAgentMessage(sessionId, 'system', feedback, undefined, branchParentId);
+          continue;
+        }
+
+        if (toolSteps >= maxToolSteps) {
+          capReached = true;
+          break;
+        }
+
+        emit({ type: 'tool_start', tool: tool.name, args: call.args || {} });
+
+        let resultText: string;
+        let ok = true;
+        try {
+          resultText = await tool.execute(call.args || {}, { sessionId, turnId, userId: opts.userId ?? null });
+          if (resultText.length > TOOL_RESULT_MAX_CHARS) {
+            resultText = resultText.slice(0, TOOL_RESULT_MAX_CHARS) + '\n…(结果过长已截断)';
+          }
+        } catch (err) {
+          ok = false;
+          resultText = `工具执行失败: ${(err as Error).message}`;
+        }
+        toolSteps++;
+        const summary = resultText.split('\n')[0].slice(0, 100);
+        toolLog.push({
+          name: tool.name,
+          args: call.args || {},
+          ok,
+          summary,
+        });
+        emit({ type: 'tool_end', tool: tool.name, ok, summary });
+
+        // 原生调用统一落库为 JSON 协议，避免下一轮上下文再喂回 DSML 标记
+        const protocolText = toolCall?.tool
+          ? contentText
+          : JSON.stringify({ tool: call.tool, args: call.args || {} });
+        const meta = { toolCall: { name: tool.name, args: call.args || {}, status: ok ? 'done' : 'error' } };
+        const toolCallMessageId = await appendAgentMessage(
+          sessionId, 'assistant', protocolText, meta, branchParentId,
+        );
+        const toolResultMessageId = await appendAgentMessage(
+          sessionId,
+          'user',
+          `【工具 ${tool.name} 结果】\n${resultText}`,
+          { toolResult: { name: tool.name, ok, content: resultText.slice(0, 200) } },
+          toolCallMessageId,
+        );
+        branchParentId = toolResultMessageId;
+
+        turnMessages.push({ role: 'assistant', content: protocolText });
+        turnMessages.push({ role: 'user', content: `【工具 ${tool.name} 结果】\n${resultText}` });
+        executedInStep++;
       }
-      toolSteps++;
-      const summary = resultText.split('\n')[0].slice(0, 100);
-      toolLog.push({
-        name: tool.name,
-        args: toolCall.args || {},
-        ok,
-        summary,
-      });
-      emit({ type: 'tool_end', tool: tool.name, ok, summary });
 
-      const meta = { toolCall: { name: tool.name, args: toolCall.args || {}, status: ok ? 'done' : 'error' } };
-      const toolCallMessageId = await appendAgentMessage(
-        sessionId, 'assistant', contentText, meta, branchParentId,
-      );
-      const toolResultMessageId = await appendAgentMessage(
-        sessionId,
-        'user',
-        `【工具 ${tool.name} 结果】\n${resultText}`,
-        { toolResult: { name: tool.name, ok, content: resultText.slice(0, 200) } },
-        toolCallMessageId,
-      );
-      branchParentId = toolResultMessageId;
-
-      turnMessages.push({ role: 'assistant', content: contentText });
-      turnMessages.push({ role: 'user', content: `【工具 ${tool.name} 结果】\n${resultText}` });
+      if (capReached) break;
+      if (executedInStep === 0) {
+        if (corrections > MAX_CORRECTION_STEPS) break;
+        continue;
+      }
     }
 
     // 触顶：追加一次「仅总结、禁止再调工具」的 LLM 调用，避免只返回空提示
