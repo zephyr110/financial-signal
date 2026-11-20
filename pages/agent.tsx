@@ -24,6 +24,7 @@ import { Hint } from "../components/ui/hint";
 import { Textarea } from "../components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { CONTENT_GUTTER } from "@/lib/layout-classes";
+import { http, HttpError } from "@/lib/http/client";
 
 interface SessionSummary {
   id: number;
@@ -115,12 +116,7 @@ export default function AgentPage() {
     const next = m.feedback === value ? null : value;
     setMessages((prev) => prev.map((item) => item.id === m.id ? { ...item, feedback: next } : item));
     try {
-      const res = await fetch("/api/agent-feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ turnId: m.turnId, feedback: next }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await http.post("/api/agent-feedback", { turnId: m.turnId, feedback: next });
     } catch {
       setMessages((prev) => prev.map((item) => item.id === m.id ? { ...item, feedback: m.feedback ?? null } : item));
     }
@@ -130,13 +126,7 @@ export default function AgentPage() {
   const shareConversation = useCallback(async () => {
     if (!sessionId) return;
     try {
-      const res = await fetch("/api/agent-share", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await http.post<{ path: string }>("/api/agent-share", { sessionId });
       const url = `${window.location.origin}${data.path}`;
       if (typeof navigator !== "undefined" && navigator.share) {
         try {
@@ -191,9 +181,7 @@ export default function AgentPage() {
     try {
       const params = new URLSearchParams({ limit: "20", offset: String(offset) });
       if (q.trim()) params.set("q", q.trim());
-      const res = await fetch(`/api/agent-sessions?${params}`);
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await http.get<{ sessions?: SessionSummary[]; total?: number }>(`/api/agent-sessions?${params}`);
       if (reqId !== sessionReqRef.current) return;
       const next = data.sessions || [];
       setSessions((prev) => (offset === 0 ? next : [...prev, ...next]));
@@ -226,22 +214,21 @@ export default function AgentPage() {
       setError(null);
       setStreamError(null);
       try {
-        const res = await fetch(`/api/agent-sessions?id=${id}`);
-        // 会话不存在（已被删除/数据库重建）：清掉残留缓存，回到新会话状态，避免
-        // 后续发送带着失效 sessionId 触发服务端外键错误（500「研究助手暂时不可用」）
-        if (res.status === 404) {
-          setSessionId(null);
-          persistSession(null);
-          setMessages([]);
-          if (!silent) setLoadingHistory(false);
-          return;
-        }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data = await http.get<{ messages?: any[]; turns?: any[]; versions?: Record<string, any> }>(
+          `/api/agent-sessions?id=${id}`
+        );
         setMessages(historyToChatItems(data.messages || [], data.turns || [], data.versions || {}));
         setSessionId(id);
         persistSession(id);
-      } catch {
+      } catch (error) {
+        // 会话不存在（已被删除/数据库重建）：清掉残留缓存，回到新会话状态，避免
+        // 后续发送带着失效 sessionId 触发服务端外键错误（500「研究助手暂时不可用」）
+        if (error instanceof HttpError && error.status === 404) {
+          setSessionId(null);
+          persistSession(null);
+          setMessages([]);
+          return;
+        }
         setError("历史会话加载失败，请稍后重试");
       } finally {
         if (!silent) setLoadingHistory(false);
@@ -307,10 +294,10 @@ export default function AgentPage() {
       });
 
       try {
-        const res = await fetch("/api/agent", {
+        // SSE 走 raw：保留原始 Response 的状态码与流式 body，交给 consumeAgentEventStream
+        const res = await http.raw("/api/agent", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          json: {
             sessionId: sessionId ?? undefined,
             message: text,
             stream: true,
@@ -319,7 +306,7 @@ export default function AgentPage() {
             regenerateFromId: regenerating
               ? Number(regenerating.replace("hist-", ""))
               : undefined,
-          }),
+          },
         });
 
         // 非流式失败响应（400/503/500）→ 与旧逻辑一致处理
@@ -574,18 +561,14 @@ export default function AgentPage() {
       pendingScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? null;
       skipAutoScrollRef.current = true;
       try {
-        const res = await fetch("/api/agent-branches", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        await http.post(
+          "/api/agent-branches",
+          {
             sessionId,
             messageId: Number(targetId.replace("hist-", "")),
-          }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || `切换失败（HTTP ${res.status}）`);
-        }
+          },
+          { fallbackMessage: "切换消息版本失败，请稍后重试" }
+        );
         await loadSession(sessionId, { silent: true });
       } catch (e) {
         pendingScrollTopRef.current = null;
@@ -625,8 +608,7 @@ export default function AgentPage() {
   const handleDeleteSession = useCallback(
     async (id: number) => {
       try {
-        const res = await fetch(`/api/agent-sessions?id=${id}`, { method: "DELETE" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await http.delete(`/api/agent-sessions?id=${id}`);
       } catch {
         setError("会话删除失败，请稍后重试");
         throw new Error("delete failed");
@@ -640,8 +622,7 @@ export default function AgentPage() {
   // 撤销分享：已发出的旧链接立即失效，之后再次分享会生成新 token
   const handleRevokeShare = useCallback(async (id: number) => {
     try {
-      const res = await fetch(`/api/agent-share?sessionId=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await http.delete(`/api/agent-share?sessionId=${id}`);
     } catch {
       setError("撤销分享失败，请稍后重试");
       throw new Error("revoke failed");
@@ -650,15 +631,11 @@ export default function AgentPage() {
 
   const handleRenameSession = useCallback(async (id: number, title: string) => {
     try {
-      const res = await fetch(`/api/agent-sessions?id=${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
+      await http.patch(
+        `/api/agent-sessions?id=${id}`,
+        { title },
+        { fallbackMessage: "会话重命名失败，请稍后重试" }
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "会话重命名失败，请稍后重试");
       throw e;

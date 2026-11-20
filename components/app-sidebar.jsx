@@ -18,6 +18,7 @@ import BrandLogo from "./BrandLogo";
 import AvatarMenu from "./avatar-menu";
 import SettingsDialog from "./settings-dialog";
 import { cn } from "@/lib/utils";
+import { http } from "@/lib/http/client";
 import { SIDEBAR_GROUPS } from "@/lib/nav";
 import {
   SIDEBAR_FOOTER_ICON_ITEM,
@@ -44,8 +45,7 @@ export default function AppSidebar({ sidebarExtra = null, ...props }) {
   };
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
+    http.get("/api/auth/me")
       .then((d) => {
         if (d?.username) setUsername(d.username);
       })

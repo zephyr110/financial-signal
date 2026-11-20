@@ -10,6 +10,8 @@
  * industry_drill / watchlist_add / watchlist_remove / search_query
  */
 
+import { http } from '@/lib/http/client'
+
 const SESSION_KEY = 'fn_session_id';
 const BUFFER_KEY = 'fn_event_buffer';
 const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
@@ -77,14 +79,14 @@ export function flush(): Promise<void> {
   const buf = readBuffer();
   if (buf.length === 0) return Promise.resolve();
 
-  const body = JSON.stringify({ events: buf });
+  const events = buf;
 
   // 卸载场景优先 sendBeacon（不阻塞页面关闭）
   if (navigator.sendBeacon) {
     try {
       const ok = navigator.sendBeacon(
         '/api/events',
-        new Blob([body], { type: 'application/json' })
+        new Blob([JSON.stringify({ events })], { type: 'application/json' })
       );
       if (ok) {
         writeBuffer([]);
@@ -95,14 +97,9 @@ export function flush(): Promise<void> {
     }
   }
 
-  return fetch('/api/events', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-    keepalive: true,
-  })
-    .then((r) => {
-      if (r.ok) writeBuffer([]);
+  return http.post('/api/events', { events }, { keepalive: true })
+    .then(() => {
+      writeBuffer([]);
     })
     .catch(() => {
       // 网络失败：保留缓冲，下次 flush 重试

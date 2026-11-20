@@ -7,6 +7,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { http, httpErrorMessage } from '@/lib/http/client'
 import { closeDisclosure } from './bits'
 
 const STATUS_OPTIONS: ThesisStatus[] = ['active', 'strengthened', 'weakened', 'broken', 'review_due']
@@ -16,21 +17,6 @@ const CONFIDENCE_ITEMS = [
   { value: '中', label: '中' },
   { value: '高', label: '高' },
 ]
-
-interface ApiErrorBody {
-  error?: {
-    message?: string
-    details?: { issues?: Array<{ message?: string }> } | null
-  }
-}
-
-function apiErrorMessage(json: ApiErrorBody, fallback: string): string {
-  const issues = json.error?.details?.issues
-    ?.map((issue) => issue.message)
-    .filter((message): message is string => Boolean(message))
-  const base = json.error?.message || fallback
-  return issues && issues.length > 0 ? `${base}：${issues.join('；')}` : base
-}
 
 export function ThesisComposer({ initial }: { initial?: ThesisView }) {
   const router = useRouter()
@@ -68,31 +54,22 @@ export function ThesisComposer({ initial }: { initial?: ThesisView }) {
     }
     setBusy(true)
     try {
-      const res = await fetch('/api/cockpit/theses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          id: initial?.id,
-          code: code.trim(),
-          title: title.trim(),
-          claim: claim.trim(),
-          horizon: horizon.trim(),
-          status,
-          confidence,
-          invalidation: lines,
-        }),
-      })
-      const json = await res.json() as ApiErrorBody
-      if (!res.ok) {
-        setError(apiErrorMessage(json, '保存论点失败。'))
-        return
-      }
+      await http.post('/api/cockpit/theses', {
+        id: initial?.id,
+        code: code.trim(),
+        title: title.trim(),
+        claim: claim.trim(),
+        horizon: horizon.trim(),
+        status,
+        confidence,
+        invalidation: lines,
+      }, { fallbackMessage: '保存论点失败。' })
       // 表单收在 Disclosure 里；保存后收起并清空草稿，避免误重复提交。
       if (!editing) resetForm()
       closeDisclosure(form)
       await router.replace('/research')
-    } catch {
-      setError('网络连接失败，未保存论点。')
+    } catch (error) {
+      setError(httpErrorMessage(error, '网络连接失败，未保存论点。'))
     } finally {
       setBusy(false)
     }
@@ -242,19 +219,14 @@ export function ThesisActions({ thesis }: { thesis: ThesisView }) {
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`/api/cockpit/theses?id=${encodeURIComponent(thesis.id)}`, {
-        method: 'DELETE',
-        headers: { Accept: 'application/json' },
+      await http.delete('/api/cockpit/theses', {
+        query: { id: thesis.id },
+        fallbackMessage: '删除论点失败。',
       })
-      const json = await res.json() as ApiErrorBody
-      if (!res.ok) {
-        // 保持确认态，否则错误提示会随按钮一起被卸载。
-        setError(apiErrorMessage(json, '删除论点失败。'))
-        return
-      }
       await router.replace('/research')
-    } catch {
-      setError('网络连接失败，未删除。')
+    } catch (error) {
+      // 保持确认态，否则错误提示会随按钮一起被卸载。
+      setError(httpErrorMessage(error, '网络连接失败，未删除。'))
     } finally {
       setBusy(false)
     }

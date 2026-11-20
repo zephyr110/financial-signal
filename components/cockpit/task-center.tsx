@@ -11,6 +11,7 @@ import {
 import type { TaskRecord } from '@/lib/cockpit/types'
 import { formatCost, formatTime, taskStatusLabel, thesisStatusLabel } from '@/lib/cockpit/format'
 import { publicJson, sanitizeAnswerText, sanitizeErrorMessage } from '@/lib/safe-json'
+import { http, httpErrorMessage } from '@/lib/http/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -230,21 +231,16 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
     )
 
     const loadFull = async () => {
-      const res = await fetch('/api/cockpit/tasks?limit=50', { headers: { Accept: 'application/json' } })
-      if (!res.ok) throw new Error('task list failed')
-      const json = await res.json() as { data?: TaskRecord[] }
+      const json = await http.get<{ data?: TaskRecord[] }>('/api/cockpit/tasks?limit=50')
       if (!cancelled && Array.isArray(json.data)) setTasks(json.data)
     }
 
     const tick = async () => {
       controller = new AbortController()
       try {
-        const res = await fetch('/api/cockpit/tasks?active=1', {
-          headers: { Accept: 'application/json' },
+        const json = await http.get<{ data?: TaskRecord[] }>('/api/cockpit/tasks?active=1', {
           signal: controller.signal,
         })
-        if (!res.ok) throw new Error('active task poll failed')
-        const json = await res.json() as { data?: TaskRecord[] }
         if (cancelled) return
         failures = 0
         const active = Array.isArray(json.data) ? json.data : []
@@ -303,14 +299,13 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
     setError(null)
     setMessage(null)
     try {
-      const res = await fetch('/api/cockpit/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ type, params }),
-      })
-      const json = await res.json() as { data?: TaskRecord; error?: { message?: string } }
-      if (!res.ok || !json.data) {
-        setError(json.error?.message || '任务派发失败，请稍后再试。')
+      const json = await http.post<{ data?: TaskRecord }>(
+        '/api/cockpit/tasks',
+        { type, params },
+        { fallbackMessage: '任务派发失败，请稍后再试。' },
+      )
+      if (!json.data) {
+        setError('任务派发失败，请稍后再试。')
         return
       }
       const created = json.data
@@ -334,8 +329,8 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
       if (type === 'symbol_deep_dive') setCode('')
       // 只收起刚提交的表单，并让键盘焦点回到它的标题；其它展开的表单保持原样。
       if (form) closeDisclosure(form)
-    } catch {
-      setError('网络连接失败，任务未派发。')
+    } catch (error) {
+      setError(httpErrorMessage(error, '网络连接失败，任务未派发。'))
     } finally {
       setBusy(null)
     }
@@ -345,18 +340,18 @@ export function TaskCenter({ initialTasks }: { initialTasks: TaskRecord[] }) {
     setBusy(id)
     setError(null)
     try {
-      const res = await fetch(`/api/cockpit/tasks/${encodeURIComponent(id)}/cancel`, {
-        method: 'POST',
-        headers: { Accept: 'application/json' },
-      })
-      const json = await res.json() as { data?: TaskRecord; error?: { message?: string } }
-      if (!res.ok || !json.data) {
-        setError(json.error?.message || '取消失败。')
+      const json = await http.post<{ data?: TaskRecord }>(
+        `/api/cockpit/tasks/${encodeURIComponent(id)}/cancel`,
+        undefined,
+        { fallbackMessage: '取消失败。' },
+      )
+      if (!json.data) {
+        setError('取消失败。')
         return
       }
       setTasks((current) => current.map((task) => (task.id === id ? json.data! : task)))
-    } catch {
-      setError('网络连接失败，未能取消。')
+    } catch (error) {
+      setError(httpErrorMessage(error, '网络连接失败，未能取消。'))
     } finally {
       setBusy(null)
     }

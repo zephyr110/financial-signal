@@ -5,6 +5,7 @@ import { Loader2, Lock, UserRound, AlertCircle, Eye, EyeOff } from "lucide-react
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import BrandLogo from "../components/BrandLogo";
+import { http, httpErrorMessage } from "@/lib/http/client";
 
 /**
  * 登录页（shadcn 风格：居中卡片 + 品牌 + 账号密码）。
@@ -39,8 +40,7 @@ export default function LoginPage() {
 
   // 已登录直接进入;桌面首启(无账号)切「设置初始密码」流程
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => r.json())
+    http.get<{ authenticated?: boolean; setupRequired?: boolean }>("/api/auth/me")
       .then((d) => {
         if (d.authenticated) {
           router.replace("/today");
@@ -67,20 +67,16 @@ export default function LoginPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(setupRequired ? "/api/auth/setup" : "/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || "操作失败，请重试");
-        return;
-      }
+      // 401 在这里就地展示，不做全局跳转
+      await http.post(
+        setupRequired ? "/api/auth/setup" : "/api/auth/login",
+        { username: username.trim(), password },
+        { fallbackMessage: "操作失败，请重试" },
+      );
       const next = typeof router.query.next === "string" ? router.query.next : "/today";
       router.replace(safeNext(next));
-    } catch {
-      setError("网络错误，请稍后重试");
+    } catch (error) {
+      setError(httpErrorMessage(error, "网络错误，请稍后重试"));
     } finally {
       setSubmitting(false);
     }

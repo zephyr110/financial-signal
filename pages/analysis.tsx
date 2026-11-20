@@ -31,6 +31,7 @@ import { industryDisplayName } from "@/lib/constants";
 import { computeSentimentBreakdown } from "@/lib/sentiment";
 import { safeParse } from "../lib/utils";
 import { CONTENT_GUTTER } from "@/lib/layout-classes";
+import { http } from "@/lib/http/client";
 
 // 本地库读取代价低：可见时静默对齐已生成的数据；只读接口，不触发任何 LLM 调用。
 const ANALYSIS_AUTO_REFRESH_MS = 30_000;
@@ -156,12 +157,10 @@ export default function Analysis({
     const watchQuery =
       watchedEff.length > 0 ? `&watched=${watchedEff.join(",")}` : "";
     try {
-      const res = await fetch(
+      const data = await http.get<any>(
         `/api/analysis?hoursBack=24&trendHours=${trendHours}${watchQuery}`,
         signal ? { signal } : {}
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       if (gen !== listGenRef.current) return; // 已被更新的刷新/加载取代
       setItems(parseAnalysisItems(data.items));
       setStats(data.stats || {});
@@ -204,12 +203,10 @@ export default function Analysis({
     const watchQuery =
       watchedEff.length > 0 ? `&watched=${watchedEff.join(",")}` : "";
     try {
-      const res = await fetch(
+      const data = await http.get<any>(
         `/api/analysis?hoursBack=24&trendHours=${trendHours}${watchQuery}`,
         { cache: "no-store" }
       );
-      if (!res.ok) return;
-      const data = await res.json();
       if (gen !== listGenRef.current) return; // 手动刷新/筛选已接管
       const fresh = parseAnalysisItems(data.items);
       setItems((prev) => {
@@ -253,9 +250,7 @@ export default function Analysis({
       const watchQuery =
         watchedEff.length > 0 ? `&watched=${watchedEff.join(",")}` : "";
       const url = `/api/analysis?hoursBack=24&cursor=${nextCursor}&trendHours=${trendHours}&minScore=${minScoreParam}${watchQuery}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await http.get<any>(url);
       if (gen !== listGenRef.current) return; // 期间发生过刷新/筛选变更,丢弃旧分页
       setItems(prev => [
         ...prev,
@@ -285,9 +280,7 @@ export default function Analysis({
 
     try {
       const url = `/api/search?q=${encodeURIComponent(params.query)}&minScore=${params.minScore}&hoursBack=${params.hoursBack}&limit=20`;
-      const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await http.get<any>(url, { signal: controller.signal });
       if (gen !== searchGenRef.current) return;
       setSearchResults(data.items || []);
       setSearchTotal(data.total || 0);
@@ -311,9 +304,7 @@ export default function Analysis({
     try {
       const { minScore, hoursBack } = searchParamsRef.current;
       const url = `/api/search?q=${encodeURIComponent(searchQuery)}&minScore=${minScore}&hoursBack=${hoursBack}&cursor=${searchNextCursor}&limit=20`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await http.get<any>(url);
       if (gen !== searchGenRef.current) return; // 新搜索已发起,丢弃旧分页
       setSearchResults((prev) => [...prev, ...(data.items || [])]);
       setSearchNextCursor(data.nextCursor || null);

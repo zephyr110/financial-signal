@@ -13,6 +13,7 @@ import { getNewsByDate, getAvailableDates, getDb } from "../lib/db";
 import { todayKey } from "../lib/format";
 import { formatDateCn, formatTime } from "../lib/cockpit/format";
 import { CONTENT_GUTTER } from "@/lib/layout-classes";
+import { http } from "@/lib/http/client";
 
 const PULL_THRESHOLD = 56;
 
@@ -109,9 +110,7 @@ export default function Home({ todayItems: ssgToday, pastDates: ssgDates, today:
     fetchingRef.current = true;
     setError(null);
     try {
-      const res = await fetch("/api/news", { signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await http.get<any>("/api/news", { signal: controller.signal });
       setTodayItems(data.todayItems || []);
       setPastDates(data.pastDates || []);
       if (data.today) setToday(data.today);

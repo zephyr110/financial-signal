@@ -21,10 +21,10 @@ afterEach(() => {
 
 describe('研究日志日期选择', () => {
   it('用日历选中的日期提交，而不是浏览器原生日期输入', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<JournalComposer today="2026-11-16" theses={[]} />)

@@ -3,6 +3,7 @@ import { ChevronDown, Loader2 } from "lucide-react";
 import NewsCard from "./NewsCard";
 import { cn } from "@/lib/utils";
 import { dateKeyFromItem, todayKey, formatDayLabel } from "@/lib/format";
+import { http, HttpError } from "@/lib/http/client";
 
 function groupByDate(items: any[]) {
   const map = new Map<string, any[]>();
@@ -44,16 +45,12 @@ export default function NewsList({ todayItems, pastDates }: Props) {
       setCollapsed(prev => ({ ...prev, [date]: false }));
       setPastState(prev => ({ ...prev, [date]: { loading: true, items: [] } }));
       try {
-        const res = await fetch(`/api/news?date=${date}`);
-        if (res.ok) {
-          const data = await res.json();
-          setPastState(prev => ({ ...prev, [date]: { loading: false, items: data.items || [] } }));
-        } else {
-          setPastState(prev => ({ ...prev, [date]: { loading: false, items: [] } }));
-        }
-      } catch {
+        const data = await http.get<{ items?: any[] }>(`/api/news?date=${date}`);
+        setPastState(prev => ({ ...prev, [date]: { loading: false, items: data.items || [] } }));
+      } catch (error) {
         setPastState(prev => ({ ...prev, [date]: { loading: false, items: [] } }));
-        setCollapsed(prev => ({ ...prev, [date]: true }));
+        // 服务端有响应时保持展开；仅网络失败才收起，便于下次重试
+        if (!(error instanceof HttpError)) setCollapsed(prev => ({ ...prev, [date]: true }));
       }
     } else {
       // Toggle collapse

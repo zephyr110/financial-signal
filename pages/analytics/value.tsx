@@ -5,6 +5,7 @@ import AppShell from "../../components/app-shell";
 import ErrorBanner from "../../components/ErrorBanner";
 import { cn } from "@/lib/utils";
 import { VERDICT_LABELS } from "@/lib/value";
+import { http } from "@/lib/http/client";
 
 /**
  * P2.5 价值验证报告：5 项指标 vs M2 阈值 → go/no-go 结论。
@@ -17,11 +18,7 @@ export default function ValueReportPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/analytics/value")
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
+    http.get("/api/analytics/value")
       .then((d) => {
         if (!cancelled) {
           setReport(d);
