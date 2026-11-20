@@ -4,6 +4,7 @@ import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Hint } from '@/components/ui/hint'
 import { Input } from '@/components/ui/input'
+import { http, httpErrorMessage } from '@/lib/http/client'
 
 export function WatchlistEditor() {
   const router = useRouter()
@@ -19,22 +20,17 @@ export function WatchlistEditor() {
     setSuccess(null)
     setBusy(true)
     try {
-      const res = await fetch('/api/cockpit/watchlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ code: code.trim(), note: note.trim() || undefined }),
-      })
-      const json = await res.json() as { error?: { message?: string } }
-      if (!res.ok) {
-        setError(json.error?.message || '加入自选失败。')
-        return
-      }
+      await http.post(
+        '/api/cockpit/watchlist',
+        { code: code.trim(), note: note.trim() || undefined },
+        { fallbackMessage: '加入自选失败。' },
+      )
       setCode('')
       setNote('')
       setSuccess('已加入自选；行情未入库时会自动排队补齐。')
       await router.replace(router.asPath)
-    } catch {
-      setError('网络连接失败，未写入自选。')
+    } catch (error) {
+      setError(httpErrorMessage(error, '网络连接失败，未写入自选。'))
     } finally {
       setBusy(false)
     }
@@ -91,18 +87,13 @@ export function WatchlistRemove({ code, name }: { code: string; name: string }) 
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`/api/cockpit/watchlist?code=${encodeURIComponent(code)}`, {
-        method: 'DELETE',
-        headers: { Accept: 'application/json' },
+      await http.delete('/api/cockpit/watchlist', {
+        query: { code },
+        fallbackMessage: '移除失败。',
       })
-      const json = await res.json() as { error?: { message?: string } }
-      if (!res.ok) {
-        setError(json.error?.message || '移除失败。')
-        return
-      }
       await router.replace(router.asPath)
-    } catch {
-      setError('网络连接失败，未移除。')
+    } catch (error) {
+      setError(httpErrorMessage(error, '网络连接失败，未移除。'))
     } finally {
       // 失败时保持确认态，否则错误提示会随按钮一起被卸载。
       setBusy(false)

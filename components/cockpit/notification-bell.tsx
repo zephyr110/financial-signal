@@ -5,6 +5,7 @@ import type { NotificationRecord } from '@/lib/cockpit/types'
 import { formatTime } from '@/lib/cockpit/format'
 import { sanitizeAnswerText } from '@/lib/safe-json'
 import { Button } from '@/components/ui/button'
+import { http, httpErrorMessage } from '@/lib/http/client'
 
 interface NotificationPayload {
   items: NotificationRecord[]
@@ -54,12 +55,10 @@ export function NotificationBell() {
 
   const load = useCallback(async (notify = false) => {
     try {
-      const res = await fetch('/api/cockpit/notifications?limit=20', {
-        headers: { Accept: 'application/json' },
-        cache: 'no-store',
-      })
-      if (!res.ok) return
-      const json = await res.json() as { data?: NotificationPayload }
+      const json = await http.get<{ data?: NotificationPayload }>(
+        '/api/cockpit/notifications?limit=20',
+        { cache: 'no-store' },
+      )
       if (json.data?.items) apply(json.data, notify)
     } catch {
       /* 顶栏通知轮询失败不打断页面 */
@@ -102,21 +101,20 @@ export function NotificationBell() {
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch('/api/cockpit/notifications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ id }),
-      })
-      const json = await res.json() as { data?: NotificationPayload; error?: { message?: string } }
-      if (!res.ok || !json.data) {
-        setError(json.error?.message || '标记已读失败。')
+      const json = await http.post<{ data?: NotificationPayload }>(
+        '/api/cockpit/notifications',
+        { id },
+        { fallbackMessage: '标记已读失败。' },
+      )
+      if (!json.data) {
+        setError('标记已读失败。')
         return
       }
       apply(json.data, false)
       setOpen(false)
       if (deepLink) await router.push(deepLink)
-    } catch {
-      setError('网络连接失败，通知状态未更新。')
+    } catch (error) {
+      setError(httpErrorMessage(error, '网络连接失败，通知状态未更新。'))
     } finally {
       setBusy(false)
     }
@@ -127,19 +125,18 @@ export function NotificationBell() {
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch('/api/cockpit/notifications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ all: true }),
-      })
-      const json = await res.json() as { data?: NotificationPayload; error?: { message?: string } }
-      if (!res.ok || !json.data) {
-        setError(json.error?.message || '全部已读失败。')
+      const json = await http.post<{ data?: NotificationPayload }>(
+        '/api/cockpit/notifications',
+        { all: true },
+        { fallbackMessage: '全部已读失败。' },
+      )
+      if (!json.data) {
+        setError('全部已读失败。')
         return
       }
       apply(json.data, false)
-    } catch {
-      setError('网络连接失败，通知状态未更新。')
+    } catch (error) {
+      setError(httpErrorMessage(error, '网络连接失败，通知状态未更新。'))
     } finally {
       setBusy(false)
     }

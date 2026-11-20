@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import EmptyData from "@/components/EmptyData";
 import { Hint } from "@/components/ui/hint";
 import { getBacktestTier, shouldShowNumbers, tierProgress, type BacktestTier } from "@/lib/backtest";
+import { http } from "@/lib/http/client";
 
 interface BacktestRow {
   signal_score?: number;
@@ -73,8 +74,7 @@ export default function BacktestPanel() {
     if (byIndustry !== null) return;
     let cancelled = false;
     setLoading(true);
-    fetch("/api/backtest")
-      .then((r) => r.json())
+    http.get<{ byScore?: BacktestRow[]; byIndustry?: BacktestRow[]; pending?: number }>("/api/backtest")
       .then((d) => {
         if (cancelled) return;
         setByScore(d.byScore || []);

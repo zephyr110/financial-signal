@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { http, httpErrorMessage } from '@/lib/http/client'
 
 const ACTION_OPTIONS = [
   { value: 'watch', label: '继续观察' },
@@ -65,29 +66,20 @@ export function JournalComposer({
     }
     setBusy(true)
     try {
-      const res = await fetch('/api/cockpit/journal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          entryDate,
-          action,
-          code: code.trim() || undefined,
-          thesisId: thesisId || undefined,
-          reason: text,
-        }),
-      })
-      const json = await res.json() as { error?: { message?: string } }
-      if (!res.ok) {
-        setError(json.error?.message || '写入失败，请稍后再试。')
-        return
-      }
+      await http.post('/api/cockpit/journal', {
+        entryDate,
+        action,
+        code: code.trim() || undefined,
+        thesisId: thesisId || undefined,
+        reason: text,
+      }, { fallbackMessage: '写入失败，请稍后再试。' })
       setReason('')
       setCode('')
       setThesisId('')
       setSuccess('已写入研究日志。')
       await router.replace(router.asPath)
-    } catch {
-      setError('网络连接失败，记录未保存。')
+    } catch (error) {
+      setError(httpErrorMessage(error, '网络连接失败，记录未保存。'))
     } finally {
       setBusy(false)
     }
