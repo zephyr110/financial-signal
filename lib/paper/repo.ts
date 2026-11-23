@@ -362,6 +362,20 @@ export async function getPaperExperiment(id: string): Promise<PaperExperimentRow
   return r.rows.length ? mapExperiment(r.rows[0]) : null
 }
 
+/** 同一时间只允许一个活动/暂停/待开始的实验；active 优先，其次 paused、planned。 */
+export async function getCurrentPaperExperiment(): Promise<PaperExperimentRow | null> {
+  const db = await getDb()
+  const r = await db.execute({
+    sql: `SELECT * FROM paper_experiments
+          WHERE status IN ('active','paused','planned')
+          ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,
+                   created_at DESC
+          LIMIT 1`,
+    args: [],
+  })
+  return r.rows.length ? mapExperiment(r.rows[0]) : null
+}
+
 export async function getPaperAccount(id: string): Promise<PaperAccountRow | null> {
   const db = await getDb()
   const r = await db.execute({ sql: 'SELECT * FROM paper_accounts WHERE id = ?', args: [id] })

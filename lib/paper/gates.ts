@@ -459,11 +459,14 @@ export async function buildPaperGateFacts(input: {
   experimentId: string
   gate: PaperGateId
   now?: string
+  /** 概览页一次算好指标后复用，避免 L1/L2 两门各重算一遍。 */
+  metrics?: PaperMetricsReport
 }): Promise<PaperGateFacts> {
   const experiment = await getPaperExperiment(input.experimentId)
   if (!experiment) throw new PaperRepoError('NOT_FOUND', '实验不存在')
   const { policy } = await getPaperExperimentPolicy(experiment.id)
-  const metrics = await computePaperMetrics({ experimentId: experiment.id, now: input.now })
+  const metrics = input.metrics
+    ?? await computePaperMetrics({ experimentId: experiment.id, now: input.now })
   const db = await getDb()
   const startDate = (experiment.startedAt ?? experiment.createdAt).slice(0, 10)
   const endDate = metrics.accounts.user.endDate ?? startDate
@@ -588,6 +591,7 @@ export async function computePaperGateReport(input: {
   experimentId: string
   gate: PaperGateId
   now?: string
+  metrics?: PaperMetricsReport
 }): Promise<PaperGateReport> {
   const facts = await buildPaperGateFacts(input)
   const report = evaluatePaperStageGate(facts)

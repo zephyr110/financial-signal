@@ -1,6 +1,8 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
 import {
+  createPaperExperiment,
+  getCurrentPaperExperiment,
   getPaperExperiment,
   getPaperExperimentPolicy,
   insertPaperExperiment,
@@ -10,7 +12,8 @@ import {
   type CreatedPaperExperiment,
   type PaperExperimentRow,
 } from './repo'
-import { policyHash } from './policy'
+import { DEFAULT_PAPER_POLICY, policyHash } from './policy'
+import { addPaperTradingDays } from './calendar'
 
 /**
  * 实验生命周期：暂停必须写原因，恢复沿用原计时，重置新建 -v2 实验。
@@ -154,6 +157,142 @@ export async function startPaperExperiment(input: {
     throw err
   }
   return (await getPaperExperiment(experiment.id)) as PaperExperimentRow
+}
+
+function shanghaiDateOf(iso: string): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date(iso))
+}
+
+export interface CreateDefaultPaperExperimentInput {
+  name?: string
+  initialCashCents?: number
+  benchmarkCode?: string
+  plannedTradingDays?: number
+  protocolVersion?: string
+  protocolNote?: string
+  now?: string
+}
+
+const MIN_CASH_CENTS = 1_000_000      // ¥10,000
+const MAX_CASH_CENTS = 1_000_000_000  // ¥10,000,000
+const DEFAULT_CASH_CENTS = 20_000_000 // ¥200,000
+
+/**
+ * 新实验只锁服务端协议；客户端只能选资金档与基准，不能自带一份“更宽松”的协议。
+ * 同一时间保留一个未结束实验，避免两个 active 抢“当前”上下文。
+ */
+export async function createDefaultPaperExperiment(
+  input: CreateDefaultPaperExperimentInput = {},
+): Promise<CreatedPaperExperiment> {
+  const name = (input.name?.trim() || 'L1 前向纸面').trim()
+  if (name.length > 80) throw new PaperRepoError('INVALID_INPUT', '实验名称最多 80 字')
+
+  const cash = input.initialCashCents ?? DEFAULT_CASH_CENTS
+  if (!Number.isSafeInteger(cash) || cash < MIN_CASH_CENTS || cash > MAX_CASH_CENTS) {
+    throw new PaperRepoError('INVALID_INPUT', '初始资金须在 ¥10,000 至 ¥10,000,000 之间（整数分）')
+  }
+
+  const benchmarkCode = (input.benchmarkCode?.trim() || 'H00300').toUpperCase()
+  if (!/^[A-Z0-9][A-Z0-9._-]{1,23}$/.test(benchmarkCode)) {
+    throw new PaperRepoError('INVALID_INPUT', '基准代码格式不正确')
+  }
+  const plannedTradingDays = input.plannedTradingDays ?? 250
+  if (!Number.isSafeInteger(plannedTradingDays) || plannedTradingDays < 1 || plannedTradingDays > 1_000) {
+    throw new PaperRepoError('INVALID_INPUT', '计划交易日须为 1–1000 的整数')
+  }
+  const protocolVersion = (input.protocolVersion?.trim() || 'v1').trim()
+  if (protocolVersion.length > 32) throw new PaperRepoError('INVALID_INPUT', '协议版本最多 32 字')
+  const protocolNote = input.protocolNote?.trim() || null
+  if (protocolNote && protocolNote.length > 500) {
+    throw new PaperRepoError('INVALID_INPUT', '协议备注最多 500 字')
+  }
+
+  // 参数错误先于状态检查报出来，避免用户以为只是“已有实验”而改错方向。
+  const current = await getCurrentPaperExperiment()
+  if (current) {
+    throw new PaperRepoError('INVALID_STATE', '已有未结束的实验，请先暂停、重置或关闭', {
+      experimentId: current.id,
+      status: current.status,
+    })
+  }
+
+  const now = nowIso(input.now)
+  const startDate = shanghaiDateOf(now)
+  const plannedEndDate = await addPaperTradingDays(startDate, plannedTradingDays)
+  const benchmarkBasis = /^H0\d{4}$/i.test(benchmarkCode) ? 'total_return_index' : 'price_index'
+  const protocol = {
+    version: 'paper-protocol-v1',
+    lockedAt: now,
+    objective: '用真实 A 股数据、虚拟资金和官方开盘价纸面成交，检验这套投研方法是否值得继续投入。',
+    scope: '沪深主板、创业板、科创板；不接券商、不碰真钱、不构成投资建议。',
+    initialCashCents: cash,
+    benchmark: { code: benchmarkCode, basis: benchmarkBasis },
+    plannedTradingDays,
+    dailyRhythm: {
+      preopen: '08:30',
+      confirmCutoff: '09:15',
+      settle: '16:20',
+      nav: '16:30',
+      review: '17:00',
+      outcomes: '17:15',
+      nextDayCards: '17:30',
+      weekly: 'Saturday 10:00',
+    },
+    gates: {
+      L1_TO_L2: {
+        minValidDays: 120,
+        minLastCardAgeDays: 60,
+        minTriggeredCards: 30,
+        minTotal: 80,
+        minDimensionRatioBp: 6_000,
+        vetoes: ['lookahead', 'reconciliation', 'compliance'],
+      },
+      L2_TO_L3: {
+        minValidDays: 250,
+        minTriggeredCards: 100,
+        requireCalibration: true,
+        maxDrawdownBp: 1_000,
+        minSharpe: 0.5,
+        minTotal: 80,
+        minDimensionRatioBp: 6_000,
+        vetoes: ['lookahead', 'reconciliation', 'compliance'],
+      },
+    },
+    rules: {
+      noRealOrders: true,
+      noLookahead: true,
+      officialOpenSettlement: true,
+      resetDoesNotChangePolicy: true,
+      below120Days: 'counts_only',
+    },
+    notes: protocolNote,
+  }
+  const baseline = {
+    benchmarkCode,
+    benchmarkBasis,
+    initialCashCents: cash,
+    cashCents: cash,
+    capturedAt: now,
+  }
+
+  return createPaperExperiment({
+    name,
+    protocolVersion,
+    benchmarkCode,
+    initialCashCents: cash,
+    policy: DEFAULT_PAPER_POLICY,
+    startedAt: now,
+    plannedEndAt: `${plannedEndDate}T15:00:00+08:00`,
+    protocol,
+    baseline,
+    config: {
+      plannedTradingDays,
+      plannedEndDate,
+      benchmarkBasis,
+      createdVia: 'api',
+    },
+    now,
+  })
 }
 
 function nextExperimentName(name: string, generation: number): string {

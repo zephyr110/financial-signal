@@ -25,7 +25,7 @@ beforeEach(() => {
 describe('侧栏信息架构', () => {
   it('日常、研究、系统三组各自收纳对应入口', () => {
     expect(SIDEBAR_GROUPS.map((group) => group.label)).toEqual(['日常', '研究', '系统'])
-    expect(SIDEBAR_GROUPS[0].items.map((item) => item.label)).toEqual(['今日', '自选', '持仓'])
+    expect(SIDEBAR_GROUPS[0].items.map((item) => item.label)).toEqual(['今日', '自选', '持仓', '模拟盘'])
     expect(SIDEBAR_GROUPS[1].items.map((item) => item.label)).toEqual([
       '投研台',
       '研究笔记',
@@ -47,6 +47,9 @@ describe('侧栏信息架构', () => {
     const watchlist = SIDEBAR_GROUPS[0].items[1]
     const analysis = SIDEBAR_GROUPS[1].items[2]
     expect(watchlist.match('/stock/600519')).toBe(true)
+    const paper = SIDEBAR_GROUPS[0].items[3]
+    expect(paper.match('/paper')).toBe(true)
+    expect(paper.match('/paper/abc')).toBe(true)
     expect(SIDEBAR_GROUPS[1].items[0].match('/desk')).toBe(true)
     expect(analysis.match('/signal/42')).toBe(true)
     expect(analysis.match('/thread/42')).toBe(true)
@@ -56,7 +59,7 @@ describe('侧栏信息架构', () => {
   it('手机底栏固定五个主入口', () => {
     expect(MOBILE_ITEMS.map((item) => item.href)).toEqual([
       '/today',
-      '/desk',
+      '/paper',
       '/watchlist',
       '/portfolio',
       '/tasks',
