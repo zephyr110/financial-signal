@@ -194,7 +194,8 @@ export async function runPaperNavAndReconcile(input: {
       navs[account.kind] = nav.totalEquityCents
       const reconciliation = await reconcilePaperAccount({ accountId: account.id, tradeDate: date, now })
       reconciliations[account.kind] = reconciliation.status
-      if (reconciliation.status === 'pass') {
+      // 补写旧日期不能当解除禁买的依据：只由当天对账通过来清除缺价状态。
+      if (date === tradeDate && reconciliation.status === 'pass') {
         await clearPaperMissingPriceState({ accountId: account.id, now })
       }
     }
