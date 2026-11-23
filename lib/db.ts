@@ -121,14 +121,29 @@ function createGuardedClient(raw: Client): Client {
 // 保持宽松类型：大量历史调用点把 unknown[] 直接传给 execute，收紧会牵连全库
 let client: any;
 let schemaReady;
+let localPragmas: Promise<void> | undefined;
+
+/** 本地库连接基线：WAL 提升读写并发，busy_timeout 吸收短时锁竞争。
+ * 失败不致命（只读/网络盘不支持 WAL 时退回默认模式）。 */
+async function applyLocalPragmas(raw: Client): Promise<void> {
+  for (const pragma of ['PRAGMA journal_mode = WAL', 'PRAGMA busy_timeout = 5000', 'PRAGMA foreign_keys = ON']) {
+    try { await raw.execute(pragma); } catch { /* 保持默认值 */ }
+  }
+}
 
 export async function getDb() {
   if (!client) {
     const target = resolveClientConfig();
     activeDbTarget = target;
     const raw = createClient(target);
-    client = target.url.startsWith('file:') ? createGuardedClient(raw) : raw;
+    if (target.url.startsWith('file:')) {
+      client = createGuardedClient(raw);
+      localPragmas = applyLocalPragmas(raw);
+    } else {
+      client = raw;
+    }
   }
+  if (localPragmas) await localPragmas;
   let m = schemaReady;
   if (!m) {
     m = migrate(client);
@@ -174,6 +189,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 16, name: '可选实时源快照表（必带延迟秒数）', up: migrationRealtimeQuotes },
   { version: 17, name: 'Agent 个人数据按账号隔离', up: migrationAgentUserScope },
   { version: 18, name: 'Agent 消息分支树（parent/selected/root）', up: migrationAgentMessageTree },
+  { version: 19, name: '纸面模拟盘账本/决策卡/元数据', up: migrationPaperSchema },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -944,6 +960,541 @@ async function migrationAgentMessageTree(db) {
         args: [rootId, sid],
       });
     }
+    await tx.commit();
+  } catch (err) {
+    try { await tx.rollback(); } catch { /* 已失效的事务 */ }
+    throw err;
+  }
+}
+
+/**
+ * v19：纸面模拟盘。
+ * 账本只追加（现金流水/成交/批次平仓/事件/审计禁止 UPDATE/DELETE），
+ * 持仓与净值是物化表，可由事件与批次重建；确认时冻结现金/股数。
+ */
+async function migrationPaperSchema(db) {
+  const tx = await db.transaction('write');
+  try {
+    await tx.executeMultiple(`
+      CREATE TABLE IF NOT EXISTS paper_policy_versions (
+        version       TEXT PRIMARY KEY,
+        policy_json   TEXT NOT NULL,
+        policy_hash   TEXT NOT NULL,
+        is_active     INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0,1)),
+        created_at    TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_experiments (
+        id                 TEXT PRIMARY KEY,
+        name               TEXT NOT NULL,
+        protocol_version   TEXT NOT NULL,
+        policy_version     TEXT NOT NULL REFERENCES paper_policy_versions(version),
+        benchmark_code     TEXT NOT NULL,
+        initial_cash_cents INTEGER NOT NULL CHECK (initial_cash_cents > 0),
+        status             TEXT NOT NULL CHECK (status IN ('planned','active','paused','closed')),
+        protocol_json      TEXT NOT NULL DEFAULT '{}',
+        baseline_json      TEXT NOT NULL DEFAULT '{}',
+        started_at         TEXT,
+        planned_end_at     TEXT,
+        ended_at           TEXT,
+        valid_days         INTEGER NOT NULL DEFAULT 0 CHECK (valid_days >= 0),
+        pause_reason       TEXT,
+        reset_count        INTEGER NOT NULL DEFAULT 0 CHECK (reset_count >= 0),
+        reset_of           TEXT REFERENCES paper_experiments(id),
+        config_json        TEXT NOT NULL DEFAULT '{}',
+        created_at         TEXT NOT NULL,
+        updated_at         TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_accounts (
+        id                 TEXT PRIMARY KEY,
+        experiment_id      TEXT NOT NULL REFERENCES paper_experiments(id),
+        kind               TEXT NOT NULL CHECK (kind IN ('user','shadow')),
+        name               TEXT NOT NULL,
+        initial_cash_cents INTEGER NOT NULL CHECK (initial_cash_cents > 0),
+        cash_cents         INTEGER NOT NULL CHECK (cash_cents >= 0),
+        status             TEXT NOT NULL CHECK (status IN ('active','paused','closed')),
+        is_demo            INTEGER NOT NULL DEFAULT 0 CHECK (is_demo IN (0,1)),
+        created_at         TEXT NOT NULL,
+        closed_at          TEXT,
+        UNIQUE (experiment_id, kind)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_snapshots (
+        id                   TEXT PRIMARY KEY,
+        experiment_id        TEXT NOT NULL REFERENCES paper_experiments(id),
+        as_of                TEXT NOT NULL,
+        trade_date           TEXT NOT NULL,
+        universe_json        TEXT NOT NULL,
+        dataset_version      TEXT NOT NULL,
+        source_manifest_json TEXT NOT NULL,
+        quality_json         TEXT NOT NULL,
+        facts_json           TEXT NOT NULL,
+        content_hash         TEXT NOT NULL,
+        is_demo              INTEGER NOT NULL DEFAULT 0 CHECK (is_demo IN (0,1)),
+        created_at           TEXT NOT NULL,
+        UNIQUE (experiment_id, trade_date, as_of)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_symbol_meta (
+        symbol_code      TEXT NOT NULL,
+        valid_from       TEXT NOT NULL,
+        valid_to         TEXT,
+        name             TEXT NOT NULL,
+        exchange         TEXT NOT NULL,
+        board            TEXT NOT NULL CHECK (board IN ('main_sh','main_sz','star','chinext','bse')),
+        industry_code    TEXT,
+        industry_name    TEXT,
+        is_st            INTEGER NOT NULL DEFAULT 0 CHECK (is_st IN (0,1)),
+        lot_size         INTEGER NOT NULL CHECK (lot_size > 0),
+        limit_pct_bp     INTEGER CHECK (limit_pct_bp IS NULL OR limit_pct_bp > 0),
+        no_price_limit   INTEGER NOT NULL DEFAULT 0 CHECK (no_price_limit IN (0,1)),
+        listed_at        TEXT,
+        delisted_at      TEXT,
+        source_id        TEXT NOT NULL,
+        meta_hash        TEXT NOT NULL,
+        PRIMARY KEY (symbol_code, valid_from)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_symbol_industry_history (
+        symbol_code   TEXT NOT NULL,
+        industry_code TEXT NOT NULL,
+        industry_name TEXT NOT NULL,
+        valid_from    TEXT NOT NULL,
+        valid_to      TEXT,
+        source_id     TEXT NOT NULL,
+        PRIMARY KEY (symbol_code, valid_from)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_limit_price_daily (
+        symbol_code      TEXT NOT NULL,
+        trade_date       TEXT NOT NULL,
+        limit_up_cents   INTEGER NOT NULL CHECK (limit_up_cents > 0),
+        limit_down_cents INTEGER NOT NULL CHECK (limit_down_cents > 0),
+        source_id        TEXT NOT NULL,
+        fetched_at       TEXT NOT NULL,
+        PRIMARY KEY (symbol_code, trade_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_market_status_daily (
+        symbol_code   TEXT NOT NULL,
+        trade_date    TEXT NOT NULL,
+        is_suspended  INTEGER NOT NULL DEFAULT 0 CHECK (is_suspended IN (0,1)),
+        is_st         INTEGER NOT NULL DEFAULT 0 CHECK (is_st IN (0,1)),
+        status_source TEXT NOT NULL,
+        fetched_at    TEXT NOT NULL,
+        PRIMARY KEY (symbol_code, trade_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_universe (
+        experiment_id TEXT NOT NULL REFERENCES paper_experiments(id),
+        symbol_code   TEXT NOT NULL,
+        source        TEXT NOT NULL CHECK (source IN ('watchlist','system','holding')),
+        reason        TEXT,
+        added_at      TEXT NOT NULL,
+        removed_at    TEXT,
+        PRIMARY KEY (experiment_id, symbol_code)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_corporate_actions (
+        id                       TEXT PRIMARY KEY,
+        symbol_code              TEXT NOT NULL,
+        kind                     TEXT NOT NULL CHECK (kind IN ('dividend','bonus','split','rights')),
+        announcement_date        TEXT,
+        record_date              TEXT,
+        ex_date                  TEXT NOT NULL,
+        pay_date                 TEXT,
+        cash_per_share_cents     INTEGER NOT NULL DEFAULT 0 CHECK (cash_per_share_cents >= 0),
+        bonus_per_10             INTEGER NOT NULL DEFAULT 0 CHECK (bonus_per_10 >= 0),
+        split_ratio_num          INTEGER NOT NULL DEFAULT 1 CHECK (split_ratio_num > 0),
+        split_ratio_den          INTEGER NOT NULL DEFAULT 1 CHECK (split_ratio_den > 0),
+        source_id                TEXT NOT NULL,
+        raw_json                 TEXT NOT NULL DEFAULT '{}',
+        created_at               TEXT NOT NULL,
+        UNIQUE (symbol_code, ex_date, kind, source_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_decision_cards (
+        id                    TEXT PRIMARY KEY,
+        experiment_id         TEXT NOT NULL REFERENCES paper_experiments(id),
+        card_version          INTEGER NOT NULL DEFAULT 1 CHECK (card_version >= 1),
+        trade_date            TEXT NOT NULL,
+        symbol_code           TEXT NOT NULL,
+        snapshot_id           TEXT NOT NULL REFERENCES paper_snapshots(id),
+        policy_version        TEXT NOT NULL REFERENCES paper_policy_versions(version),
+        status                TEXT NOT NULL CHECK (status IN ('active','triggered','confirmed','executed','not_triggered','invalidated','expired','dismissed')),
+        stance                TEXT NOT NULL CHECK (stance IN ('observe','candidate','caution','avoid')),
+        horizon               TEXT NOT NULL CHECK (horizon IN ('short','swing','medium')),
+        thesis                TEXT NOT NULL,
+        trigger_basis         TEXT NOT NULL CHECK (trigger_basis IN ('prev_close','event','open_auction')),
+        trigger_op            TEXT CHECK (trigger_op IN ('lte','gte')),
+        trigger_price_cents   INTEGER CHECK (trigger_price_cents IS NULL OR trigger_price_cents > 0),
+        stop_price_cents      INTEGER CHECK (stop_price_cents IS NULL OR stop_price_cents > 0),
+        max_loss_cents        INTEGER CHECK (max_loss_cents IS NULL OR max_loss_cents >= 0),
+        max_position_pct_bp   INTEGER CHECK (max_position_pct_bp IS NULL OR max_position_pct_bp BETWEEN 0 AND 10000),
+        confidence_score      INTEGER NOT NULL CHECK (confidence_score BETWEEN 0 AND 100),
+        confidence_inputs_json TEXT NOT NULL,
+        evidence_json         TEXT NOT NULL,
+        counter_evidence_json TEXT NOT NULL DEFAULT '[]',
+        invalidation          TEXT NOT NULL,
+        review_date           TEXT,
+        expires_at            TEXT NOT NULL,
+        dismissed_reason      TEXT,
+        created_at            TEXT NOT NULL,
+        updated_at            TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_cards_experiment
+        ON paper_decision_cards(experiment_id, trade_date DESC, status);
+      CREATE INDEX IF NOT EXISTS idx_paper_cards_symbol
+        ON paper_decision_cards(symbol_code, trade_date DESC);
+
+      CREATE TABLE IF NOT EXISTS paper_card_events (
+        card_id     TEXT NOT NULL REFERENCES paper_decision_cards(id),
+        seq         INTEGER NOT NULL,
+        event_type  TEXT NOT NULL,
+        from_status TEXT,
+        to_status   TEXT,
+        payload_json TEXT,
+        created_at  TEXT NOT NULL,
+        PRIMARY KEY (card_id, seq)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_orders (
+        id                  TEXT PRIMARY KEY,
+        experiment_id       TEXT NOT NULL REFERENCES paper_experiments(id),
+        account_id          TEXT NOT NULL REFERENCES paper_accounts(id),
+        card_id             TEXT REFERENCES paper_decision_cards(id),
+        card_version        INTEGER,
+        actor               TEXT NOT NULL DEFAULT 'user' CHECK (actor IN ('user','shadow')),
+        symbol_code         TEXT NOT NULL,
+        side                TEXT NOT NULL CHECK (side IN ('buy','sell')),
+        order_type          TEXT NOT NULL CHECK (order_type IN ('open_market','open_price_condition')),
+        qty                 INTEGER NOT NULL CHECK (qty > 0),
+        condition_op        TEXT CHECK (condition_op IN ('lte','gte')),
+        trigger_price_cents INTEGER CHECK (trigger_price_cents IS NULL OR trigger_price_cents > 0),
+        status              TEXT NOT NULL CHECK (status IN ('confirmed','settlement_pending','filled','rejected','expired','trigger_not_met','canceled')),
+        client_request_id   TEXT NOT NULL,
+        idempotency_key     TEXT NOT NULL,
+        request_hash        TEXT NOT NULL,
+        target_trade_date   TEXT NOT NULL,
+        off_plan_reason     TEXT,
+        reject_code         TEXT,
+        reject_detail       TEXT,
+        is_demo             INTEGER NOT NULL DEFAULT 0 CHECK (is_demo IN (0,1)),
+        confirmed_at        TEXT,
+        cutoff_at           TEXT,
+        settled_at          TEXT,
+        created_at          TEXT NOT NULL,
+        updated_at          TEXT NOT NULL,
+        UNIQUE (account_id, client_request_id),
+        UNIQUE (account_id, idempotency_key),
+        CHECK (side = 'sell' OR card_id IS NOT NULL)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_orders_account
+        ON paper_orders(account_id, target_trade_date, status);
+      CREATE INDEX IF NOT EXISTS idx_paper_orders_card
+        ON paper_orders(card_id, status);
+
+      CREATE TABLE IF NOT EXISTS paper_order_events (
+        order_id    TEXT NOT NULL REFERENCES paper_orders(id),
+        seq         INTEGER NOT NULL,
+        event_type  TEXT NOT NULL,
+        from_status TEXT,
+        to_status   TEXT,
+        payload_json TEXT,
+        created_at  TEXT NOT NULL,
+        PRIMARY KEY (order_id, seq)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_fills (
+        id                   TEXT PRIMARY KEY,
+        order_id             TEXT NOT NULL UNIQUE REFERENCES paper_orders(id),
+        experiment_id        TEXT NOT NULL REFERENCES paper_experiments(id),
+        account_id           TEXT NOT NULL REFERENCES paper_accounts(id),
+        symbol_code          TEXT NOT NULL,
+        side                 TEXT NOT NULL CHECK (side IN ('buy','sell')),
+        qty                  INTEGER NOT NULL CHECK (qty > 0),
+        price_cents          INTEGER NOT NULL CHECK (price_cents > 0),
+        gross_cents          INTEGER NOT NULL CHECK (gross_cents > 0),
+        commission_cents     INTEGER NOT NULL DEFAULT 0 CHECK (commission_cents >= 0),
+        stamp_tax_cents      INTEGER NOT NULL DEFAULT 0 CHECK (stamp_tax_cents >= 0),
+        transfer_fee_cents   INTEGER NOT NULL DEFAULT 0 CHECK (transfer_fee_cents >= 0),
+        slippage_cents       INTEGER NOT NULL DEFAULT 0 CHECK (slippage_cents >= 0),
+        total_fees_cents     INTEGER NOT NULL DEFAULT 0 CHECK (total_fees_cents >= 0),
+        trade_date           TEXT NOT NULL,
+        trade_time           TEXT NOT NULL,
+        settled_at           TEXT NOT NULL,
+        price_basis          TEXT NOT NULL CHECK (price_basis IN ('official_daily_open','manual')),
+        price_source_id      TEXT NOT NULL,
+        bar_fetched_at       TEXT,
+        bar_hash             TEXT,
+        snapshot_id          TEXT,
+        is_demo              INTEGER NOT NULL DEFAULT 0 CHECK (is_demo IN (0,1)),
+        created_at           TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_fills_account
+        ON paper_fills(account_id, trade_date, symbol_code);
+
+      CREATE TABLE IF NOT EXISTS paper_reservations (
+        id           TEXT PRIMARY KEY,
+        account_id   TEXT NOT NULL REFERENCES paper_accounts(id),
+        order_id     TEXT NOT NULL REFERENCES paper_orders(id),
+        kind         TEXT NOT NULL CHECK (kind IN ('cash','shares')),
+        symbol_code  TEXT,
+        amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+        qty          INTEGER NOT NULL DEFAULT 0 CHECK (qty >= 0),
+        status       TEXT NOT NULL CHECK (status IN ('held','released','consumed')),
+        created_at   TEXT NOT NULL,
+        released_at  TEXT,
+        CHECK ((kind = 'cash' AND amount_cents > 0) OR (kind = 'shares' AND qty > 0)),
+        UNIQUE (order_id, kind)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_reservations_account
+        ON paper_reservations(account_id, status);
+
+      CREATE TABLE IF NOT EXISTS paper_tax_lots (
+        id               TEXT PRIMARY KEY,
+        account_id       TEXT NOT NULL REFERENCES paper_accounts(id),
+        symbol_code      TEXT NOT NULL,
+        open_fill_id     TEXT NOT NULL REFERENCES paper_fills(id),
+        open_date        TEXT NOT NULL,
+        qty              INTEGER NOT NULL CHECK (qty > 0),
+        cost_total_cents INTEGER NOT NULL CHECK (cost_total_cents > 0),
+        created_at       TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_lots_account
+        ON paper_tax_lots(account_id, symbol_code, open_date);
+
+      CREATE TABLE IF NOT EXISTS paper_lot_closes (
+        id                 TEXT PRIMARY KEY,
+        sell_fill_id       TEXT NOT NULL REFERENCES paper_fills(id),
+        lot_id             TEXT NOT NULL REFERENCES paper_tax_lots(id),
+        qty                INTEGER NOT NULL CHECK (qty > 0),
+        cost_cents         INTEGER NOT NULL CHECK (cost_cents >= 0),
+        proceeds_cents     INTEGER NOT NULL CHECK (proceeds_cents >= 0),
+        realized_pnl_cents INTEGER NOT NULL,
+        holding_days       INTEGER NOT NULL CHECK (holding_days >= 0),
+        dividend_tax_cents INTEGER NOT NULL DEFAULT 0 CHECK (dividend_tax_cents >= 0),
+        created_at         TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_closes_fill
+        ON paper_lot_closes(sell_fill_id);
+
+      CREATE TABLE IF NOT EXISTS paper_cash_entries (
+        id                  TEXT PRIMARY KEY,
+        account_id          TEXT NOT NULL REFERENCES paper_accounts(id),
+        kind                TEXT NOT NULL CHECK (kind IN ('initial','buy','sell','fee','tax','dividend','dividend_tax','adjustment')),
+        amount_cents        INTEGER NOT NULL,
+        balance_after_cents INTEGER NOT NULL CHECK (balance_after_cents >= 0),
+        ref_type            TEXT NOT NULL,
+        ref_id              TEXT NOT NULL,
+        order_id            TEXT,
+        fill_id             TEXT,
+        trade_date          TEXT NOT NULL,
+        memo                TEXT,
+        created_at          TEXT NOT NULL,
+        UNIQUE (ref_type, ref_id, kind)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_cash_account
+        ON paper_cash_entries(account_id, trade_date);
+
+      CREATE TABLE IF NOT EXISTS paper_positions (
+        account_id       TEXT NOT NULL REFERENCES paper_accounts(id),
+        symbol_code      TEXT NOT NULL,
+        total_qty        INTEGER NOT NULL DEFAULT 0 CHECK (total_qty >= 0),
+        available_qty    INTEGER NOT NULL DEFAULT 0 CHECK (available_qty >= 0),
+        frozen_qty       INTEGER NOT NULL DEFAULT 0 CHECK (frozen_qty >= 0),
+        avg_cost_cents   INTEGER NOT NULL DEFAULT 0 CHECK (avg_cost_cents >= 0),
+        updated_at       TEXT NOT NULL,
+        PRIMARY KEY (account_id, symbol_code),
+        CHECK (available_qty + frozen_qty = total_qty)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_nav (
+        account_id           TEXT NOT NULL REFERENCES paper_accounts(id),
+        trade_date           TEXT NOT NULL,
+        cash_cents           INTEGER NOT NULL CHECK (cash_cents >= 0),
+        frozen_cash_cents    INTEGER NOT NULL DEFAULT 0 CHECK (frozen_cash_cents >= 0),
+        market_value_cents   INTEGER NOT NULL DEFAULT 0 CHECK (market_value_cents >= 0),
+        total_equity_cents   INTEGER NOT NULL CHECK (total_equity_cents >= 0),
+        daily_return_bp      INTEGER,
+        drawdown_bp          INTEGER,
+        benchmark_json       TEXT NOT NULL DEFAULT '{}',
+        quality              TEXT NOT NULL DEFAULT 'pass' CHECK (quality IN ('pass','warn','fail')),
+        is_demo              INTEGER NOT NULL DEFAULT 0 CHECK (is_demo IN (0,1)),
+        created_at           TEXT NOT NULL,
+        PRIMARY KEY (account_id, trade_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_risk_events (
+        id               TEXT PRIMARY KEY,
+        account_id       TEXT NOT NULL REFERENCES paper_accounts(id),
+        order_id         TEXT,
+        card_id          TEXT,
+        rule             TEXT NOT NULL,
+        severity         TEXT NOT NULL CHECK (severity IN ('info','warn','block')),
+        threshold_value  REAL,
+        actual_value     REAL,
+        action           TEXT NOT NULL,
+        message          TEXT NOT NULL,
+        detail_json      TEXT NOT NULL DEFAULT '{}',
+        data_quality     TEXT NOT NULL DEFAULT 'pass',
+        ref_type         TEXT,
+        ref_id           TEXT,
+        created_at       TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_risk_account
+        ON paper_risk_events(account_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS paper_risk_state (
+        account_id         TEXT PRIMARY KEY REFERENCES paper_accounts(id),
+        kill_switch        INTEGER NOT NULL DEFAULT 0 CHECK (kill_switch IN (0,1)),
+        kill_reason        TEXT,
+        kill_since         TEXT,
+        missing_price_since TEXT,
+        data_quality       TEXT NOT NULL DEFAULT 'pass' CHECK (data_quality IN ('pass','warn','fail')),
+        release_after_date TEXT,
+        last_evaluated_at  TEXT,
+        updated_at         TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_reconciliations (
+        id            TEXT PRIMARY KEY,
+        account_id    TEXT NOT NULL REFERENCES paper_accounts(id),
+        trade_date    TEXT NOT NULL,
+        status        TEXT NOT NULL CHECK (status IN ('pass','fail','missing_price')),
+        diffs_json    TEXT NOT NULL DEFAULT '[]',
+        identities_json TEXT NOT NULL DEFAULT '{}',
+        mismatch_cents INTEGER NOT NULL DEFAULT 0 CHECK (mismatch_cents >= 0),
+        created_at    TEXT NOT NULL,
+        UNIQUE (account_id, trade_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_reviews (
+        id               TEXT PRIMARY KEY,
+        experiment_id    TEXT NOT NULL REFERENCES paper_experiments(id),
+        kind             TEXT NOT NULL CHECK (kind IN ('daily','weekly')),
+        period_start     TEXT NOT NULL,
+        period_end       TEXT NOT NULL,
+        facts_json       TEXT NOT NULL,
+        narrative        TEXT,
+        actual_nav_cents INTEGER,
+        shadow_nav_cents INTEGER,
+        execution_rate_bp INTEGER,
+        deviations_json  TEXT NOT NULL DEFAULT '[]',
+        created_at       TEXT NOT NULL,
+        UNIQUE (experiment_id, kind, period_end)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_dividend_entitlements (
+        id                  TEXT PRIMARY KEY,
+        account_id          TEXT NOT NULL REFERENCES paper_accounts(id),
+        corporate_action_id TEXT NOT NULL REFERENCES paper_corporate_actions(id),
+        lot_id              TEXT NOT NULL REFERENCES paper_tax_lots(id),
+        symbol_code         TEXT NOT NULL,
+        record_date         TEXT NOT NULL,
+        qty                 INTEGER NOT NULL CHECK (qty > 0),
+        cash_cents          INTEGER NOT NULL CHECK (cash_cents >= 0),
+        tax_status          TEXT NOT NULL CHECK (tax_status IN ('pending','withheld','exempt')),
+        paid_at             TEXT,
+        created_at          TEXT NOT NULL,
+        UNIQUE (account_id, corporate_action_id, lot_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_decision_outcomes (
+        id                  TEXT PRIMARY KEY,
+        card_id             TEXT NOT NULL REFERENCES paper_decision_cards(id),
+        evaluate_date       TEXT NOT NULL,
+        horizon_days        INTEGER NOT NULL CHECK (horizon_days IN (5,20,60)),
+        return_bp           INTEGER,
+        benchmark_return_bp INTEGER,
+        alpha_bp            INTEGER,
+        max_adverse_bp      INTEGER,
+        hit                 INTEGER CHECK (hit IN (0,1)),
+        reason_class        TEXT,
+        invalidation_hit    INTEGER CHECK (invalidation_hit IN (0,1)),
+        notes               TEXT,
+        data_quality        TEXT NOT NULL DEFAULT 'pass',
+        evaluated_at        TEXT NOT NULL,
+        UNIQUE (card_id, horizon_days)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_audit_log (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor        TEXT NOT NULL,
+        action       TEXT NOT NULL,
+        entity_type  TEXT NOT NULL,
+        entity_id    TEXT,
+        request_hash TEXT,
+        task_id      TEXT,
+        card_id      TEXT,
+        order_id     TEXT,
+        payload_json TEXT,
+        prev_hash    TEXT,
+        hash         TEXT NOT NULL,
+        created_at   TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_audit_entity
+        ON paper_audit_log(entity_type, entity_id, id);
+
+      CREATE TRIGGER IF NOT EXISTS paper_cash_entries_no_update
+        BEFORE UPDATE ON paper_cash_entries
+        BEGIN SELECT RAISE(ABORT, 'paper_cash_entries is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_cash_entries_no_delete
+        BEFORE DELETE ON paper_cash_entries
+        BEGIN SELECT RAISE(ABORT, 'paper_cash_entries is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_fills_no_update
+        BEFORE UPDATE ON paper_fills
+        BEGIN SELECT RAISE(ABORT, 'paper_fills is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_fills_no_delete
+        BEFORE DELETE ON paper_fills
+        BEGIN SELECT RAISE(ABORT, 'paper_fills is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_nav_no_update
+        BEFORE UPDATE ON paper_nav
+        BEGIN SELECT RAISE(ABORT, 'paper_nav is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_nav_no_delete
+        BEFORE DELETE ON paper_nav
+        BEGIN SELECT RAISE(ABORT, 'paper_nav is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_snapshots_no_update
+        BEFORE UPDATE ON paper_snapshots
+        BEGIN SELECT RAISE(ABORT, 'paper_snapshots is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_snapshots_no_delete
+        BEFORE DELETE ON paper_snapshots
+        BEGIN SELECT RAISE(ABORT, 'paper_snapshots is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_lot_closes_no_update
+        BEFORE UPDATE ON paper_lot_closes
+        BEGIN SELECT RAISE(ABORT, 'paper_lot_closes is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_lot_closes_no_delete
+        BEFORE DELETE ON paper_lot_closes
+        BEGIN SELECT RAISE(ABORT, 'paper_lot_closes is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_order_events_no_update
+        BEFORE UPDATE ON paper_order_events
+        BEGIN SELECT RAISE(ABORT, 'paper_order_events is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_order_events_no_delete
+        BEFORE DELETE ON paper_order_events
+        BEGIN SELECT RAISE(ABORT, 'paper_order_events is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_card_events_no_update
+        BEFORE UPDATE ON paper_card_events
+        BEGIN SELECT RAISE(ABORT, 'paper_card_events is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_card_events_no_delete
+        BEFORE DELETE ON paper_card_events
+        BEGIN SELECT RAISE(ABORT, 'paper_card_events is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_audit_log_no_update
+        BEFORE UPDATE ON paper_audit_log
+        BEGIN SELECT RAISE(ABORT, 'paper_audit_log is append-only'); END;
+      CREATE TRIGGER IF NOT EXISTS paper_audit_log_no_delete
+        BEFORE DELETE ON paper_audit_log
+        BEGIN SELECT RAISE(ABORT, 'paper_audit_log is append-only'); END;
+    `);
     await tx.commit();
   } catch (err) {
     try { await tx.rollback(); } catch { /* 已失效的事务 */ }
