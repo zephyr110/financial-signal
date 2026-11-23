@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { todayShanghai } from '../../../lib/cockpit/format'
 import { ensureMethod, queryString, sendError } from '../../../lib/cockpit/api'
 import { getDb } from '../../../lib/db'
 import {
@@ -7,7 +8,6 @@ import {
   resolvePaperContext,
   sendPaperData,
   sendPaperError,
-  shanghaiToday,
 } from '../../../lib/paper/api'
 
 /** GET /api/paper/decisions —— 某一交易日的决策卡；缺省取最新一批。 */
@@ -31,7 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         args: [ctx.experiment.id],
       })
       const latest = r.rows[0]?.d
-      tradeDate = latest == null ? shanghaiToday() : String(latest)
+      tradeDate = latest == null ? todayShanghai() : String(latest)
     }
 
     const r = await db.execute({

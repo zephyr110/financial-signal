@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { ensureMethod, queryString } from '../../../lib/cockpit/api'
+import { ensureMethod, queryInt, queryString } from '../../../lib/cockpit/api'
 import { getDb } from '../../../lib/db'
 import {
   loadPaperSymbolNames,
@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       experimentId: queryString(req.query.experimentId),
       accountId: queryString(req.query.accountId),
     })
-    const limit = Math.min(500, Math.max(1, Number(queryString(req.query.limit)) || 50))
+    const limit = queryInt(req.query.limit, 50, 1, 500)
 
     const db = await getDb()
     const r = await db.execute({

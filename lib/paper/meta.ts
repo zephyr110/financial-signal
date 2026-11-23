@@ -139,7 +139,8 @@ export async function syncPaperSymbolMeta(input: {
       name,
       exchange: BOARD_EXCHANGE[board],
       board,
-      industryCode: null as string | null,
+      // 库里只有一级行业名，没有行业代码；用它当分组键，行业集中度上限才生效。
+      industryCode: str(symbol.industry_l1) || null,
       industryName: str(symbol.industry_l1) || null,
       isSt,
       lotSize: lotRuleFor(board).minQty,

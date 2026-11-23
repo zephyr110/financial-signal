@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { ensureMethod, queryString, sendError } from '../../../lib/cockpit/api'
+import { ensureMethod, queryInt, queryString, sendError } from '../../../lib/cockpit/api'
 import { getDb } from '../../../lib/db'
 import {
   isTradeDate,
@@ -36,10 +36,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       statuses.push(s as PaperOrderStatus)
     }
-    const limit = Math.min(500, Math.max(1, Number(queryString(req.query.limit)) || 100))
+    const limit = queryInt(req.query.limit, 100, 1, 500)
 
-    const all = await listPaperOrders({ accountId: ctx.account.id, tradeDate, statuses })
-    const orders = all.slice(-limit).reverse()
+    const orders = (await listPaperOrders({
+      accountId: ctx.account.id,
+      tradeDate,
+      statuses,
+      limit,
+    })).reverse()
 
     const [names, cardMap] = await Promise.all([
       loadPaperSymbolNames(orders.map((o) => o.symbolCode)),

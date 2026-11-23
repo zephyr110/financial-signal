@@ -1,5 +1,6 @@
 import { getDb } from '../db'
-import { loadPaperSymbolNames, parseJsonColumn, shanghaiToday } from './api'
+import { shanghaiClock } from '../cockpit/market-hours'
+import { loadPaperSymbolNames, parseJsonColumn } from './api'
 import { isPaperTradingDay } from './calendar'
 import { listPaperExperimentHistory, paperProtocolHash } from './experiment'
 import {
@@ -39,20 +40,8 @@ function nullableStr(value: unknown): string | null {
   return value == null ? null : String(value)
 }
 
-function shanghaiClock(): { date: string; time: string; minutes: number } {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date())
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00'
-  const date = `${get('year')}-${get('month')}-${get('day')}`
-  const time = `${get('hour')}:${get('minute')}`
-  return { date, time, minutes: Number(get('hour')) * 60 + Number(get('minute')) }
+function clockTime(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
 }
 
 export interface PaperSummaryTodo {
@@ -413,6 +402,7 @@ async function loadCards(experimentId: string, today: string): Promise<PaperSumm
                 SELECT MAX(m2.valid_from) FROM paper_symbol_meta m2
                 WHERE m2.symbol_code = c.symbol_code
                   AND m2.valid_from <= c.trade_date
+                  AND (m2.valid_to IS NULL OR m2.valid_to >= c.trade_date)
               )
             WHERE c.experiment_id = ? AND c.trade_date = ?
             ORDER BY c.confidence_score DESC, c.created_at, c.id
@@ -560,7 +550,6 @@ async function loadReviews(experimentId: string): Promise<PaperSummary['reviews'
 function buildTodos(input: {
   experiment: PaperExperimentRow
   accounts: PaperSummaryAccount[]
-  today: string
   isTradingDay: boolean
   beforeCutoff: boolean
   cards: PaperSummary['cards']
@@ -616,6 +605,11 @@ function buildTodos(input: {
     return { action: 'hold', headline: '今天休市：只看新闻与政策，不用动模拟盘', todos }
   }
 
+  // 停在 hold 会让用户以为“今天不用动”；风控停牌必须显式标出来。
+  if (riskBlocked) {
+    return { action: 'blocked', headline: '风控停牌：先修复数据或风控问题，今天不产生新决策', todos }
+  }
+
   if (input.cards.pendingToday > 0) {
     if (input.beforeCutoff) {
       todos.push({
@@ -623,12 +617,10 @@ function buildTodos(input: {
         label: `${input.cards.pendingToday} 张决策卡待确认`,
         detail: '09:15 前决定是否按开盘条件买入；不确认就不会成交。',
       })
-      if (!riskBlocked) {
-        return {
-          action: 'review_cards',
-          headline: `今天有 ${input.cards.pendingToday} 张卡等你决定（09:15 截止）`,
-          todos,
-        }
+      return {
+        action: 'review_cards',
+        headline: `今天有 ${input.cards.pendingToday} 张卡等你决定（09:15 截止）`,
+        todos,
       }
     } else {
       todos.push({
@@ -661,9 +653,9 @@ function buildTodos(input: {
 }
 
 export async function buildPaperSummary(input: { now?: string } = {}): Promise<PaperSummary> {
-  const clock = shanghaiClock()
-  const today = shanghaiToday()
   const now = input.now ?? new Date().toISOString()
+  const clock = shanghaiClock(input.now ? new Date(input.now) : new Date())
+  const today = clock.date
   const isTradingDay = await isPaperTradingDay(today)
   const [experiment, experiments] = await Promise.all([getCurrentPaperExperiment(), recentExperiments()])
 
@@ -674,7 +666,7 @@ export async function buildPaperSummary(input: { now?: string } = {}): Promise<P
       today: {
         tradeDate: today,
         isTradingDay,
-        now: clock.time,
+        now: clockTime(clock.minutes),
         cutoffAt: '09:15',
         action: 'setup',
         headline: '还没有进行中的模拟盘实验',
@@ -735,7 +727,6 @@ export async function buildPaperSummary(input: { now?: string } = {}): Promise<P
   const assessment = buildTodos({
     experiment,
     accounts,
-    today,
     isTradingDay,
     beforeCutoff: clock.minutes < 9 * 60 + 15,
     cards,
@@ -749,7 +740,7 @@ export async function buildPaperSummary(input: { now?: string } = {}): Promise<P
     today: {
       tradeDate: today,
       isTradingDay,
-      now: clock.time,
+      now: clockTime(clock.minutes),
       cutoffAt: '09:15',
       ...assessment,
     },

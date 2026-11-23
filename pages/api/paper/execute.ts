@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { todayShanghai } from '../../../lib/cockpit/format'
 import { ensureMethod, ensureSameOrigin, sendError } from '../../../lib/cockpit/api'
 import { getDb } from '../../../lib/db'
 import {
@@ -8,10 +9,9 @@ import {
   resolvePaperContext,
   sendPaperData,
   sendPaperError,
-  shanghaiToday,
 } from '../../../lib/paper/api'
-import { calcFees } from '../../../lib/paper/market'
-import { ceilDiv } from '../../../lib/paper/money'
+import { isPaperTradingDay } from '../../../lib/paper/calendar'
+import { calcFees, reserveBuyPriceCents } from '../../../lib/paper/market'
 import { confirmPaperOrder, type ReservationRequest } from '../../../lib/paper/orders'
 import { loadPaperSymbolContext, PaperRepoError } from '../../../lib/paper/repo'
 import type { PaperOrderType } from '../../../lib/paper/types'
@@ -45,6 +45,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       experimentId: typeof body.experimentId === 'string' ? body.experimentId : null,
       accountId: typeof body.accountId === 'string' ? body.accountId : null,
     })
+    // 影子账户只能由系统按规则下单，不能借用用户身份写入。
+    if (ctx.account.kind !== 'user') {
+      return sendError(req, res, 403, 'FORBIDDEN', '只能对主账户下单')
+    }
     const db = await getDb()
 
     const cardId = typeof body.cardId === 'string' && body.cardId.trim() ? body.cardId.trim() : null
@@ -58,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (side === 'buy') {
       if (!cardId) return sendError(req, res, 400, 'INVALID_INPUT', '买入委托必须绑定决策卡')
       const r = await db.execute({
-        sql: `SELECT id, experiment_id, card_version, trade_date, symbol_code, status,
+        sql: `SELECT id, experiment_id, card_version, trade_date, symbol_code, status, stance,
                      trigger_op, trigger_price_cents
               FROM paper_decision_cards WHERE id = ?`,
         args: [cardId],
@@ -71,6 +75,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const cardSymbol = String(row.symbol_code)
       if (symbolCode && symbolCode !== cardSymbol) {
         return sendError(req, res, 400, 'INVALID_INPUT', '决策卡与委托标的不一致')
+      }
+      // 只有候选立场允许买入：观察/谨慎/回避卡即使 active 也不能借接口下单。
+      if (String(row.stance) !== 'candidate') {
+        return sendError(req, res, 400, 'INVALID_INPUT', '只有候选买入卡可以下单')
       }
       symbolCode = cardSymbol
       cardVersion = Number(row.card_version)
@@ -86,10 +94,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (requested != null && !isTradeDate(requested)) {
         return sendError(req, res, 400, 'INVALID_INPUT', 'targetTradeDate 应为 YYYY-MM-DD')
       }
-      targetTradeDate = isTradeDate(requested) ? requested : shanghaiToday()
+      targetTradeDate = isTradeDate(requested) ? requested : todayShanghai()
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetTradeDate)) {
+    if (!isTradeDate(targetTradeDate)) {
       return sendError(req, res, 400, 'INVALID_INPUT', `目标交易日格式错误: ${targetTradeDate}`)
+    }
+    if (!(await isPaperTradingDay(targetTradeDate))) {
+      return sendError(req, res, 400, 'INVALID_INPUT', `目标交易日 ${targetTradeDate} 休市`)
     }
 
     const reservations: ReservationRequest[] = []
@@ -98,7 +109,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // 限价单最多成交在触发价；市价单按 T-1 收盘 + 滑点冻结。
       const reservePriceCents = triggerPriceCents
         ?? (symbolCtx.lastCloseCents
-          ? ceilDiv(symbolCtx.lastCloseCents * (1_000_000 + ctx.policy.fees.slippagePpm), 1_000_000)
+          ? reserveBuyPriceCents(symbolCtx.lastCloseCents, ctx.policy.fees.slippagePpm)
           : null)
       if (!reservePriceCents || reservePriceCents <= 0) {
         throw new PaperRepoError('MISSING_PRICE', `缺少 ${symbolCode} 最近收盘价，无法计算冻结资金`)

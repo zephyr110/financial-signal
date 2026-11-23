@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
-import { paperRequestHash, shanghaiToday } from './api'
+import { dateShanghai, todayShanghai } from '../cockpit/format'
+import { paperRequestHash } from './api'
 import {
   addCalendarDays,
   addPaperTradingDays,
@@ -8,11 +9,13 @@ import {
   hasMarketDataForDate,
   isPaperTradingDay,
   nextPaperTradingDate,
+  previousPaperTradingDate,
 } from './calendar'
 import { buildDecisionCard, sizePositionCents, validateDecisionCardDraft } from './cards'
 import { loadPaperFeatureBundle, type HeldPositionInput } from './features'
 import { derivePositions, portfolioMarketValue } from './ledger'
 import { calcFees } from './market'
+import { resolvePaperBenchmarkCode } from './metrics'
 import { syncPaperSymbolMeta, syncPaperUniverse } from './meta'
 import { confirmPaperOrder, freezePaperOrders, settlePaperOrders } from './orders'
 import { stableStringify } from './policy'
@@ -112,23 +115,19 @@ async function benchmarkReturn(input: {
   tradeDate: string
 }): Promise<{ code: string; closeCents: number | null; prevCloseCents: number | null; returnBp: number | null }> {
   const db = await getDb()
-  for (const code of [input.code, '000001.SH']) {
-    if (!code) continue
-    const r = await db.execute({
-      sql: `SELECT trade_date, close FROM market_bars
-            WHERE code = ? AND trade_date <= ? AND adjust_type = 'raw'
-            ORDER BY trade_date DESC LIMIT 2`,
-      args: [code, input.tradeDate],
-    })
-    if (!r.rows.length) continue
-    const closeCents = Math.round(num(r.rows[0].close) * 100) || null
-    const prevCloseCents = r.rows.length > 1 ? Math.round(num(r.rows[1].close) * 100) || null : null
-    const returnBp = closeCents != null && prevCloseCents != null && prevCloseCents > 0
-      ? Math.round((closeCents - prevCloseCents) * 10_000 / prevCloseCents)
-      : null
-    return { code, closeCents, prevCloseCents, returnBp }
-  }
-  return { code: input.code, closeCents: null, prevCloseCents: null, returnBp: null }
+  const code = await resolvePaperBenchmarkCode(input.code, addCalendarDays(input.tradeDate, -30))
+  const r = await db.execute({
+    sql: `SELECT trade_date, close FROM market_bars
+          WHERE code = ? AND trade_date <= ? AND adjust_type = 'raw'
+          ORDER BY trade_date DESC LIMIT 2`,
+    args: [code, input.tradeDate],
+  })
+  const closeCents = r.rows.length ? Math.round(num(r.rows[0].close) * 100) || null : null
+  const prevCloseCents = r.rows.length > 1 ? Math.round(num(r.rows[1].close) * 100) || null : null
+  const returnBp = closeCents != null && prevCloseCents != null && prevCloseCents > 0
+    ? Math.round((closeCents - prevCloseCents) * 10_000 / prevCloseCents)
+    : null
+  return { code, closeCents, prevCloseCents, returnBp }
 }
 
 /** 16:30 估值：先写 NAV（append-only），再对账；对账通过才清除缺价禁买。 */
@@ -137,7 +136,7 @@ export async function runPaperNavAndReconcile(input: {
   tradeDate?: string
   now?: string
 }): Promise<PaperJobResult> {
-  const tradeDate = input.tradeDate ?? shanghaiToday()
+  const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
@@ -149,60 +148,98 @@ export async function runPaperNavAndReconcile(input: {
   }
 
   const accounts = await listPaperAccounts(experiment.id)
-  const benchmark = await benchmarkReturn({ code: experiment.benchmarkCode, tradeDate })
-  const reconciliations: Record<string, string> = {}
-  const navs: Record<string, number> = {}
-  for (const account of accounts) {
-    if (account.status !== 'active') continue
-    const nav = await computePaperNav(account.id, tradeDate)
-    const prevNav = await getPaperNavCents(account.id, addCalendarDays(tradeDate, -1))
-    const peakR = await getDb().then((db) => db.execute({
-      sql: 'SELECT MAX(total_equity_cents) AS peak FROM paper_nav WHERE account_id = ? AND trade_date <= ?',
-      args: [account.id, tradeDate],
-    }))
-    const peak = peakR.rows.length && peakR.rows[0].peak != null ? num(peakR.rows[0].peak) : null
-    const dailyReturnBp = prevNav != null && prevNav > 0
-      ? Math.round((nav.totalEquityCents - prevNav) * 10_000 / prevNav)
-      : null
-    const drawdownBp = peak != null && peak > 0
-      ? Math.max(0, Math.round((peak - nav.totalEquityCents) * 10_000 / peak))
-      : null
-    await recordPaperNav({
-      accountId: account.id,
-      tradeDate,
-      cashCents: nav.cashCents,
-      frozenCashCents: nav.frozenCashCents,
-      marketValueCents: nav.marketValueCents,
-      totalEquityCents: nav.totalEquityCents,
-      dailyReturnBp,
-      drawdownBp,
-      benchmark: { ...benchmark, basis: 'close' },
-      quality: nav.missingSymbols.length ? 'warn' : 'pass',
-      now,
-    })
-    navs[account.kind] = nav.totalEquityCents
-    const reconciliation = await reconcilePaperAccount({ accountId: account.id, tradeDate, now })
-    reconciliations[account.kind] = reconciliation.status
-    if (reconciliation.status === 'pass') {
-      await clearPaperMissingPriceState({ accountId: account.id, now })
+  const db = await getDb()
+
+  async function recordDate(date: string): Promise<{ navs: Record<string, number>; reconciliations: Record<string, string> }> {
+    const benchmark = await benchmarkReturn({ code: experiment.benchmarkCode, tradeDate: date })
+    const reconciliations: Record<string, string> = {}
+    const navs: Record<string, number> = {}
+    for (const account of accounts) {
+      if (account.status !== 'active') continue
+      // 事后补写只能用“至今未再变动的账本”复算：之后有成交/分红就会把未来仓位算进历史净值。
+      if (date !== tradeDate) {
+        const changed = await db.execute({
+          sql: 'SELECT 1 AS ok FROM paper_cash_entries WHERE account_id = ? AND trade_date > ? LIMIT 1',
+          args: [account.id, date],
+        })
+        if (changed.rows.length) continue
+      }
+      const nav = await computePaperNav(account.id, date)
+      // 周一的“昨天”是周日，没有 NAV 行；日收益必须对比上一交易日，否则每周都缺一天。
+      const prevNav = await getPaperNavCents(account.id, await previousPaperTradingDate(date))
+      const peakR = await db.execute({
+        sql: 'SELECT MAX(total_equity_cents) AS peak FROM paper_nav WHERE account_id = ? AND trade_date <= ?',
+        args: [account.id, date],
+      })
+      const peak = peakR.rows.length && peakR.rows[0].peak != null ? num(peakR.rows[0].peak) : null
+      const dailyReturnBp = prevNav != null && prevNav > 0
+        ? Math.round((nav.totalEquityCents - prevNav) * 10_000 / prevNav)
+        : null
+      const drawdownBp = peak != null && peak > 0
+        ? Math.max(0, Math.round((peak - nav.totalEquityCents) * 10_000 / peak))
+        : null
+      await recordPaperNav({
+        accountId: account.id,
+        tradeDate: date,
+        cashCents: nav.cashCents,
+        frozenCashCents: nav.frozenCashCents,
+        marketValueCents: nav.marketValueCents,
+        totalEquityCents: nav.totalEquityCents,
+        dailyReturnBp,
+        drawdownBp,
+        benchmark: { ...benchmark, basis: 'close' },
+        quality: nav.missingSymbols.length ? 'warn' : 'pass',
+        now,
+      })
+      navs[account.kind] = nav.totalEquityCents
+      const reconciliation = await reconcilePaperAccount({ accountId: account.id, tradeDate: date, now })
+      reconciliations[account.kind] = reconciliation.status
+      if (reconciliation.status === 'pass') {
+        await clearPaperMissingPriceState({ accountId: account.id, now })
+      }
     }
+    return { navs, reconciliations }
   }
 
-  const validDaysR = await getDb().then((db) => db.execute({
+  // paper_nav 追加写且禁止 UPDATE：停过 16:30 的交易日必须补写，否则有效日与日收益永久缺行。
+  // 从早到晚补，后一天的日收益才能接上前一天刚补的净值。
+  const startDate = dateShanghai(experiment.startedAt ?? experiment.createdAt)
+  const missingR = await db.execute({
+    sql: `SELECT c.trade_date AS d FROM trading_calendar c
+          WHERE c.is_open = 1 AND c.trade_date < ? AND c.trade_date >= ?
+            AND NOT EXISTS (
+              SELECT 1 FROM paper_nav n
+              JOIN paper_accounts a ON a.id = n.account_id
+              WHERE a.experiment_id = ? AND a.kind = 'user' AND n.trade_date = c.trade_date
+            )
+          ORDER BY c.trade_date DESC LIMIT 10`,
+    args: [tradeDate, startDate, experiment.id],
+  })
+  const caughtUp: string[] = []
+  for (const row of [...missingR.rows].reverse()) {
+    const date = str(row.d)
+    if (!(await hasMarketDataForDate(date))) continue
+    await recordDate(date)
+    caughtUp.push(date)
+  }
+
+  const current = await recordDate(tradeDate)
+  const validDaysR = await db.execute({
     sql: `SELECT COUNT(*) AS n FROM paper_nav n
           JOIN paper_accounts a ON a.id = n.account_id
-          WHERE a.experiment_id = ? AND a.kind = 'user' AND n.trade_date <= ?`,
+          WHERE a.experiment_id = ? AND a.kind = 'user' AND n.trade_date <= ?
+            AND n.quality = 'pass'`,
     args: [experiment.id, tradeDate],
-  }))
-  await getDb().then((db) => db.execute({
+  })
+  await db.execute({
     sql: 'UPDATE paper_experiments SET valid_days = ?, updated_at = ? WHERE id = ?',
     args: [num(validDaysR.rows[0]?.n), now, experiment.id],
-  }))
+  })
 
   return {
     skipped: false,
     tradeDate,
-    detail: { navs, reconciliations, benchmark },
+    detail: { navs: current.navs, reconciliations: current.reconciliations, caughtUp: caughtUp.length ? caughtUp : undefined },
   }
 }
 
@@ -239,7 +276,7 @@ export async function runPaperCards(input: {
   now?: string
   allowNetwork?: boolean
 }): Promise<PaperCardsJobResult> {
-  const barsDate = input.barsDate ?? shanghaiToday()
+  const barsDate = input.barsDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const mode = input.mode ?? 'next_day'
   const experiment = await activeExperiment(input.experimentId)
@@ -391,7 +428,7 @@ export async function runPaperPreopen(input: {
   tradeDate?: string
   now?: string
 }): Promise<PaperJobResult> {
-  const tradeDate = input.tradeDate ?? shanghaiToday()
+  const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
@@ -440,10 +477,33 @@ export async function runPaperPreopen(input: {
   }
 
   const shadow = await runPaperShadowExecution({ experimentId: experiment.id, tradeDate, now })
+  if (shadow.skipped && shadow.reason === 'PAST_CUTOFF') {
+    const user = accountOf(await listPaperAccounts(experiment.id), 'user')
+    const db = await getDb()
+    const existing = user
+      ? await db.execute({
+        sql: `SELECT 1 AS ok FROM paper_risk_events
+              WHERE account_id = ? AND rule = 'shadow_cutoff_missed' AND created_at LIKE ? LIMIT 1`,
+        args: [user.id, `${tradeDate}%`],
+      })
+      : { rows: [] }
+    if (user && !existing.rows.length) {
+      // 错过 09:15 不能再补造成交，但必须让用户看到“当天没有系统判断”。
+      await recordPaperRiskEvent(db, {
+        accountId: user.id,
+        rule: 'shadow_cutoff_missed',
+        severity: 'warn',
+        action: 'skip',
+        message: `${tradeDate} 09:15 前未生成影子委托，当日系统判断缺失`,
+        dataQuality: 'warn',
+        createdAt: now,
+      })
+    }
+  }
   return {
     skipped: false,
     tradeDate,
-    detail: { invalidated, shadow: shadow.detail },
+    detail: { invalidated, shadow: shadow.detail, shadowSkipped: shadow.reason ?? null },
   }
 }
 
@@ -453,7 +513,7 @@ export async function runPaperShadowExecution(input: {
   tradeDate?: string
   now?: string
 }): Promise<PaperJobResult> {
-  const tradeDate = input.tradeDate ?? shanghaiToday()
+  const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
@@ -556,7 +616,7 @@ export async function runPaperCutoff(input: {
   tradeDate?: string
   now?: string
 }): Promise<PaperJobResult> {
-  const tradeDate = input.tradeDate ?? shanghaiToday()
+  const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
@@ -614,7 +674,7 @@ export async function runPaperSettle(input: {
   tradeDate?: string
   now?: string
 }): Promise<PaperJobResult> {
-  const tradeDate = input.tradeDate ?? shanghaiToday()
+  const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
@@ -651,10 +711,49 @@ export async function runPaperSettle(input: {
     const key = item.decision?.outcome ?? item.reason ?? 'unknown'
     outcomes[key] = (outcomes[key] ?? 0) + 1
   }
+  // 进程跨过 16:20 停机时前一日委托会永久滞留：目标日行情齐全就按原日开盘价补结算。
+  const db = await getDb()
+  const staleR = await db.execute({
+    sql: `SELECT DISTINCT target_trade_date AS d FROM paper_orders
+          WHERE experiment_id = ? AND target_trade_date < ?
+            AND status IN ('confirmed','settlement_pending')
+          ORDER BY target_trade_date ASC LIMIT 20`,
+    args: [experiment.id, tradeDate],
+  })
+  // 行情永久缺失的目标日不能一直挂着：留给迟到数据三个交易日，之后按 expired 收口并释放冻结。
+  const expireBefore = await addPaperTradingDays(tradeDate, -3)
+  const caughtUp: Record<string, number> = {}
+  for (const row of staleR.rows) {
+    const staleDate = str(row.d)
+    const trading = await isPaperTradingDay(staleDate)
+    const hasData = trading && await hasMarketDataForDate(staleDate)
+    if (hasData) {
+      const stale = await settlePaperOrders({
+        experimentId: experiment.id,
+        tradeDate: staleDate,
+        settledAt: now,
+      })
+      if (stale.settled || stale.failed) caughtUp[staleDate] = stale.settled
+      continue
+    }
+    if (trading && staleDate >= expireBefore) continue
+    const expired = await settlePaperOrders({
+      experimentId: experiment.id,
+      tradeDate: staleDate,
+      settledAt: now,
+    })
+    if (expired.settled || expired.failed) caughtUp[staleDate] = expired.settled
+  }
   return {
     skipped: false,
     tradeDate,
-    detail: { settled: result.settled, failed: result.failed, skipped: result.skipped, outcomes },
+    detail: {
+      settled: result.settled,
+      failed: result.failed,
+      skipped: result.skipped,
+      outcomes,
+      caughtUp: Object.keys(caughtUp).length ? caughtUp : undefined,
+    },
   }
 }
 
@@ -665,7 +764,13 @@ export async function runPaperPositionScan(input: {
   now?: string
   allowNetwork?: boolean
 }): Promise<PaperCardsJobResult> {
-  return runPaperCards({ ...input, mode: 'position_scan' })
+  return runPaperCards({
+    experimentId: input.experimentId,
+    barsDate: input.tradeDate,
+    now: input.now,
+    allowNetwork: input.allowNetwork,
+    mode: 'position_scan',
+  })
 }
 
 export interface PaperReviewResult extends PaperJobResult {
@@ -946,7 +1051,7 @@ export async function runPaperDailyReview(input: {
   tradeDate?: string
   now?: string
 }): Promise<PaperReviewResult> {
-  const tradeDate = input.tradeDate ?? shanghaiToday()
+  const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
@@ -983,7 +1088,7 @@ export async function runPaperWeeklyReview(input: {
   tradeDate?: string
   now?: string
 }): Promise<PaperReviewResult> {
-  const tradeDate = input.tradeDate ?? shanghaiToday()
+  const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
@@ -1022,11 +1127,12 @@ export async function runPaperWeeklyReview(input: {
       feesCents: num(fillsR.rows[0]?.fees),
     }
   }
+  const benchmarkCode = await resolvePaperBenchmarkCode(experiment.benchmarkCode, periodStart)
   const benchmarkR = await db.execute({
     sql: `SELECT trade_date, close FROM market_bars
           WHERE code = ? AND trade_date BETWEEN ? AND ? AND adjust_type = 'raw'
           ORDER BY trade_date ASC`,
-    args: [experiment.benchmarkCode, periodStart, periodEnd],
+    args: [benchmarkCode, periodStart, periodEnd],
   })
   const firstClose = benchmarkR.rows[0] ? num(benchmarkR.rows[0].close) : null
   const lastClose = benchmarkR.rows.length ? num(benchmarkR.rows[benchmarkR.rows.length - 1].close) : null
@@ -1039,7 +1145,10 @@ export async function runPaperWeeklyReview(input: {
           WHERE experiment_id = ? AND kind = 'daily' AND period_end BETWEEN ? AND ?`,
     args: [experiment.id, periodStart, periodEnd],
   })
-  const rates = dailyR.rows.map((row) => num(row.execution_rate_bp)).filter((n) => n > 0)
+  // 0% 也是有效观测；只有 NULL（当天没有触发卡）不参与平均。
+  const rates = dailyR.rows
+    .map((row) => (row.execution_rate_bp == null ? null : num(row.execution_rate_bp)))
+    .filter((n): n is number => n != null)
   const executionRateBp = rates.length
     ? Math.round(rates.reduce((sum, n) => sum + n, 0) / rates.length)
     : null
@@ -1048,7 +1157,7 @@ export async function runPaperWeeklyReview(input: {
     `本周复盘（${periodStart} 至 ${periodEnd}）。`,
     `主账户收益 ${bpText((summary.user as { returnBp: number | null } | undefined)?.returnBp ?? null)}，`
       + `影子账户收益 ${bpText((summary.shadow as { returnBp: number | null } | undefined)?.returnBp ?? null)}，`
-      + `基准 ${experiment.benchmarkCode} ${bpText(benchmarkReturnBp)}。`,
+      + `基准 ${benchmarkCode} ${bpText(benchmarkReturnBp)}。`,
     `成交 ${((summary.user as { fills: number } | undefined)?.fills ?? 0) + ((summary.shadow as { fills: number } | undefined)?.fills ?? 0)} 笔，`
       + `费用合计 ¥${((((summary.user as { feesCents: number } | undefined)?.feesCents ?? 0)
         + ((summary.shadow as { feesCents: number } | undefined)?.feesCents ?? 0)) / 100).toFixed(2)}。`,
@@ -1094,12 +1203,13 @@ export async function runPaperEvaluateOutcomes(input: {
   tradeDate?: string
   now?: string
 }): Promise<PaperJobResult> {
-  const tradeDate = input.tradeDate ?? shanghaiToday()
+  const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
   const db = await getDb()
-  const lookback = await addPaperTradingDays(tradeDate, -70)
+  // 最长 60 日观察窗 + 行情入库延迟留 30 日余量；缺当日行情时下次还能重新评估。
+  const lookback = await addPaperTradingDays(tradeDate, -90)
   const cardsR = await db.execute({
     sql: `SELECT id, trade_date, symbol_code, status, stance, trigger_op, trigger_price_cents,
                  stop_price_cents, horizon
@@ -1108,7 +1218,7 @@ export async function runPaperEvaluateOutcomes(input: {
           ORDER BY trade_date ASC`,
     args: [experiment.id, lookback],
   })
-  const benchmark = experiment.benchmarkCode
+  const benchmark = await resolvePaperBenchmarkCode(experiment.benchmarkCode, lookback)
   const horizons: Array<5 | 20 | 60> = [5, 20, 60]
   let evaluated = 0
   for (const card of cardsR.rows) {
@@ -1175,6 +1285,10 @@ async function buildOutcomeCell(input: {
   if (!entryR.rows.length) return null
   const bars = entryR.rows
   const entryBar = bars[0]
+  // 卡当日没复牌（停牌缺行）或评估日行情未入库时先不写，宁可下次重评也不固化错口径。
+  if (str(entryBar.trade_date) !== input.cardDate) return null
+  const endBar = bars[bars.length - 1]
+  if (str(endBar.trade_date) !== input.evaluateDate) return null
   const entryPrice = input.triggerPriceCents > 0
     ? input.triggerPriceCents
     : Math.round(num(entryBar.close) * 100)
@@ -1183,30 +1297,34 @@ async function buildOutcomeCell(input: {
   const triggered = input.triggerOp === 'gte'
     ? entryOpen >= entryPrice
     : entryOpen <= entryPrice
-  const endClose = Math.round(num(bars[bars.length - 1].close) * 100)
+  const endClose = Math.round(num(endBar.close) * 100)
   if (endClose <= 0) return null
   const returnBp = Math.round((endClose - entryPrice) * 10_000 / entryPrice)
   const lowest = Math.min(...bars.map((bar) => Math.round(num(bar.low) * 100) || entryPrice))
   const maxAdverseBp = Math.round((lowest - entryPrice) * 10_000 / entryPrice)
 
-  const benchR = await db.execute({
-    sql: `SELECT trade_date, close FROM market_bars
-          WHERE code = ? AND trade_date >= ? AND trade_date <= ? AND adjust_type = 'raw'
-          ORDER BY trade_date ASC`,
-    args: [input.benchmark, input.cardDate, input.evaluateDate],
+  // 触发价来自决策日收盘（cardDate 的前一交易日），基准必须同起点，否则少算一整个交易日。
+  const benchStartR = await db.execute({
+    sql: `SELECT close FROM market_bars
+          WHERE code = ? AND trade_date < ? AND adjust_type = 'raw'
+          ORDER BY trade_date DESC LIMIT 1`,
+    args: [input.benchmark, input.cardDate],
   })
-  let benchmarkReturnBp: number | null = null
-  if (benchR.rows.length >= 2) {
-    const start = Math.round(num(benchR.rows[0].close) * 100)
-    const end = Math.round(num(benchR.rows[benchR.rows.length - 1].close) * 100)
-    benchmarkReturnBp = start > 0 ? Math.round((end - start) * 10_000 / start) : null
-  }
-  const alphaBp = benchmarkReturnBp != null ? returnBp - benchmarkReturnBp : null
+  const benchEndR = await db.execute({
+    sql: `SELECT close FROM market_bars
+          WHERE code = ? AND trade_date = ? AND adjust_type = 'raw' LIMIT 1`,
+    args: [input.benchmark, input.evaluateDate],
+  })
+  if (!benchStartR.rows.length || !benchEndR.rows.length) return null
+  const benchStart = Math.round(num(benchStartR.rows[0].close) * 100)
+  const benchEnd = Math.round(num(benchEndR.rows[0].close) * 100)
+  if (benchStart <= 0) return null
+  const benchmarkReturnBp = Math.round((benchEnd - benchStart) * 10_000 / benchStart)
+  const alphaBp = returnBp - benchmarkReturnBp
   const invalidationHit = input.status === 'invalidated'
     || (input.stopPriceCents > 0 && endClose <= input.stopPriceCents)
   let reasonClass: string | null = null
   if (!triggered) reasonClass = 'not_triggered'
-  else if (alphaBp == null) reasonClass = null
   else if (alphaBp >= 0) reasonClass = invalidationHit ? 'right_luck' : 'right_reason'
   else reasonClass = invalidationHit ? 'wrong_reason' : 'wrong_luck'
 
@@ -1217,7 +1335,7 @@ async function buildOutcomeCell(input: {
     benchmarkReturnBp,
     alphaBp,
     maxAdverseBp,
-    hit: alphaBp == null ? null : alphaBp >= 0 ? 1 : 0,
+    hit: alphaBp >= 0 ? 1 : 0,
     reasonClass,
     invalidationHit: invalidationHit ? 1 : 0,
     notes: `${input.cardDate} 起 ${input.horizon} 个交易日，触发价 ¥${(input.triggerPriceCents / 100).toFixed(2)}，`

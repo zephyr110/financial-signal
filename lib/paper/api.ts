@@ -1,9 +1,11 @@
 import crypto from 'crypto'
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { noStore, sendError } from '../cockpit/api'
+import { isCalendarDate } from '../china-calendar'
 import { getDb } from '../db'
 import { stableStringify } from './policy'
 import {
+  getCurrentPaperExperiment,
   getPaperAccount,
   getPaperExperiment,
   getPaperExperimentPolicy,
@@ -23,13 +25,9 @@ export function bodyObject(body: unknown): Record<string, unknown> {
   return body && typeof body === 'object' ? body as Record<string, unknown> : {}
 }
 
-/** 上海时区的今天（YYYY-MM-DD），与交易日口径一致。 */
-export function shanghaiToday(): string {
-  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
-}
-
+/** 日期合法性只保留一份定义，避免 API 放行日历模块不认的日期。 */
 export function isTradeDate(value: unknown): value is string {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+  return isCalendarDate(value)
 }
 
 export interface PaperApiContext {
@@ -42,18 +40,10 @@ export interface PaperApiContext {
 export async function resolvePaperContext(
   override: { experimentId?: string | null; accountId?: string | null } = {},
 ): Promise<PaperApiContext> {
-  let experiment: PaperExperimentRow | null = null
-  if (override.experimentId) {
-    experiment = await getPaperExperiment(override.experimentId)
-  } else {
-    const db = await getDb()
-    const r = await db.execute({
-      sql: `SELECT id FROM paper_experiments WHERE status = 'active'
-            ORDER BY created_at DESC LIMIT 1`,
-      args: [],
-    })
-    experiment = r.rows.length ? await getPaperExperiment(String(r.rows[0].id)) : null
-  }
+  // 与页面同口径：paused/planned 也是“当前实验”，否则暂停后读接口会误报“尚未创建”。
+  const experiment = override.experimentId
+    ? await getPaperExperiment(override.experimentId)
+    : await getCurrentPaperExperiment()
   if (!experiment) throw new PaperRepoError('NOT_FOUND', '尚未创建模拟盘实验')
 
   let account: PaperAccountRow | null = null

@@ -93,19 +93,22 @@ export async function previousPaperTradingDate(beforeDate: string): Promise<stri
   return previousWeekday(beforeDate)
 }
 
-/** 往后数第 n 个开市日；日历不足时逐个按交易日补齐。 */
+/** 前后数第 n 个开市日（n 可为负）；日历不足时逐个按交易日补齐。 */
 export async function addPaperTradingDays(tradeDate: string, n: number): Promise<string> {
-  if (n <= 0) return tradeDate
+  if (n === 0) return tradeDate
+  const steps = Math.abs(n)
+  const forward = n > 0
   const db = await getDb()
   const r = await db.execute({
     sql: `SELECT trade_date FROM trading_calendar
-          WHERE is_open = 1 AND trade_date > ? ORDER BY trade_date ASC LIMIT ?`,
-    args: [tradeDate, n],
+          WHERE is_open = 1 AND trade_date ${forward ? '>' : '<'} ?
+          ORDER BY trade_date ${forward ? 'ASC' : 'DESC'} LIMIT ?`,
+    args: [tradeDate, steps],
   })
-  if (r.rows.length >= n) return String(r.rows[n - 1].trade_date)
+  if (r.rows.length >= steps) return String(r.rows[steps - 1].trade_date)
   let cursor = r.rows.length ? String(r.rows[r.rows.length - 1].trade_date) : tradeDate
-  for (let i = r.rows.length; i < n; i += 1) {
-    cursor = await nextPaperTradingDate(cursor)
+  for (let i = r.rows.length; i < steps; i += 1) {
+    cursor = forward ? await nextPaperTradingDate(cursor) : await previousPaperTradingDate(cursor)
   }
   return cursor
 }

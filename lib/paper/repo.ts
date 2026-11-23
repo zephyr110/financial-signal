@@ -258,6 +258,16 @@ export async function insertPaperExperiment(
   input: CreatePaperExperimentInput,
 ): Promise<{ experimentId: string; accountIds: Record<'user' | 'shadow', string>; policyHash: string }> {
   assertCreateInput(input)
+  // 事务内再查一次：并发的新建请求会排队，后到的那个必须看到先提交的实验。
+  const open = await conn.execute({
+    sql: `SELECT id FROM paper_experiments WHERE status IN ('active','paused','planned') LIMIT 1`,
+    args: [],
+  })
+  if (open.rows.length) {
+    throw new PaperRepoError('INVALID_STATE', '已有未结束的实验，请先暂停、重置或关闭', {
+      experimentId: String(open.rows[0].id),
+    })
+  }
   const now = nowIso(input.now)
   const experimentId = input.id ?? `exp-${crypto.randomUUID()}`
   const startedAt = input.startedAt ?? now
@@ -533,15 +543,6 @@ export async function loadPaperLedger(accountId: string, conn?: Conn): Promise<P
   }
 }
 
-export async function isPaperTradingDay(tradeDate: string): Promise<boolean> {
-  const db = await getDb()
-  const r = await db.execute({
-    sql: 'SELECT is_open FROM trading_calendar WHERE trade_date = ?',
-    args: [tradeDate],
-  })
-  return r.rows.length > 0 && num(r.rows[0].is_open) === 1
-}
-
 function mapSymbolMetaRow(row: Row): SymbolMeta {
   return {
     symbolCode: str(row.symbol_code),
@@ -647,7 +648,8 @@ export async function loadPaperMarketInputs(
       bar,
       limit,
       status,
-      priceSourceId: limit?.sourceId ?? meta?.sourceId,
+      // 成交价的来源只能是行情行本身；limit/meta 的 source 只说明限额与元数据出处。
+      priceSourceId: barRow ? str(barRow.source_id) || undefined : undefined,
       barFetchedAt: barRow ? str(barRow.fetched_at) || null : null,
       barHash: null,
     },

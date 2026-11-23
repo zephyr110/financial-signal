@@ -13,6 +13,7 @@ import {
   type PaperExperimentRow,
 } from './repo'
 import { DEFAULT_PAPER_POLICY, policyHash } from './policy'
+import { dateShanghai } from '../cockpit/format'
 import { addPaperTradingDays } from './calendar'
 
 /**
@@ -159,10 +160,6 @@ export async function startPaperExperiment(input: {
   return (await getPaperExperiment(experiment.id)) as PaperExperimentRow
 }
 
-function shanghaiDateOf(iso: string): string {
-  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date(iso))
-}
-
 export interface CreateDefaultPaperExperimentInput {
   name?: string
   initialCashCents?: number
@@ -217,7 +214,7 @@ export async function createDefaultPaperExperiment(
   }
 
   const now = nowIso(input.now)
-  const startDate = shanghaiDateOf(now)
+  const startDate = dateShanghai(now)
   const plannedEndDate = await addPaperTradingDays(startDate, plannedTradingDays)
   const benchmarkBasis = /^H0\d{4}$/i.test(benchmarkCode) ? 'total_return_index' : 'price_index'
   const protocol = {

@@ -1,3 +1,4 @@
+import { dateShanghai, todayShanghai } from '../cockpit/format'
 import { getDb } from '../db'
 import {
   getPaperExperiment,
@@ -154,6 +155,22 @@ function maxDrawdownBp(equities: number[]): number | null {
     if (peak > 0) worst = Math.max(worst, Math.round((peak - equity) * 10_000 / peak))
   }
   return worst
+}
+
+/** 配置的基准可能从未入库（默认 H00300 无数据源），统一回退到确实有行情的上证指数。 */
+export async function resolvePaperBenchmarkCode(preferred: string, since?: string): Promise<string> {
+  const db = await getDb()
+  for (const code of [preferred, '000001.SH']) {
+    if (!code) continue
+    const r = await db.execute({
+      sql: `SELECT 1 AS ok FROM market_bars
+            WHERE code = ? AND adjust_type = 'raw'
+            ${since ? 'AND trade_date >= ?' : ''} LIMIT 1`,
+      args: since ? [code, 'raw', since] : [code, 'raw'],
+    })
+    if (r.rows.length) return code
+  }
+  return preferred
 }
 
 function benchmarkBasis(code: string): PaperBenchmarkMetrics['basis'] {
@@ -355,10 +372,9 @@ async function loadCardExecution(experimentId: string): Promise<CardExecutionInf
   }
 }
 
-async function loadExecutionMetrics(experimentId: string): Promise<PaperExecutionMetrics> {
-  const cards = await loadCardExecution(experimentId)
-  const triggeredCards = [...cards.triggeredCardIds].length
-  const filledCards = [...cards.filledCardIds].length
+function summarizeExecution(cards: CardExecutionInfo): PaperExecutionMetrics {
+  const triggeredCards = cards.triggeredCardIds.size
+  const filledCards = cards.filledCardIds.size
   return {
     triggeredCards,
     confirmedCards: cards.confirmedCardIds.size,
@@ -587,11 +603,14 @@ async function loadMaturity(input: {
   experimentId: string
   startDate: string
   endDate: string
+  asOfDate: string
 }): Promise<{ lastCardTradeDate: string | null; mature60: boolean; validDays: number }> {
   const db = await getDb()
+  // 17:30 会写入 trade_date=次日 的卡；不排除未来日期会把观察窗起点推到还没开市的一天。
   const lastCardR = await db.execute({
-    sql: 'SELECT MAX(trade_date) AS d FROM paper_decision_cards WHERE experiment_id = ?',
-    args: [input.experimentId],
+    sql: `SELECT MAX(trade_date) AS d FROM paper_decision_cards
+          WHERE experiment_id = ? AND trade_date <= ?`,
+    args: [input.experimentId, input.asOfDate],
   })
   const lastCard = lastCardR.rows[0]?.d == null ? null : String(lastCardR.rows[0].d)
   const userAccountR = await db.execute({
@@ -601,8 +620,10 @@ async function loadMaturity(input: {
   const accountId = userAccountR.rows.length ? str(userAccountR.rows[0].id) : ''
   const navR = accountId
     ? await db.execute({
+      // 缺行情当天只记录 warn 净值供人看，不能算进统计门槛的有效日。
       sql: `SELECT COUNT(*) AS n FROM paper_nav
-            WHERE account_id = ? AND trade_date >= ? AND trade_date <= ?`,
+            WHERE account_id = ? AND quality = 'pass'
+              AND trade_date >= ? AND trade_date <= ?`,
       args: [accountId, input.startDate, input.endDate],
     })
     : { rows: [] as Row[] }
@@ -612,14 +633,14 @@ async function loadMaturity(input: {
   const calendarR = await db.execute({
     sql: `SELECT COUNT(*) AS n FROM trading_calendar
           WHERE is_open = 1 AND trade_date > ? AND trade_date <= ?`,
-    args: [lastCard, input.endDate],
+    args: [lastCard, input.asOfDate],
   })
   let openDays = num(calendarR.rows[0]?.n)
   if (!openDays && accountId) {
     const navAfterR = await db.execute({
       sql: `SELECT COUNT(*) AS n FROM paper_nav
             WHERE account_id = ? AND trade_date > ? AND trade_date <= ?`,
-      args: [accountId, lastCard, input.endDate],
+      args: [accountId, lastCard, input.asOfDate],
     })
     openDays = num(navAfterR.rows[0]?.n)
   }
@@ -644,8 +665,16 @@ export async function computePaperMetrics(input: {
     args: [user.id],
   }))
   const endDate = endR.rows[0]?.d == null ? startDate : String(endR.rows[0].d)
-  const maturity = await loadMaturity({ experimentId: experiment.id, startDate, endDate })
-  const execution = await loadExecutionMetrics(experiment.id)
+  const [maturity, cardExecution] = await Promise.all([
+    loadMaturity({
+      experimentId: experiment.id,
+      startDate,
+      endDate,
+      asOfDate: dateShanghai(input.now) || todayShanghai(),
+    }),
+    loadCardExecution(experiment.id),
+  ])
+  const execution = summarizeExecution(cardExecution)
   const sufficientForDescriptive = maturity.validDays >= DESCRIPTIVE_MIN_DAYS
     && maturity.mature60
     && execution.triggeredCards >= DESCRIPTIVE_MIN_TRIGGERED
@@ -666,7 +695,6 @@ export async function computePaperMetrics(input: {
       ? shadowMetrics.returnBp - benchmark.returnBp
       : null,
   }
-  const cardExecution = await loadCardExecution(experiment.id)
   const outcomes = await loadOutcomes(experiment.id, {
     sufficientForDescriptive,
     execution: cardExecution,

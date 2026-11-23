@@ -347,6 +347,45 @@ describe('模拟盘作业链', () => {
     const state = await repo.getPaperRiskState(userId)
     expect(state.missingPriceSince).toBeNull()
     expect(state.dataQuality).toBe('pass')
+
+    // D1 是周一：日收益必须对比上周五的净值，而不是不存在的周日。
+    const navRow = await db.execute({
+      sql: 'SELECT daily_return_bp FROM paper_nav WHERE account_id = ? AND trade_date = ?',
+      args: [userId, D1],
+    })
+    expect(navRow.rows[0].daily_return_bp).not.toBeNull()
+  })
+
+  it('16:30 补写遗漏的上一交易日净值', async () => {
+    const D3 = '2026-06-03'
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO trading_calendar (trade_date, is_open, source_id, updated_at)
+            VALUES (?, 1, 'test', ?)`,
+      args: [D3, now],
+    })
+    await db.execute({
+      sql: `INSERT INTO market_overview (trade_date, breadth_json, turnover_json, source_id, is_demo, created_at)
+            VALUES (?, '{"up":2500,"flat":300,"down":2300}', '{}', 'test', 0, ?)`,
+      args: [D2, now],
+    })
+    await db.execute({
+      sql: `INSERT INTO market_overview (trade_date, breadth_json, turnover_json, source_id, is_demo, created_at)
+            VALUES (?, '{"up":2600,"flat":300,"down":2200}', '{}', 'test', 0, ?)`,
+      args: [D3, now],
+    })
+
+    const result = await jobs.runPaperNavAndReconcile({
+      experimentId,
+      tradeDate: D3,
+      now: `${D3}T08:30:00.000Z`,
+    })
+    expect(result.skipped).toBe(false)
+    expect((result.detail as { caughtUp?: string[] }).caughtUp).toContain(D2)
+    const backfilled = await db.execute({
+      sql: 'SELECT quality FROM paper_nav WHERE account_id = ? AND trade_date = ?',
+      args: [userId, D2],
+    })
+    expect(backfilled.rows).toHaveLength(1)
   })
 
   it('17:00 日复盘记录执行率与偏离，重跑只更新同一条', async () => {
@@ -380,7 +419,14 @@ describe('模拟盘作业链', () => {
     expect(Number(count.rows[0].n)).toBe(1)
   })
 
-  it('周六 10:00 周复盘按周区间汇总', async () => {
+  it('周六 10:00 周复盘按周区间汇总，0% 执行日参与平均', async () => {
+    await db.execute({
+      sql: `INSERT INTO paper_reviews
+            (id, experiment_id, kind, period_start, period_end, facts_json, narrative,
+             actual_nav_cents, shadow_nav_cents, execution_rate_bp, deviations_json, created_at)
+            VALUES (?, ?, 'daily', ?, ?, '{}', '零执行日', NULL, NULL, 0, '[]', ?)`,
+      args: ['review-zero', experimentId, D2, D2, `${D2}T09:00:00.000Z`],
+    })
     const result = await jobs.runPaperWeeklyReview({
       experimentId,
       tradeDate: SATURDAY,
@@ -388,6 +434,7 @@ describe('模拟盘作业链', () => {
     })
     expect(result.skipped).toBe(false)
     expect(result.reviewId).toBeTruthy()
+    expect(result.executionRateBp).toBe(1667)
     const row = await db.execute({
       sql: 'SELECT kind, narrative, facts_json FROM paper_reviews WHERE id = ?',
       args: [result.reviewId],
@@ -396,5 +443,56 @@ describe('模拟盘作业链', () => {
     expect(row.rows[0].narrative).toContain('本周复盘')
     const facts = JSON.parse(row.rows[0].facts_json)
     expect(facts.summary.user.fills).toBe(1)
+  })
+
+  it('17:15 到期评估按 5 个交易日出结果，基准从决策日收盘起算', async () => {
+    const days = ['2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05', '2026-06-08']
+    const benchCloses = [3600, 3610, 3620, 3630, 3640]
+    const symbolCloses = [106, 108, 110, 111, 112.2]
+    for (const [index, date] of days.entries()) {
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO trading_calendar (trade_date, is_open, source_id, updated_at)
+              VALUES (?, 1, 'test', ?)`,
+        args: [date, now],
+      })
+      await db.execute({
+        sql: `INSERT INTO market_bars
+          (code, trade_date, open, high, low, close, volume, amount, adj_factor, adjust_type,
+           source_id, fetched_at, is_demo)
+          VALUES (?, ?, ?, ?, ?, ?, 1000000, 500000000, 1, 'raw', 'test', ?, 0)`,
+        args: [
+          SYMBOL, date, symbolCloses[index] - 1, symbolCloses[index] + 2,
+          symbolCloses[index] - 2, symbolCloses[index], now,
+        ],
+      })
+      await db.execute({
+        sql: `INSERT INTO market_bars
+          (code, trade_date, open, high, low, close, volume, amount, adj_factor, adjust_type,
+           source_id, fetched_at, is_demo)
+          VALUES (?, ?, ?, ?, ?, ?, 1000000, 5000000000, 1, 'raw', 'test', ?, 0)`,
+        args: [BENCH, date, benchCloses[index] - 5, benchCloses[index] + 5,
+          benchCloses[index] - 5, benchCloses[index], now],
+      })
+    }
+
+    const result = await jobs.runPaperEvaluateOutcomes({
+      experimentId,
+      tradeDate: '2026-06-08',
+      now,
+    })
+    expect(result.skipped).toBe(false)
+
+    const row = await db.execute({
+      sql: `SELECT return_bp, benchmark_return_bp, alpha_bp, hit
+            FROM paper_decision_outcomes WHERE card_id = ? AND horizon_days = 5`,
+      args: ['card-cand'],
+    })
+    expect(row.rows).toHaveLength(1)
+    expect(Number(row.rows[0].return_bp)).toBe(200)
+    // 决策日（2026-05-29）收盘 3588 → 评估日 3640 为 145bp；
+    // 若误从 cardDate 收盘 3589 起算会得到 142bp，alpha 将凭空多 3bp。
+    expect(Number(row.rows[0].benchmark_return_bp)).toBe(145)
+    expect(Number(row.rows[0].alpha_bp)).toBe(55)
+    expect(Number(row.rows[0].hit)).toBe(1)
   })
 })

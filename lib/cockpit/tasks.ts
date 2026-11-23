@@ -436,6 +436,13 @@ function paperTaskResult(result: PaperJobResult): Record<string, unknown> {
   }
 }
 
+/** 行情未入库是暂态：留成失败让调度器退避重试，否则当天结算被一次跳过就永远不补。 */
+function assertPaperDataReady(result: PaperJobResult): void {
+  if (result.skipped && result.reason === 'NO_MARKET_DATA') {
+    throw new Error(`${result.tradeDate} 行情尚未入库，等待下一轮重试`)
+  }
+}
+
 async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
   const params = task.params || {}
   switch (task.type) {
@@ -574,7 +581,10 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
     }
     case 'paper_cards_next_day': {
       await setProgress(task.id, 30, '同步标的元数据与宇宙')
-      const result = await runPaperCards({ ...paperParams(params), mode: 'next_day' })
+      // 任务参数叫 tradeDate，卡片生成按“用哪天的行情”取值，必须显式映射。
+      const { tradeDate, experimentId } = paperParams(params)
+      const result = await runPaperCards({ barsDate: tradeDate, experimentId, mode: 'next_day' })
+      assertPaperDataReady(result)
       await setProgress(task.id, 90, '写入决策卡与快照')
       return {
         ...paperTaskResult(result),
@@ -587,6 +597,7 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
     case 'paper_position_scan': {
       await setProgress(task.id, 30, '读取持仓与止损')
       const result = await runPaperPositionScan(paperParams(params))
+      assertPaperDataReady(result)
       await setProgress(task.id, 90, '写入持仓卡')
       return {
         ...paperTaskResult(result),
@@ -611,12 +622,14 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
     case 'paper_settle': {
       await setProgress(task.id, 30, '读取官方开盘价')
       const result = await runPaperSettle(paperParams(params))
+      assertPaperDataReady(result)
       await setProgress(task.id, 90, '结算委托')
       return paperTaskResult(result)
     }
     case 'paper_reconcile': {
       await setProgress(task.id, 30, '估值与账本核对')
       const result = await runPaperNavAndReconcile(paperParams(params))
+      assertPaperDataReady(result)
       await setProgress(task.id, 90, '写入净值与对账')
       return paperTaskResult(result)
     }

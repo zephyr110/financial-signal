@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, Clock3 } from 'lucide-react'
 import { Disclosure, EmptyState, SectionHeader, Sparkline } from '@/components/cockpit/bits'
-import { formatCny, formatDateCn, formatPrice, formatShortDate, formatTime } from '@/lib/cockpit/format'
+import { dateShanghai, formatCny, formatDateCn, formatPrice, formatShortDate, formatTime } from '@/lib/cockpit/format'
 import type { PaperSummary } from '@/lib/paper/summary'
 import { cn } from '@/lib/utils'
 import { PaperActions } from './paper-actions'
@@ -622,7 +622,7 @@ export function PaperOverview({
                     <span className="text-muted-foreground">{EXPERIMENT_STATUS[item.status] ?? item.status}</span>
                   </span>
                   <span className="text-[11px] tabular-nums text-muted-foreground">
-                    {item.validDays} 日 · {formatShortDate(item.createdAt.slice(0, 10))}
+                    {item.validDays} 日 · {formatShortDate(dateShanghai(item.createdAt))}
                     {item.endedAt ? ` → ${formatShortDate(item.endedAt.slice(0, 10))}` : ''}
                   </span>
                 </li>

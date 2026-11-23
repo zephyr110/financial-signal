@@ -216,8 +216,13 @@ export async function ensureTradingCalendarFuture(options: {
     sql: 'SELECT COUNT(*) AS n FROM trading_calendar WHERE trade_date BETWEEN ? AND ?',
     args: [fromDate, endDate],
   })
-  // 一年里约三分之二是交易日；行数过半即可判定这段窗口已拉过。
+  // 只看总行数会被“只覆盖前半段”骗过：窗口末尾必须有行，否则远期日期仍会按工作日 fail-open。
+  const tail = await db.execute({
+    sql: 'SELECT COUNT(*) AS n FROM trading_calendar WHERE trade_date BETWEEN ? AND ?',
+    args: [addDays(endDate, -30), endDate],
+  })
   const fresh = num(coverage.rows[0]?.n) >= Math.floor(daysAhead * 0.5)
+    && num(tail.rows[0]?.n) > 0
   let fetched = false
   if (!fresh) {
     const token = (options.token || await resolveToken())?.trim()

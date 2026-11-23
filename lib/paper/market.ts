@@ -145,6 +145,11 @@ export function resolveTradePrice(input: TradePriceInput): TradePriceResult {
   return { ok: true, priceCents, slippageCents: Math.abs(priceCents - openCents) }
 }
 
+/** 市价买单的冻结价上限：最近收盘价上浮滑点，向上取整。确认与下单必须共用这一口径。 */
+export function reserveBuyPriceCents(lastCloseCents: number, slippagePpm: number): number {
+  return ceilDiv(lastCloseCents * (PPM + slippagePpm), PPM)
+}
+
 /** 费用按整单成交额计，佣金有最低值；买入不收印花税。 */
 export function calcFees(
   side: PaperSide,

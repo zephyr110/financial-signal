@@ -17,6 +17,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       experimentId: typeof body.experimentId === 'string' ? body.experimentId : null,
       accountId: typeof body.accountId === 'string' ? body.accountId : null,
     })
+    if (ctx.account.kind !== 'user') {
+      return sendError(req, res, 403, 'FORBIDDEN', '只能撤销主账户的委托')
+    }
     const order = await getPaperOrder(orderId)
     // 不暴露其他账户的委托是否存在。
     if (!order || order.accountId !== ctx.account.id) {

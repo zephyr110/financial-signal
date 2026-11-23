@@ -1,15 +1,14 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
+import { isPaperTradingDay } from './calendar'
 import { derivePositions, PaperLedgerError } from './ledger'
-import { calcFees } from './market'
-import { ceilDiv } from './money'
+import { calcFees, reserveBuyPriceCents } from './market'
 import {
   getPaperAccount,
   getPaperExperiment,
   getPaperExperimentPolicy,
   getPaperNavCents,
   getPaperRiskState,
-  isPaperTradingDay,
   loadPaperLedger,
   loadPaperMarketInputs,
   loadPaperRiskSnapshot,
@@ -135,19 +134,27 @@ export async function listPaperOrders(input: {
   accountId: string
   tradeDate?: string
   statuses?: PaperOrderStatus[]
+  /** 只要最近 N 条时在 SQL 里截断，避免把整段历史读进内存。 */
+  limit?: number
 }): Promise<PaperOrderRow[]> {
   const db = await getDb()
   const args: unknown[] = [input.accountId]
-  let sql = 'SELECT * FROM paper_orders WHERE account_id = ?'
+  let where = 'account_id = ?'
   if (input.tradeDate) {
-    sql += ' AND target_trade_date = ?'
+    where += ' AND target_trade_date = ?'
     args.push(input.tradeDate)
   }
   if (input.statuses?.length) {
-    sql += ` AND status IN (${input.statuses.map(() => '?').join(',')})`
+    where += ` AND status IN (${input.statuses.map(() => '?').join(',')})`
     args.push(...input.statuses)
   }
-  sql += ' ORDER BY created_at, id'
+  let sql = `SELECT * FROM paper_orders WHERE ${where} ORDER BY created_at, id`
+  if (input.limit) {
+    sql = `SELECT * FROM (SELECT * FROM paper_orders WHERE ${where}
+             ORDER BY created_at DESC, id DESC LIMIT ?)
+           ORDER BY created_at, id`
+    args.push(input.limit)
+  }
   const r = await db.execute({ sql, args })
   return r.rows.map(mapOrder)
 }
@@ -521,7 +528,7 @@ async function assertConfirmRisk(input: ConfirmPaperOrderInput, experimentId: st
   const priceCents = input.orderType === 'open_price_condition' && input.triggerPriceCents
     ? input.triggerPriceCents
     : lastCloseCents > 0
-      ? ceilDiv(lastCloseCents * (1_000_000 + policy.fees.slippagePpm), 1_000_000)
+      ? reserveBuyPriceCents(lastCloseCents, policy.fees.slippagePpm)
       : 0
   if (input.side === 'buy' && priceCents <= 0) {
     throw new PaperRepoError('MISSING_PRICE', `缺少 ${input.symbolCode} 最近收盘价，无法核对仓位与现金`)
@@ -715,7 +722,8 @@ export async function settlePaperOrder(input: {
     board: meta?.board ?? null,
     market,
     isTradingDay,
-    dataQuality: input.dataQuality ?? 'pass',
+    // 账户持久化的数据质量 fail 必须延续到对账清除为止，否则停牌/缺价窗口内仍会成交。
+    dataQuality: input.dataQuality ?? riskState.dataQuality,
     risk: {
       killSwitch: riskState.killSwitch,
       killSwitchReason: (riskState.killReason || null) as PaperReasonCode | null,
