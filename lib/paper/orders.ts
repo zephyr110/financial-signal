@@ -332,6 +332,14 @@ export async function confirmPaperOrder(input: ConfirmPaperOrderInput): Promise<
       await tx.rollback()
       return replayOrConflict(existing, input)
     }
+    // 暂停与确认可能并发：事务外校验之后账户可能已被暂停，写单前在写事务内再确认一次。
+    const accountState = await tx.execute({
+      sql: 'SELECT status FROM paper_accounts WHERE id = ?',
+      args: [input.accountId],
+    })
+    if (!accountState.rows.length || str(accountState.rows[0].status) !== 'active') {
+      throw new PaperRepoError('INVALID_STATE', '账户未激活')
+    }
 
     if (input.cardId) {
       const cardR = await tx.execute({
@@ -691,7 +699,16 @@ export async function settlePaperOrder(input: {
     .reduce((sum, r) => sum + r.qty, 0)
 
   const riskState = await getPaperRiskState(order.accountId)
-  const navCents = await getPaperNavCents(order.accountId, order.targetTradeDate) ?? 0
+  // 首次结算（或当日 NAV 质量不合格）还没有可用净值行；用现金 + 最近收盘估值兜底，
+  // 否则重置后第一天所有委托都会因 nav=0 被判超仓而 expire。
+  let navCents = await getPaperNavCents(order.accountId, order.targetTradeDate)
+  if (navCents == null) {
+    const snapshot = await loadPaperRiskSnapshot({
+      accountId: order.accountId,
+      tradeDate: order.targetTradeDate,
+    })
+    navCents = snapshot.navCents ?? 0
+  }
 
   const decision = planSettlement({
     order: {

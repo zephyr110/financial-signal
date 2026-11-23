@@ -15,6 +15,7 @@ import { buildDecisionCard, sizePositionCents, validateDecisionCardDraft } from 
 import { loadPaperFeatureBundle, type HeldPositionInput } from './features'
 import { derivePositions, portfolioMarketValue } from './ledger'
 import { calcFees } from './market'
+import { ensurePaperMarketData } from './market-data'
 import { resolvePaperBenchmarkCode } from './metrics'
 import { syncPaperSymbolMeta, syncPaperUniverse } from './meta'
 import { confirmPaperOrder, freezePaperOrders, settlePaperOrders } from './orders'
@@ -28,6 +29,7 @@ import {
   getPaperRiskState,
   listPaperAccounts,
   loadClosePriceCents,
+  loadLatestClosePriceCents,
   loadPaperLedger,
   loadPaperSymbolContext,
   PaperRepoError,
@@ -70,6 +72,26 @@ async function activeExperiment(experimentId?: string | null): Promise<PaperExpe
   return r.rows.length ? getPaperExperiment(str(r.rows[0].id)) : null
 }
 
+/** 暂停只停止新增决策；截止仍要跑，否则已确认委托会一直挂在 confirmed 上无法收口。 */
+async function experimentForOperations(experimentId?: string | null): Promise<PaperExperimentRow | null> {
+  if (experimentId) {
+    const experiment = await getPaperExperiment(experimentId)
+    return experiment && (experiment.status === 'active' || experiment.status === 'paused') ? experiment : null
+  }
+  const db = await getDb()
+  const r = await db.execute({
+    sql: `SELECT id FROM paper_experiments WHERE status IN ('active','paused')
+          ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, created_at DESC LIMIT 1`,
+    args: [],
+  })
+  return r.rows.length ? getPaperExperiment(str(r.rows[0].id)) : null
+}
+
+/** 手动触发接口也要守住时点：不能提前把当天卡作废或按不存在的收盘价结算。 */
+function beforeShanghai(now: string, tradeDate: string, hhmm: string): boolean {
+  return Date.parse(now) < Date.parse(`${tradeDate}T${hhmm}:00+08:00`)
+}
+
 function accountOf(accounts: PaperAccountRow[], kind: 'user' | 'shadow'): PaperAccountRow | null {
   return accounts.find((a) => a.kind === kind) ?? null
 }
@@ -80,11 +102,14 @@ export interface AccountNavSnapshot {
   frozenCashCents: number
   marketValueCents: number
   totalEquityCents: number
+  /** 完全没有历史收盘，只能按缺价剔除。 */
   missingSymbols: string[]
+  /** 用了早于 tradeDate 的收盘价（停牌或盘前），净值可用但不是当日质量。 */
+  staleSymbols: string[]
   positions: ReturnType<typeof derivePositions>
 }
 
-/** 用最近可用收盘价估值；缺价不计入市值（不得按 0 计算）。 */
+/** 当日收盘缺失时回退最近可用价：否则停牌/盘前会把持仓市值整个抹掉，净值假跌。 */
 export async function computePaperNav(accountId: string, tradeDate: string): Promise<AccountNavSnapshot> {
   const ledger = await loadPaperLedger(accountId)
   const positions = derivePositions({
@@ -94,9 +119,16 @@ export async function computePaperNav(accountId: string, tradeDate: string): Pro
     tradeDate,
   })
   const prices: Record<string, number | null> = {}
+  const staleSymbols: string[] = []
   for (const p of positions) {
     if (p.totalQty === 0) continue
-    prices[p.symbolCode] = await loadClosePriceCents(p.symbolCode, tradeDate)
+    const exact = await loadClosePriceCents(p.symbolCode, tradeDate)
+    if (exact != null) {
+      prices[p.symbolCode] = exact
+      continue
+    }
+    prices[p.symbolCode] = await loadLatestClosePriceCents(p.symbolCode, tradeDate)
+    if (prices[p.symbolCode] != null) staleSymbols.push(p.symbolCode)
   }
   const value = portfolioMarketValue(positions, prices)
   return {
@@ -106,6 +138,7 @@ export async function computePaperNav(accountId: string, tradeDate: string): Pro
     marketValueCents: value.marketValueCents,
     totalEquityCents: ledger.cashTotalCents + value.marketValueCents,
     missingSymbols: value.missingSymbols,
+    staleSymbols,
     positions,
   }
 }
@@ -188,7 +221,7 @@ export async function runPaperNavAndReconcile(input: {
         dailyReturnBp,
         drawdownBp,
         benchmark: { ...benchmark, basis: 'close' },
-        quality: nav.missingSymbols.length ? 'warn' : 'pass',
+        quality: nav.missingSymbols.length || nav.staleSymbols.length ? 'warn' : 'pass',
         now,
       })
       navs[account.kind] = nav.totalEquityCents
@@ -436,6 +469,8 @@ export async function runPaperPreopen(input: {
   if (!(await isPaperTradingDay(tradeDate))) {
     return { skipped: true, reason: 'NOT_TRADING_DAY', tradeDate, detail: {} }
   }
+  // 盘前先补当日限价：结算与影子下单都依赖它；停牌状态在 16:20 有日线时才可判定。
+  await ensurePaperMarketData({ experimentId: experiment.id, tradeDate, mode: 'preopen', now })
   const db = await getDb()
   const accounts = await listPaperAccounts(experiment.id)
   const user = accountOf(accounts, 'user')
@@ -619,10 +654,13 @@ export async function runPaperCutoff(input: {
 }): Promise<PaperJobResult> {
   const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
-  const experiment = await activeExperiment(input.experimentId)
+  const experiment = await experimentForOperations(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
   if (!(await isPaperTradingDay(tradeDate))) {
     return { skipped: true, reason: 'NOT_TRADING_DAY', tradeDate, detail: {} }
+  }
+  if (beforeShanghai(now, tradeDate, '09:15')) {
+    return { skipped: true, reason: 'BEFORE_CUTOFF', tradeDate, detail: {} }
   }
   const frozen = await freezePaperOrders({ experimentId: experiment.id, tradeDate, at: now })
   const db = await getDb()
@@ -677,10 +715,13 @@ export async function runPaperSettle(input: {
 }): Promise<PaperJobResult> {
   const tradeDate = input.tradeDate ?? todayShanghai()
   const now = input.now ?? new Date().toISOString()
-  const experiment = await activeExperiment(input.experimentId)
+  const experiment = await experimentForOperations(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
   if (!(await isPaperTradingDay(tradeDate))) {
     return { skipped: true, reason: 'NOT_TRADING_DAY', tradeDate, detail: {} }
+  }
+  if (beforeShanghai(now, tradeDate, '16:20')) {
+    return { skipped: true, reason: 'BEFORE_SETTLE', tradeDate, detail: {} }
   }
   if (!(await hasMarketDataForDate(tradeDate))) {
     const user = accountOf(await listPaperAccounts(experiment.id), 'user')
@@ -705,6 +746,7 @@ export async function runPaperSettle(input: {
     }
     return { skipped: true, reason: 'NO_MARKET_DATA', tradeDate, detail: {} }
   }
+  await ensurePaperMarketData({ experimentId: experiment.id, tradeDate, mode: 'settle', now })
   await freezePaperOrders({ experimentId: experiment.id, tradeDate, at: now })
   const result = await settlePaperOrders({ experimentId: experiment.id, tradeDate, settledAt: now })
   const outcomes: Record<string, number> = {}
@@ -729,6 +771,7 @@ export async function runPaperSettle(input: {
     const trading = await isPaperTradingDay(staleDate)
     const hasData = trading && await hasMarketDataForDate(staleDate)
     if (hasData) {
+      await ensurePaperMarketData({ experimentId: experiment.id, tradeDate: staleDate, mode: 'settle', now })
       const stale = await settlePaperOrders({
         experimentId: experiment.id,
         tradeDate: staleDate,
@@ -1083,7 +1126,7 @@ export async function runPaperDailyReview(input: {
   }
 }
 
-/** 周六 10:00 周复盘：本周净值/超额/回撤/成交/费用/执行率。 */
+/** 周六 10:00 周复盘：本周净值/超额/回撤/成交/费用/执行率；错过周六则在之后每日补跑同一周。 */
 export async function runPaperWeeklyReview(input: {
   experimentId?: string | null
   tradeDate?: string
@@ -1094,10 +1137,8 @@ export async function runPaperWeeklyReview(input: {
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
   const weekday = new Date(`${tradeDate}T00:00:00Z`).getUTCDay()
-  if (weekday !== 6) return { skipped: true, reason: 'NOT_SATURDAY', tradeDate, detail: {} }
-
-  const periodStart = addCalendarDays(tradeDate, -5)
-  const periodEnd = tradeDate
+  const periodEnd = addCalendarDays(tradeDate, weekday === 6 ? 0 : -((weekday + 1) % 7))
+  const periodStart = addCalendarDays(periodEnd, -5)
   const db = await getDb()
   const accounts = await listPaperAccounts(experiment.id)
   const summary: Record<string, unknown> = {}

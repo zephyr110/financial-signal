@@ -5,6 +5,7 @@ import { dateShanghai, formatCny, formatDateCn, formatPrice, formatShortDate, fo
 import type { PaperSummary } from '@/lib/paper/summary'
 import { cn } from '@/lib/utils'
 import { PaperActions } from './paper-actions'
+import { PaperCardActions, PaperOrderActions } from './paper-trade-actions'
 import {
   ACTION_LABEL,
   CARD_STATUS,
@@ -69,7 +70,9 @@ function AccountRow({ account }: { account: PaperSummary['accounts'][number] }) 
           </b>
         </div>
         <span className="text-right text-[11px] leading-5 text-muted-foreground">
-          {account.nav ? `净值截至 ${formatShortDate(account.nav.tradeDate)}` : '尚未结算出净值'}
+          {account.nav
+            ? `净值截至 ${formatShortDate(account.nav.tradeDate)}${account.nav.quality === 'warn' ? '（含非当日价）' : ''}`
+            : '尚未结算出净值'}
           <br />
           现金 {formatCny(account.cashCents, true)}
         </span>
@@ -158,7 +161,15 @@ function GateBlock({ report }: { report: NonNullable<PaperSummary['gates']>['l1'
   )
 }
 
-function CardList({ cards }: { cards: PaperSummary['cards'] }) {
+function CardList({
+  cards,
+  navCents,
+  onChanged,
+}: {
+  cards: PaperSummary['cards']
+  navCents: number
+  onChanged: () => Promise<void> | void
+}) {
   const count = Object.values(cards.counts).reduce((sum, n) => sum + n, 0)
   return (
     <section className="ck-section" aria-labelledby="paper-cards-title">
@@ -194,6 +205,11 @@ function CardList({ cards }: { cards: PaperSummary['cards'] }) {
                 <span>仓位 ≤ {(card.maxPositionPctBp / 100).toFixed(0)}%</span>
                 <span>置信 {Math.round(card.confidenceScore)}</span>
               </div>
+              {card.status === 'active' && card.stance === 'candidate' && (
+                <div className="sm:col-span-2">
+                  <PaperCardActions card={card} navCents={navCents} onChanged={onChanged} />
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -254,7 +270,9 @@ export function PaperOverview({
               {formatCny(user?.nav?.totalEquityCents ?? user?.cashCents ?? experiment.initialCashCents, true)}
             </b>
             <span className="text-[10px] text-muted-foreground">
-              {user?.nav ? `截至 ${formatShortDate(user.nav.tradeDate)}` : '待首次结算'}
+              {user?.nav
+                ? `截至 ${formatShortDate(user.nav.tradeDate)}${user.nav.quality === 'warn' ? ' · 含非当日价' : ''}`
+                : '待首次结算'}
             </span>
           </div>
           <div className="bg-card p-3">
@@ -263,7 +281,7 @@ export function PaperOverview({
               {formatBpPct(metrics?.excessBp.user)}
             </b>
             <span className="text-[10px] text-muted-foreground">
-              {experiment.benchmarkCode}{benchmarkBasis === 'price_index' ? ' · 价格指数（估算）' : benchmarkBasis === 'total_return_index' ? ' · 全收益' : ''}
+              {metrics?.benchmark.code ?? experiment.benchmarkCode}{benchmarkBasis === 'price_index' ? ' · 价格指数（估算）' : benchmarkBasis === 'total_return_index' ? ' · 全收益' : ''}
             </span>
           </div>
           <div className="bg-card p-3">
@@ -288,7 +306,7 @@ export function PaperOverview({
           <div className="min-w-0 text-[12px] leading-5 text-muted-foreground">
             <b className="font-medium text-foreground">{experiment.name}</b>
             <span className="mx-1.5">·</span>
-            {experiment.benchmarkCode}
+            {metrics?.benchmark.code ?? experiment.benchmarkCode}
             <span className="mx-1.5">·</span>
             初始 {formatCny(experiment.initialCashCents, true)}
             <span className="mx-1.5">·</span>
@@ -343,7 +361,7 @@ export function PaperOverview({
               </p>
             </div>
             <Tag tone={benchmarkBasis === 'price_index' ? 'warning' : 'neutral'}>
-              {experiment.benchmarkCode}
+              {metrics?.benchmark.code ?? experiment.benchmarkCode}
               {benchmarkBasis === 'price_index' ? ' 价格指数' : benchmarkBasis === 'total_return_index' ? ' 全收益' : ''}
             </Tag>
           </div>
@@ -409,7 +427,7 @@ export function PaperOverview({
             <div className="ck-stat">
               <span className="ck-stat-label">执行率</span>
               <span className="ck-stat-value">{formatBpPct(metrics?.execution.executionRateBp, false)}</span>
-              <span className="ck-stat-note">{metrics?.execution.filledCards ?? 0} 张成交</span>
+              <span className="ck-stat-note">{metrics ? `${metrics.execution.filledCards} 张成交` : '—'}</span>
             </div>
             <div className="ck-stat">
               <span className="ck-stat-label">偏离</span>
@@ -423,7 +441,11 @@ export function PaperOverview({
         </div>
       </section>
 
-      <CardList cards={cards} />
+      <CardList
+        cards={cards}
+        navCents={user?.nav?.totalEquityCents ?? user?.cashCents ?? experiment.initialCashCents}
+        onChanged={onChanged}
+      />
 
       <section className="ck-section grid gap-3 lg:grid-cols-2" aria-label="委托与成交">
         <div>
@@ -448,7 +470,10 @@ export function PaperOverview({
                       {order.rejectCode ? ` · ${order.rejectCode}` : ''}
                     </p>
                   </div>
-                  <Tag tone={statusTone(order.status)}>{ORDER_STATUS[order.status] ?? order.status}</Tag>
+                  <div className="flex flex-col items-end gap-1">
+                    <Tag tone={statusTone(order.status)}>{ORDER_STATUS[order.status] ?? order.status}</Tag>
+                    <PaperOrderActions order={order} onChanged={onChanged} />
+                  </div>
                 </li>
               ))}
             </ul>
@@ -623,7 +648,7 @@ export function PaperOverview({
                   </span>
                   <span className="text-[11px] tabular-nums text-muted-foreground">
                     {item.validDays} 日 · {formatShortDate(dateShanghai(item.createdAt))}
-                    {item.endedAt ? ` → ${formatShortDate(item.endedAt.slice(0, 10))}` : ''}
+                    {item.endedAt ? ` → ${formatShortDate(dateShanghai(item.endedAt))}` : ''}
                   </span>
                 </li>
               ))}

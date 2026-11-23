@@ -274,6 +274,7 @@ export function evaluateRisk(input: EvaluateRiskInput): RiskEvaluation {
       singleStockCap, nextValue))
   }
 
+  // 行业未知时无法分组，行业上限只能跳过；单票、现金与单笔亏损上限仍然生效。
   const industryValue = ledger.positions
     .filter((p) => p.industryCode && p.industryCode === proposal.industryCode)
     .reduce((sum, p) => sum + p.marketValueCents, 0)

@@ -26,10 +26,6 @@ function num(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-function dayOf(iso: string | null): string {
-  return iso ? iso.slice(0, 10) : ''
-}
-
 export interface PaperAccountMetrics {
   kind: 'user' | 'shadow'
   startDate: string | null
@@ -166,7 +162,7 @@ export async function resolvePaperBenchmarkCode(preferred: string, since?: strin
       sql: `SELECT 1 AS ok FROM market_bars
             WHERE code = ? AND adjust_type = 'raw'
             ${since ? 'AND trade_date >= ?' : ''} LIMIT 1`,
-      args: since ? [code, 'raw', since] : [code, 'raw'],
+      args: since ? [code, since] : [code],
     })
     if (r.rows.length) return code
   }
@@ -187,22 +183,32 @@ async function loadBenchmark(
   const db = await getDb()
   const candidates = [experiment.benchmarkCode, '000001.SH'].filter(Boolean)
   for (const code of candidates) {
+    // 必须与账户 NAV 的首末日期对齐，否则超额收益对应的是两段不同区间。
     const r = await db.execute({
-      sql: `SELECT trade_date, close FROM market_bars
-            WHERE code = ? AND adjust_type = 'raw' AND trade_date >= ? AND trade_date <= ?
-            ORDER BY trade_date`,
-      args: [code, startDate, endDate],
+      sql: `SELECT
+              (SELECT trade_date FROM market_bars
+                WHERE code = ? AND adjust_type = 'raw' AND trade_date <= ?
+                ORDER BY trade_date DESC LIMIT 1) AS start_date,
+              (SELECT close FROM market_bars
+                WHERE code = ? AND adjust_type = 'raw' AND trade_date <= ?
+                ORDER BY trade_date DESC LIMIT 1) AS start_close,
+              (SELECT trade_date FROM market_bars
+                WHERE code = ? AND adjust_type = 'raw' AND trade_date <= ?
+                ORDER BY trade_date DESC LIMIT 1) AS end_date,
+              (SELECT close FROM market_bars
+                WHERE code = ? AND adjust_type = 'raw' AND trade_date <= ?
+                ORDER BY trade_date DESC LIMIT 1) AS end_close`,
+      args: [code, startDate, code, startDate, code, endDate, code, endDate],
     })
-    if (r.rows.length < 2) continue
-    const first = r.rows[0]
-    const last = r.rows[r.rows.length - 1]
-    const startCloseCents = Math.round(num(first.close) * 100) || null
-    const endCloseCents = Math.round(num(last.close) * 100) || null
+    const row = r.rows[0] ?? {}
+    if (row.start_date == null || row.end_date == null || String(row.start_date) === String(row.end_date)) continue
+    const startCloseCents = Math.round(num(row.start_close) * 100) || null
+    const endCloseCents = Math.round(num(row.end_close) * 100) || null
     return {
       code,
       basis: benchmarkBasis(code),
-      startDate: str(first.trade_date),
-      endDate: str(last.trade_date),
+      startDate: String(row.start_date),
+      endDate: String(row.end_date),
       startCloseCents,
       endCloseCents,
       returnBp: startCloseCents && endCloseCents
@@ -228,9 +234,11 @@ async function loadAccountMetrics(input: {
   endDate: string
 }): Promise<PaperAccountMetrics> {
   const db = await getDb()
+  // warn 日只有非当日价，计入收益/回撤/夏普会让统计口径失真；有效日只认合格净值。
   const navR = await db.execute({
     sql: `SELECT trade_date, total_equity_cents, daily_return_bp
-          FROM paper_nav WHERE account_id = ? AND trade_date >= ? AND trade_date <= ?
+          FROM paper_nav WHERE account_id = ? AND quality = 'pass'
+            AND trade_date >= ? AND trade_date <= ?
           ORDER BY trade_date`,
     args: [input.accountId, input.startDate, input.endDate],
   })
@@ -308,16 +316,18 @@ interface CardExecutionInfo {
 }
 
 /** 触发卡口径与日复盘一致：候选卡至少有一笔非 trigger_not_met 委托；没有委托按已触发保守计。 */
-async function loadCardExecution(experimentId: string): Promise<CardExecutionInfo> {
+async function loadCardExecution(experimentId: string, asOfDate: string): Promise<CardExecutionInfo> {
   const db = await getDb()
+  // 17:30 会在当天写入次日卡；按 as_of 截断，否则刚生成的卡就被算进当日执行率。
   const cardsR = await db.execute({
-    sql: `SELECT id, stance, status FROM paper_decision_cards WHERE experiment_id = ?`,
-    args: [experimentId],
+    sql: `SELECT id, stance, status FROM paper_decision_cards
+          WHERE experiment_id = ? AND trade_date <= ?`,
+    args: [experimentId, asOfDate],
   })
   const ordersR = await db.execute({
     sql: `SELECT card_id, status, actor, reject_code, off_plan_reason
-          FROM paper_orders WHERE experiment_id = ?`,
-    args: [experimentId],
+          FROM paper_orders WHERE experiment_id = ? AND target_trade_date <= ?`,
+    args: [experimentId, asOfDate],
   })
   const byCard = new Map<string, Array<{ status: string; actor: string; rejectCode: string; offPlanReason: string }>>()
   for (const row of ordersR.rows) {
@@ -659,7 +669,9 @@ export async function computePaperMetrics(input: {
   const shadow = accounts.find((a) => a.kind === 'shadow')
   if (!user || !shadow) throw new PaperRepoError('NOT_FOUND', '实验账户不完整')
 
-  const startDate = dayOf(experiment.startedAt) || dayOf(experiment.createdAt)
+  // startedAt 是 UTC 时间戳，直接 slice 会把凌晨创建算到前一天。
+  const startDate = dateShanghai(experiment.startedAt) || dateShanghai(experiment.createdAt)
+  const asOfDate = dateShanghai(input.now) || todayShanghai()
   const endR = await getDb().then((db) => db.execute({
     sql: `SELECT MAX(trade_date) AS d FROM paper_nav WHERE account_id = ?`,
     args: [user.id],
@@ -670,9 +682,9 @@ export async function computePaperMetrics(input: {
       experimentId: experiment.id,
       startDate,
       endDate,
-      asOfDate: dateShanghai(input.now) || todayShanghai(),
+      asOfDate,
     }),
-    loadCardExecution(experiment.id),
+    loadCardExecution(experiment.id, asOfDate),
   ])
   const execution = summarizeExecution(cardExecution)
   const sufficientForDescriptive = maturity.validDays >= DESCRIPTIVE_MIN_DAYS
@@ -681,10 +693,11 @@ export async function computePaperMetrics(input: {
   const sufficientForSignificance = maturity.validDays >= SIGNIFICANCE_MIN_DAYS
     && execution.triggeredCards >= SIGNIFICANCE_MIN_TRIGGERED
 
-  const [userMetrics, shadowMetrics, benchmark, equalWeight] = await Promise.all([
-    loadAccountMetrics({ accountId: user.id, kind: 'user', startDate, endDate }),
+  const userMetrics = await loadAccountMetrics({ accountId: user.id, kind: 'user', startDate, endDate })
+  const [shadowMetrics, benchmark, equalWeight] = await Promise.all([
     loadAccountMetrics({ accountId: shadow.id, kind: 'shadow', startDate, endDate }),
-    loadBenchmark(experiment, startDate, endDate),
+    // 基准区间跟账户实际合格 NAV 的首末日期走，而不是实验创建日。
+    loadBenchmark(experiment, userMetrics.startDate ?? startDate, userMetrics.endDate ?? endDate),
     loadEqualWeight(experiment.id, startDate, endDate, policy),
   ])
   const excessBp = {

@@ -157,6 +157,21 @@ describe('paper schema', () => {
       sql: "DELETE FROM paper_fills WHERE id = 'f1'",
       args: [],
     })).rejects.toThrow(/append-only/)
+
+    // 净值同样只追加：改历史净值会让收益/回撤与阶段门追溯失效。
+    await db.execute({
+      sql: `INSERT INTO paper_nav (account_id, trade_date, cash_cents, total_equity_cents, created_at)
+            VALUES ('a1', '2026-11-24', 100, 100, ?)`,
+      args: [now],
+    })
+    await expect(db.execute({
+      sql: "UPDATE paper_nav SET total_equity_cents = 200 WHERE account_id = 'a1'",
+      args: [],
+    })).rejects.toThrow(/append-only/)
+    await expect(db.execute({
+      sql: "DELETE FROM paper_nav WHERE account_id = 'a1'",
+      args: [],
+    })).rejects.toThrow(/append-only/)
   })
 
   afterAll(() => {

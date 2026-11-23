@@ -93,11 +93,15 @@ describe('market hours', () => {
       'paper_review_daily',
       'paper_evaluate_outcomes',
       'paper_cards_next_day',
+      'paper_review_weekly',
     ])
     expect(paperStepsDue(new Date('2026-11-14T01:59:00Z'))).toEqual([])
     expect(paperStepsDue(new Date('2026-11-14T02:00:00Z'))).toEqual([
       { type: 'paper_review_weekly', tradeDate: '2026-11-14' },
     ])
-    expect(paperStepsDue(new Date('2026-11-15T02:00:00Z'))).toEqual([])
+    // 周日也排周复盘：周六停机时由周日补上同一周。
+    expect(paperStepsDue(new Date('2026-11-15T02:00:00Z'))).toEqual([
+      { type: 'paper_review_weekly', tradeDate: '2026-11-15' },
+    ])
   })
 })

@@ -96,7 +96,7 @@ export function PaperActions({
           <div className="mt-2 flex justify-end gap-2">
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => setMode('idle')}>取消</Button>
             <Button variant="destructive" size="sm" disabled={busy} onClick={() => void run('reset')}>
-              {busy ? '重置中…' : '确认重置并开 v2'}
+              {busy ? '重置中…' : '确认重置并开新实验'}
             </Button>
           </div>
         </div>

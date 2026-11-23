@@ -1,4 +1,5 @@
 import { getDb } from '../db'
+import { dateShanghai } from '../cockpit/format'
 import { computePaperMetrics, type PaperMetricsReport } from './metrics'
 import {
   getPaperExperiment,
@@ -468,7 +469,8 @@ export async function buildPaperGateFacts(input: {
   const metrics = input.metrics
     ?? await computePaperMetrics({ experimentId: experiment.id, now: input.now })
   const db = await getDb()
-  const startDate = (experiment.startedAt ?? experiment.createdAt).slice(0, 10)
+  // startedAt 是 UTC 时间戳；直接 slice 会把上海凌晨算成前一天，门禁日期区间随之漂移。
+  const startDate = dateShanghai(experiment.startedAt) || dateShanghai(experiment.createdAt)
   const endDate = metrics.accounts.user.endDate ?? startDate
 
   const expectedR = await db.execute({
@@ -476,10 +478,11 @@ export async function buildPaperGateFacts(input: {
           WHERE is_open = 1 AND trade_date >= ? AND trade_date <= ?`,
     args: [startDate, endDate],
   })
+  // missing_price 是数据未到而非账实不符，只有 fail 才算对账失败；明细仍保留在 total/passed。
   const reconR = await db.execute({
     sql: `SELECT COUNT(*) AS total,
             COALESCE(SUM(CASE WHEN r.status = 'pass' THEN 1 ELSE 0 END), 0) AS passed,
-            COALESCE(SUM(CASE WHEN r.status <> 'pass' THEN 1 ELSE 0 END), 0) AS failed
+            COALESCE(SUM(CASE WHEN r.status = 'fail' THEN 1 ELSE 0 END), 0) AS failed
           FROM paper_reconciliations r
           JOIN paper_accounts a ON a.id = r.account_id
           WHERE a.experiment_id = ?`,

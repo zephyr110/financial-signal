@@ -369,9 +369,10 @@ async function loadCards(experimentId: string, today: string): Promise<PaperSumm
   const latestTradeDate = nullableStr(latestR.rows[0]?.d)
 
   const counts: Record<string, number> = {}
+  // 只有 candidate 卡能确认买入；observe/caution 计入“待确认”会给出无法执行的动作。
   const pendingR = await db.execute({
     sql: `SELECT trade_date, status, COUNT(*) AS n FROM paper_decision_cards
-          WHERE experiment_id = ? AND status IN ('active','triggered')
+          WHERE experiment_id = ? AND status IN ('active','triggered') AND stance = 'candidate'
           GROUP BY trade_date, status`,
     args: [experimentId],
   })

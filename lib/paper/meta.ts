@@ -59,7 +59,8 @@ export async function loadPaperUniverse(input: {
   const holdings = new Set<string>(
     holdingsR.rows.map((row) => str(row.symbol_code)),
   )
-  const symbols: string[] = [...new Set<string>([...pooled, ...research, ...holdings])].slice(0, limit)
+  // 持仓与新研究标的优先：池满 60 后先截断池内旧成员，避免新自选/持仓永远进不来。
+  const symbols: string[] = [...new Set<string>([...holdings, ...research, ...pooled])].slice(0, limit)
   return { symbols, holdings, pooled }
 }
 

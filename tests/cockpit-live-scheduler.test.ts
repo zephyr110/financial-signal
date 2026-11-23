@@ -13,6 +13,7 @@ function build(start: string, tradingDay = true) {
   const refreshQuotes = vi.fn(async () => ({ written: 1 }))
   const refreshOverseas = vi.fn(async () => ({ written: 1 }))
   const queueClose = vi.fn(async () => undefined)
+  const closeTasksFailed = vi.fn(async (_tradeDate: string) => false)
   const queuePaper = vi.fn(async (_steps: PaperDueStep[], _at: Date) => undefined)
   const scheduler = createLiveScheduler({
     now: () => clock.now,
@@ -21,10 +22,11 @@ function build(start: string, tradingDay = true) {
     refreshQuotes,
     refreshOverseas,
     queueClose,
+    closeTasksFailed,
     queuePaper,
     log: () => {},
   })
-  return { clock, isTradingDay, refreshQuotes, refreshOverseas, queueClose, queuePaper, scheduler }
+  return { clock, isTradingDay, refreshQuotes, refreshOverseas, queueClose, closeTasksFailed, queuePaper, scheduler }
 }
 
 describe('交易时段调度器', () => {
@@ -80,7 +82,11 @@ describe('交易时段调度器', () => {
     clock.now = new Date('2026-11-16T09:30:00Z')
     await scheduler.tick()
     expect(queuePaper).toHaveBeenCalledTimes(2)
-    expect(queuePaper.mock.calls[1][0].at(-1)).toEqual({ type: 'paper_cards_next_day', tradeDate: '2026-11-16' })
+    // 周复盘是补跑型任务，到达时点后每天都排，排在当日节奏之后。
+    expect(queuePaper.mock.calls[1][0]).toEqual(expect.arrayContaining([
+      { type: 'paper_cards_next_day', tradeDate: '2026-11-16' },
+      { type: 'paper_review_weekly', tradeDate: '2026-11-16' },
+    ]))
   })
 
   it('休息日不跑 A 股行情、收盘与模拟盘，外盘照常', async () => {
@@ -93,12 +99,16 @@ describe('交易时段调度器', () => {
     expect(refreshQuotes).not.toHaveBeenCalled()
     expect(refreshOverseas).toHaveBeenCalledTimes(1)
     expect(queueClose).not.toHaveBeenCalled()
-    expect(queuePaper).not.toHaveBeenCalled()
+    // 休市日不排盘中步骤，但周复盘仍要补跑最近一个周六。
+    expect(queuePaper).toHaveBeenCalledTimes(1)
+    expect(queuePaper.mock.calls[0][0]).toEqual([
+      { type: 'paper_review_weekly', tradeDate: '2026-11-16' },
+    ])
 
     clock.now = new Date('2026-11-16T08:10:00Z')
     await scheduler.tick()
     expect(queueClose).not.toHaveBeenCalled()
-    expect(queuePaper).not.toHaveBeenCalled()
+    expect(queuePaper).toHaveBeenCalledTimes(2)
   })
 
   it('周六休市仍排周复盘，不跑行情', async () => {
@@ -166,6 +176,7 @@ describe('交易时段调度器', () => {
       refreshQuotes: async () => undefined,
       refreshOverseas: async () => undefined,
       queueClose,
+      closeTasksFailed: async () => false,
       queuePaper: async () => undefined,
       log: () => {},
     })
@@ -182,6 +193,41 @@ describe('交易时段调度器', () => {
     expect(queueClose).toHaveBeenCalledTimes(2)
 
     clock.now = new Date('2026-11-16T09:00:00Z')
+    await scheduler.tick()
+    expect(queueClose).toHaveBeenCalledTimes(2)
+  })
+
+  it('收盘任务入队后失败，5 分钟后当天重新入队', async () => {
+    const clock = { now: new Date('2026-11-16T08:10:00Z') }
+    const queueClose = vi.fn(async () => undefined)
+    let failed = false
+    const closeTasksFailed = vi.fn(async (_tradeDate: string) => failed)
+    const scheduler = createLiveScheduler({
+      now: () => clock.now,
+      dbReady: () => true,
+      isTradingDay: async () => true,
+      refreshQuotes: async () => undefined,
+      refreshOverseas: async () => undefined,
+      queueClose,
+      closeTasksFailed,
+      queuePaper: async () => undefined,
+      log: () => {},
+    })
+
+    await scheduler.tick()
+    expect(queueClose).toHaveBeenCalledTimes(1)
+
+    failed = true
+    clock.now = new Date('2026-11-16T08:12:00Z')
+    await scheduler.tick()
+    expect(queueClose).toHaveBeenCalledTimes(1)
+
+    clock.now = new Date('2026-11-16T08:15:01Z')
+    await scheduler.tick()
+    expect(queueClose).toHaveBeenCalledTimes(2)
+
+    failed = false
+    clock.now = new Date('2026-11-16T08:20:02Z')
     await scheduler.tick()
     expect(queueClose).toHaveBeenCalledTimes(2)
   })

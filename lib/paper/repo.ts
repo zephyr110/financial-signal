@@ -667,6 +667,21 @@ export async function loadClosePriceCents(symbolCode: string, tradeDate: string)
   return r.rows.length ? yuanToCents(r.rows[0].close) : null
 }
 
+/** 盘前估值用：取 onOrBefore 当日或之前最近一根收盘价。 */
+export async function loadLatestClosePriceCents(
+  symbolCode: string,
+  onOrBefore: string,
+): Promise<number | null> {
+  const db = await getDb()
+  const r = await db.execute({
+    sql: `SELECT close FROM market_bars
+          WHERE code = ? AND trade_date <= ? AND adjust_type = 'raw'
+          ORDER BY trade_date DESC LIMIT 1`,
+    args: [symbolCode, onOrBefore],
+  })
+  return r.rows.length ? yuanToCents(r.rows[0].close) : null
+}
+
 /** 各批次未代扣的红利（税前）；卖出时据此随平仓预扣红利税。 */
 export async function loadPendingDividendGrossByLot(
   accountId: string,
@@ -690,9 +705,12 @@ export async function getPaperNavCents(
   onOrBefore: string,
 ): Promise<number | null> {
   const db = await getDb()
+  // 这里必须含 warn 行（如停牌日）：它仍带最近收盘估值，跳过会在次日收益上留下缺口。
+  // 只统计合格日的过滤由 metrics/gates 的查询各自做。
   const r = await db.execute({
     sql: `SELECT total_equity_cents FROM paper_nav
-          WHERE account_id = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 1`,
+          WHERE account_id = ? AND trade_date <= ?
+          ORDER BY trade_date DESC LIMIT 1`,
     args: [accountId, onOrBefore],
   })
   return r.rows.length ? num(r.rows[0].total_equity_cents) : null
@@ -980,6 +998,17 @@ export async function reconcilePaperAccount(input: {
     pricesBySymbol[p.symbolCode] = await loadClosePriceCents(p.symbolCode, input.tradeDate)
   }
 
+  const db = await getDb()
+  // 物化持仓只在确认/撤单时按目标日刷新；无委托日会停在旧日期，先按对账日重刷再比对。
+  const positionTx = await db.transaction('write')
+  try {
+    await refreshPaperPositions(positionTx, input.accountId, input.tradeDate)
+    await positionTx.commit()
+  } catch (err) {
+    await positionTx.rollback().catch(() => {})
+    throw err
+  }
+
   const nav = await getPaperNavRow(input.accountId, input.tradeDate)
   const reconciliation = reconcileLedger({
     initialCashCents: account.initialCashCents,
@@ -998,7 +1027,6 @@ export async function reconcilePaperAccount(input: {
   const mismatchCents = failed.reduce((sum, c) => sum + Math.abs(c.diffCents ?? 0), 0)
   const id = `recon-${input.accountId}-${input.tradeDate}`
   const now = nowIso(input.now)
-  const db = await getDb()
 
   await db.execute({
     sql: `INSERT INTO paper_reconciliations

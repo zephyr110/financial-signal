@@ -74,6 +74,16 @@ async function queueCloseAnalysis(tradeDate: string): Promise<void> {
   }
 }
 
+/** 入队成功不等于抓取成功；收盘任务后来失败时当天还要再排一次（enqueueTask 会把 failed 重置为 queued）。 */
+async function closeTasksFailed(tradeDate: string): Promise<boolean> {
+  const db = await getDb()
+  const r = await db.execute({
+    sql: 'SELECT status FROM tasks WHERE idempotency_key IN (?, ?)',
+    args: [`live-close:${tradeDate}`, `live-desk:${tradeDate}`],
+  })
+  return r.rows.some((row) => row.status === 'failed' || row.status === 'canceled')
+}
+
 const PAPER_RETRY_MS = 10 * 60_000
 const PAPER_MAX_RETRIES = 3
 /** 同一天同一步失败的退避状态；进程重启后重新计。 */
@@ -115,6 +125,7 @@ export interface LiveSchedulerDeps {
   refreshQuotes?: () => Promise<unknown>
   refreshOverseas?: () => Promise<unknown>
   queueClose?: (tradeDate: string) => Promise<unknown>
+  closeTasksFailed?: (tradeDate: string) => Promise<boolean>
   queuePaper?: (steps: PaperDueStep[], at: Date) => Promise<unknown>
   log?: (message: string) => void
 }
@@ -140,6 +151,7 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
     return result
   })
   const queueClose = overrides.queueClose || queueCloseAnalysis
+  const closeFailed = overrides.closeTasksFailed || closeTasksFailed
   const queuePaper = overrides.queuePaper || queuePaperRhythm
   const tradingDayAt = overrides.isTradingDay
     || ((date: string) => isChinaMarketOpen(date, { allowNetwork: true }))
@@ -221,7 +233,18 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
 
       if (tradingDay && shouldQueueDailyClose(at)) {
         const tradeDate = shanghaiClock(at).date
-        const due = dailyDoneDate !== tradeDate && stamp - dailyAttemptAt >= DAILY_RETRY_MS
+        let retryAfterFailure = false
+        if (dailyDoneDate === tradeDate && stamp - dailyAttemptAt >= DAILY_RETRY_MS) {
+          // 查询失败不能中断本轮 tick（否则后面的模拟盘步骤也被跳过），下一轮再看。
+          try {
+            retryAfterFailure = await closeFailed(tradeDate)
+          } catch (err) {
+            report('daily', err)
+          }
+        }
+        const due = dailyDoneDate !== tradeDate
+          ? stamp - dailyAttemptAt >= DAILY_RETRY_MS
+          : retryAfterFailure
         if (due) {
           dailyAttemptAt = stamp
           try {

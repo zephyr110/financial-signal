@@ -148,11 +148,13 @@ export interface PaperDueStep {
 
 export function paperStepsDue(now = new Date()): PaperDueStep[] {
   const { weekday, minutes, date } = shanghaiClock(now)
-  if (weekday === 6) {
-    return minutes >= WEEKLY_REVIEW ? [{ type: 'paper_review_weekly', tradeDate: date }] : []
-  }
-  if (weekday === 0) return []
-  return PAPER_STEPS
-    .filter((step) => minutes >= step.at)
-    .map((step) => ({ type: step.type, tradeDate: date }))
+  // 周复盘按“最近一个周六”落库并幂等覆盖，周末/工作日都入队才能补上错过的周六。
+  const weekly: PaperDueStep[] = minutes >= WEEKLY_REVIEW ? [{ type: 'paper_review_weekly', tradeDate: date }] : []
+  if (weekday === 6 || weekday === 0) return weekly
+  return [
+    ...PAPER_STEPS
+      .filter((step) => minutes >= step.at)
+      .map((step) => ({ type: step.type, tradeDate: date })),
+    ...weekly,
+  ]
 }

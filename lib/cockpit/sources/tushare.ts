@@ -269,11 +269,25 @@ function chooseTradeDate(openDates: string[], explicit?: string): string {
 async function resolveUniverse(): Promise<string[]> {
   const db = await getDb()
   const res = await db.execute({
+    // 模拟盘标的必须一起采：移出自选后若不采，NAV/卡/结算会集体缺价。
     sql: `SELECT DISTINCT code FROM (
             SELECT code FROM watchlist_items
             UNION
             SELECT code FROM positions
             WHERE account_id <> 'demo-account' AND shares > 0
+            UNION
+            SELECT u.symbol_code AS code FROM paper_universe u
+            JOIN paper_experiments e ON e.id = u.experiment_id
+            WHERE u.removed_at IS NULL AND e.status IN ('active','paused')
+            UNION
+            SELECT p.symbol_code AS code FROM paper_positions p
+            JOIN paper_accounts a ON a.id = p.account_id
+            JOIN paper_experiments e ON e.id = a.experiment_id
+            WHERE p.total_qty > 0 AND e.status IN ('active','paused')
+            UNION
+            SELECT o.symbol_code AS code FROM paper_orders o
+            JOIN paper_experiments e ON e.id = o.experiment_id
+            WHERE o.status IN ('confirmed','settlement_pending') AND e.status IN ('active','paused')
           ) ORDER BY code`,
     args: [],
   })

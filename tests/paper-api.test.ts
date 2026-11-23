@@ -2,6 +2,7 @@ import path from 'path'
 import os from 'os'
 import fs from 'fs'
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { isChinaMarketOpen } from '../lib/china-calendar'
 import { DEFAULT_PAPER_POLICY } from '../lib/paper/policy'
 
 /**
@@ -11,8 +12,9 @@ import { DEFAULT_PAPER_POLICY } from '../lib/paper/policy'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'paper-api-test-'))
 const SHANGHAI_TODAY = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
-const D1 = addDays(SHANGHAI_TODAY, 1)
-const D2 = addDays(D1, 1)
+// 目标日必须晚于当前时刻（截止检查），又不能落在周末/节假日，否则周末跑测试必红。
+let D1 = ''
+let D2 = ''
 const SYMBOL = '600000.SH'
 const INITIAL = 50_000_000
 const now = new Date().toISOString()
@@ -124,11 +126,22 @@ async function seedCard(id: string, tradeDate: string) {
 
 let experimentId = ''
 
+async function nextOpenDate(after: string): Promise<string> {
+  let cursor = addDays(after, 1)
+  for (let i = 0; i < 30; i += 1) {
+    if (await isChinaMarketOpen(cursor, { allowNetwork: false })) return cursor
+    cursor = addDays(cursor, 1)
+  }
+  return addDays(after, 1)
+}
+
 beforeAll(async () => {
   const loaded = await loadModules(path.join(dir, 'api.db'))
   db = loaded.db
   handlers = loaded.handlers
   const { repo } = loaded
+  D1 = await nextOpenDate(SHANGHAI_TODAY)
+  D2 = await nextOpenDate(D1)
 
   const created = await repo.createPaperExperiment({
     name: 'API 测试实验',
