@@ -12,6 +12,18 @@ import { normalizeCode } from './codes'
 import { ingestOfficialDocuments } from './sources/official'
 import { refreshDesk } from '../desk/engine'
 import { createInvestigation, listInvestigations, queueAutoInvestigations, runInvestigation } from '../desk/investigation'
+import {
+  runPaperCards,
+  runPaperCutoff,
+  runPaperDailyReview,
+  runPaperEvaluateOutcomes,
+  runPaperNavAndReconcile,
+  runPaperPositionScan,
+  runPaperPreopen,
+  runPaperSettle,
+  runPaperWeeklyReview,
+  type PaperJobResult,
+} from '../paper/jobs'
 import { sanitizeErrorMessage } from '../safe-json'
 import type { TaskEvent, TaskLane, TaskRecord, TaskStatus, TaskType } from './types'
 
@@ -27,6 +39,15 @@ export const TASK_TYPES: TaskType[] = [
   'daily_close',
   'desk_tick',
   'desk_investigation',
+  'paper_preopen_check',
+  'paper_cutoff',
+  'paper_settle',
+  'paper_position_scan',
+  'paper_reconcile',
+  'paper_review_daily',
+  'paper_cards_next_day',
+  'paper_review_weekly',
+  'paper_evaluate_outcomes',
 ]
 
 /** 核心链路与交互研究分 lane：深挖再慢也不阻塞收盘入库。 */
@@ -59,6 +80,15 @@ const TASK_LABEL: Record<string, string> = {
   daily_close: '每日收盘流程',
   desk_tick: '投研台刷新',
   desk_investigation: '预警深挖',
+  paper_preopen_check: '模拟盘盘前复核',
+  paper_cutoff: '模拟盘截止冻结',
+  paper_settle: '模拟盘结算',
+  paper_position_scan: '模拟盘持仓扫描',
+  paper_reconcile: '模拟盘估值对账',
+  paper_review_daily: '模拟盘当日复盘',
+  paper_cards_next_day: '模拟盘次日决策卡',
+  paper_review_weekly: '模拟盘周复盘',
+  paper_evaluate_outcomes: '模拟盘决策评估',
 }
 
 type Row = Record<string, unknown>
@@ -390,6 +420,22 @@ async function latestTradeDate(): Promise<string | null> {
   return value ? String(value) : null
 }
 
+function paperParams(params: Record<string, unknown>): { tradeDate?: string; experimentId?: string } {
+  return {
+    tradeDate: typeof params.tradeDate === 'string' ? params.tradeDate : undefined,
+    experimentId: typeof params.experimentId === 'string' ? params.experimentId : undefined,
+  }
+}
+
+function paperTaskResult(result: PaperJobResult): Record<string, unknown> {
+  return {
+    skipped: result.skipped,
+    reason: result.reason ?? null,
+    tradeDate: result.tradeDate,
+    ...result.detail,
+  }
+}
+
 async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
   const params = task.params || {}
   switch (task.type) {
@@ -525,6 +571,72 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         narrativeModel: report.payload.narrative?.model || null,
         warnings,
       }
+    }
+    case 'paper_cards_next_day': {
+      await setProgress(task.id, 30, '同步标的元数据与宇宙')
+      const result = await runPaperCards({ ...paperParams(params), mode: 'next_day' })
+      await setProgress(task.id, 90, '写入决策卡与快照')
+      return {
+        ...paperTaskResult(result),
+        cardTradeDate: result.cardTradeDate,
+        cards: result.cards,
+        observe: result.observe,
+        warnings: result.warnings,
+      }
+    }
+    case 'paper_position_scan': {
+      await setProgress(task.id, 30, '读取持仓与止损')
+      const result = await runPaperPositionScan(paperParams(params))
+      await setProgress(task.id, 90, '写入持仓卡')
+      return {
+        ...paperTaskResult(result),
+        cardTradeDate: result.cardTradeDate,
+        cards: result.cards,
+        observe: result.observe,
+        warnings: result.warnings,
+      }
+    }
+    case 'paper_preopen_check': {
+      await setProgress(task.id, 30, '复核停牌/ST/风险状态')
+      const result = await runPaperPreopen(paperParams(params))
+      await setProgress(task.id, 90, '影子账户执行')
+      return paperTaskResult(result)
+    }
+    case 'paper_cutoff': {
+      await setProgress(task.id, 40, '冻结已确认委托')
+      const result = await runPaperCutoff(paperParams(params))
+      await setProgress(task.id, 90, '作废未确认决策卡')
+      return paperTaskResult(result)
+    }
+    case 'paper_settle': {
+      await setProgress(task.id, 30, '读取官方开盘价')
+      const result = await runPaperSettle(paperParams(params))
+      await setProgress(task.id, 90, '结算委托')
+      return paperTaskResult(result)
+    }
+    case 'paper_reconcile': {
+      await setProgress(task.id, 30, '估值与账本核对')
+      const result = await runPaperNavAndReconcile(paperParams(params))
+      await setProgress(task.id, 90, '写入净值与对账')
+      return paperTaskResult(result)
+    }
+    case 'paper_review_daily': {
+      await setProgress(task.id, 40, '汇总当日事实')
+      const result = await runPaperDailyReview(paperParams(params))
+      await setProgress(task.id, 90, '生成复盘叙述')
+      return paperTaskResult(result)
+    }
+    case 'paper_review_weekly': {
+      await setProgress(task.id, 40, '汇总本周净值与成交')
+      const result = await runPaperWeeklyReview(paperParams(params))
+      await setProgress(task.id, 90, '生成周复盘')
+      return paperTaskResult(result)
+    }
+    case 'paper_evaluate_outcomes': {
+      await setProgress(task.id, 40, '评估到期决策卡')
+      const result = await runPaperEvaluateOutcomes(paperParams(params))
+      await setProgress(task.id, 90, '写入 5/20/60 日结果')
+      return paperTaskResult(result)
     }
     case 'thesis_review': {
       await setProgress(task.id, 30, '读取论点与证据')
@@ -793,8 +905,10 @@ async function finishTask(
     })
   }
   const row = await getTaskRow(task.id)
-  // 自动补库逐只一条会刷屏；状态在自选页与任务中心可见。
-  if (!patch.requeue && task.type !== 'market_backfill' && (status === 'succeeded' || status === 'failed')) {
+  // 自动补库逐只一条会刷屏；模拟盘每日 7 个例行任务也只报失败。状态在任务中心可见。
+  const quietSuccess = task.type.startsWith('paper_')
+  if (!patch.requeue && task.type !== 'market_backfill'
+    && (status === 'failed' || (status === 'succeeded' && !quietSuccess))) {
     const result = patch.result && typeof patch.result === 'object'
       ? patch.result as Record<string, unknown>
       : undefined

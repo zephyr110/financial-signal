@@ -198,6 +198,52 @@ export async function ensureTradingCalendar(options: {
   return { openDates, fetched }
 }
 
+/**
+ * 补齐从 fromDate 起的未来交易日历：17:30 生成次日决策卡时要先知道下一个开市日。
+ * 覆盖已足够时直接读库；没有 token 或调用失败由调用方决定降级策略。
+ */
+export async function ensureTradingCalendarFuture(options: {
+  fromDate: string
+  daysAhead?: number
+  token?: string
+  fetchImpl?: FetchLike
+}): Promise<{ fetched: boolean; openDates: string[] }> {
+  const fromDate = options.fromDate
+  const daysAhead = options.daysAhead ?? 370
+  const endDate = addDays(fromDate, daysAhead)
+  const db = await getDb()
+  const coverage = await db.execute({
+    sql: 'SELECT COUNT(*) AS n FROM trading_calendar WHERE trade_date BETWEEN ? AND ?',
+    args: [fromDate, endDate],
+  })
+  // 一年里约三分之二是交易日；行数过半即可判定这段窗口已拉过。
+  const fresh = num(coverage.rows[0]?.n) >= Math.floor(daysAhead * 0.5)
+  let fetched = false
+  if (!fresh) {
+    const token = (options.token || await resolveToken())?.trim()
+    if (!token) throw new Error('未配置 Tushare token，无法补齐未来交易日历')
+    const rows = await tushareFetch(
+      'trade_cal',
+      { exchange: 'SSE', start_date: compact(fromDate), end_date: compact(endDate) },
+      'exchange,cal_date,is_open,pretrade_date',
+      token,
+      options.fetchImpl || fetch,
+    )
+    await upsertCalendar(rows, new Date().toISOString())
+    fetched = true
+  }
+  const res = await db.execute({
+    sql: `SELECT trade_date FROM trading_calendar
+          WHERE is_open = 1 AND trade_date BETWEEN ? AND ?
+          ORDER BY trade_date ASC`,
+    args: [fromDate, endDate],
+  })
+  const openDates = res.rows
+    .map((row) => str(row.trade_date))
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+  return { fetched, openDates }
+}
+
 /** A 股收盘数据在 15:00 后才稳定；16:00 前自动回退到上一交易日，避免拿当天半截数据。 */
 function chooseTradeDate(openDates: string[], explicit?: string): string {
   const today = todayShanghai()

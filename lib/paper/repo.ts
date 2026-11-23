@@ -877,6 +877,39 @@ export async function setPaperKillSwitch(input: {
   })
 }
 
+/** 结算遇缺价：账户进入 MISSING_PRICE，禁止新买入；对账确认数据完整后再清除。 */
+export async function setPaperMissingPriceState(input: {
+  accountId: string
+  since: string
+  now?: string
+}): Promise<void> {
+  const db = await getDb()
+  const now = nowIso(input.now)
+  await db.execute({
+    sql: `INSERT INTO paper_risk_state
+            (account_id, kill_switch, missing_price_since, data_quality, updated_at)
+          VALUES (?, 0, ?, 'fail', ?)
+          ON CONFLICT(account_id) DO UPDATE SET
+            missing_price_since = COALESCE(paper_risk_state.missing_price_since, excluded.missing_price_since),
+            data_quality = 'fail', updated_at = excluded.updated_at`,
+    args: [input.accountId, input.since, now],
+  })
+}
+
+export async function clearPaperMissingPriceState(input: {
+  accountId: string
+  now?: string
+}): Promise<void> {
+  const db = await getDb()
+  const now = nowIso(input.now)
+  await db.execute({
+    sql: `UPDATE paper_risk_state
+          SET missing_price_since = NULL, data_quality = 'pass', updated_at = ?
+          WHERE account_id = ? AND kill_switch = 0`,
+    args: [now, input.accountId],
+  })
+}
+
 export interface PaperReconciliationResult {
   id: string
   status: LedgerReconciliation['status']
@@ -1205,8 +1238,11 @@ export async function loadPaperRiskSnapshot(input: {
     }),
   ])
 
+  // 首日或估值任务尚未跑过时没有 nav 行；用现金 + 持仓市值兜底，否则 08:30 无法确认任何买入。
+  const navFallback = account.cashCents + ledger.frozenCashCents
+    + positions.reduce((sum, p) => sum + p.marketValueCents, 0)
   return {
-    navCents: latestNav,
+    navCents: latestNav ?? (navFallback > 0 ? navFallback : null),
     cashCents: account.cashCents,
     positions,
     missingPriceSymbols,

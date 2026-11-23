@@ -1,25 +1,30 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createLiveScheduler, liveSchedulerEnabled } from '../lib/cockpit/live-scheduler'
+import type { PaperDueStep } from '../lib/cockpit/market-hours'
 
 /**
  * 调度器只做节流与触发：注入时钟和副作用，验证盘中每分钟、
  * 午休停抓、收盘后 5 分钟、16:10 每日只入队一次，失败 5 分钟后重试。
  */
 
-function build(start: string) {
+function build(start: string, tradingDay = true) {
   const clock = { now: new Date(start) }
+  const isTradingDay = vi.fn(async (_date: string) => tradingDay)
   const refreshQuotes = vi.fn(async () => ({ written: 1 }))
   const refreshOverseas = vi.fn(async () => ({ written: 1 }))
   const queueClose = vi.fn(async () => undefined)
+  const queuePaper = vi.fn(async (_steps: PaperDueStep[], _at: Date) => undefined)
   const scheduler = createLiveScheduler({
     now: () => clock.now,
     dbReady: () => true,
+    isTradingDay,
     refreshQuotes,
     refreshOverseas,
     queueClose,
+    queuePaper,
     log: () => {},
   })
-  return { clock, refreshQuotes, refreshOverseas, queueClose, scheduler }
+  return { clock, isTradingDay, refreshQuotes, refreshOverseas, queueClose, queuePaper, scheduler }
 }
 
 describe('交易时段调度器', () => {
@@ -60,6 +65,79 @@ describe('交易时段调度器', () => {
     expect(refreshQuotes).toHaveBeenCalledTimes(3)
   })
 
+  it('08:30 前不排模拟盘任务，之后按当日节奏入队', async () => {
+    const early = build('2026-11-16T00:29:00Z')
+    await early.scheduler.tick()
+    expect(early.queuePaper).not.toHaveBeenCalled()
+
+    const { clock, queuePaper, scheduler } = build('2026-11-16T00:30:00Z')
+    await scheduler.tick()
+    expect(queuePaper).toHaveBeenCalledTimes(1)
+    expect(queuePaper.mock.calls[0][0]).toEqual([
+      { type: 'paper_preopen_check', tradeDate: '2026-11-16' },
+    ])
+
+    clock.now = new Date('2026-11-16T09:30:00Z')
+    await scheduler.tick()
+    expect(queuePaper).toHaveBeenCalledTimes(2)
+    expect(queuePaper.mock.calls[1][0].at(-1)).toEqual({ type: 'paper_cards_next_day', tradeDate: '2026-11-16' })
+  })
+
+  it('休息日不跑 A 股行情、收盘与模拟盘，外盘照常', async () => {
+    const { clock, isTradingDay, refreshQuotes, refreshOverseas, queueClose, queuePaper, scheduler } = build(
+      '2026-11-16T02:00:00Z',
+      false,
+    )
+    await scheduler.tick()
+    expect(isTradingDay).toHaveBeenCalledWith('2026-11-16')
+    expect(refreshQuotes).not.toHaveBeenCalled()
+    expect(refreshOverseas).toHaveBeenCalledTimes(1)
+    expect(queueClose).not.toHaveBeenCalled()
+    expect(queuePaper).not.toHaveBeenCalled()
+
+    clock.now = new Date('2026-11-16T08:10:00Z')
+    await scheduler.tick()
+    expect(queueClose).not.toHaveBeenCalled()
+    expect(queuePaper).not.toHaveBeenCalled()
+  })
+
+  it('周六休市仍排周复盘，不跑行情', async () => {
+    const { refreshQuotes, queuePaper, scheduler } = build('2026-11-14T02:00:00Z', false)
+    await scheduler.tick()
+    expect(refreshQuotes).not.toHaveBeenCalled()
+    expect(queuePaper).toHaveBeenCalledTimes(1)
+    expect(queuePaper.mock.calls[0][0]).toEqual([
+      { type: 'paper_review_weekly', tradeDate: '2026-11-14' },
+    ])
+  })
+
+  it('交易日历检查失败时跳过行情，下一轮恢复', async () => {
+    const clock = { now: new Date('2026-11-16T02:00:00Z') }
+    const isTradingDay = vi.fn()
+      .mockRejectedValueOnce(new Error('calendar locked'))
+      .mockResolvedValue(true)
+    const refreshQuotes = vi.fn(async () => undefined)
+    const log = vi.fn()
+    const scheduler = createLiveScheduler({
+      now: () => clock.now,
+      dbReady: () => true,
+      isTradingDay,
+      refreshQuotes,
+      refreshOverseas: async () => undefined,
+      queueClose: async () => undefined,
+      queuePaper: async () => undefined,
+      log,
+    })
+
+    await scheduler.tick()
+    expect(refreshQuotes).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalledWith('交易日历检查失败：calendar locked')
+
+    clock.now = new Date('2026-11-16T02:01:01Z')
+    await scheduler.tick()
+    expect(refreshQuotes).toHaveBeenCalledTimes(1)
+  })
+
   it('16:10 每个交易日只入队一次，次日重新入队', async () => {
     const { clock, queueClose, scheduler } = build('2026-11-16T08:10:00Z')
     await scheduler.tick()
@@ -84,9 +162,11 @@ describe('交易时段调度器', () => {
     const scheduler = createLiveScheduler({
       now: () => clock.now,
       dbReady: () => true,
+      isTradingDay: async () => true,
       refreshQuotes: async () => undefined,
       refreshOverseas: async () => undefined,
       queueClose,
+      queuePaper: async () => undefined,
       log: () => {},
     })
 
@@ -112,9 +192,11 @@ describe('交易时段调度器', () => {
     const scheduler = createLiveScheduler({
       now: () => new Date('2026-11-16T08:10:00Z'),
       dbReady: () => false,
+      isTradingDay: async () => true,
       refreshQuotes,
       refreshOverseas: async () => undefined,
       queueClose,
+      queuePaper: async () => undefined,
       log: () => {},
     })
     await scheduler.tick()
@@ -127,9 +209,11 @@ describe('交易时段调度器', () => {
     const scheduler = createLiveScheduler({
       now: () => new Date('2026-11-16T02:00:00Z'),
       dbReady: () => { throw new Error('database is locked') },
+      isTradingDay: async () => true,
       refreshQuotes: async () => undefined,
       refreshOverseas: async () => undefined,
       queueClose: async () => undefined,
+      queuePaper: async () => undefined,
       log,
     })
     await expect(scheduler.tick()).resolves.toBeUndefined()
@@ -146,9 +230,11 @@ describe('交易时段调度器', () => {
     const scheduler = createLiveScheduler({
       now: () => clock.now,
       dbReady: () => true,
+      isTradingDay: async () => true,
       refreshQuotes,
       refreshOverseas: async () => undefined,
       queueClose: async () => undefined,
+      queuePaper: async () => undefined,
       log: () => {},
     })
 

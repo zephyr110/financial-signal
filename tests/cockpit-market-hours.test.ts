@@ -3,6 +3,7 @@ import {
   aSharePhase,
   livePlan,
   newYorkClock,
+  paperStepsDue,
   shanghaiClock,
   shouldQueueDailyClose,
   usSessionActive,
@@ -71,5 +72,32 @@ describe('market hours', () => {
     expect(shouldQueueDailyClose(new Date('2026-11-16T08:09:00Z'))).toBe(false)
     expect(shouldQueueDailyClose(new Date('2026-11-16T08:10:00Z'))).toBe(true)
     expect(shouldQueueDailyClose(new Date('2026-11-15T08:10:00Z'))).toBe(false)
+  })
+
+  it('模拟盘节奏按上海时间逐段到期，周末只排周复盘', () => {
+    expect(paperStepsDue(new Date('2026-11-16T00:29:00Z'))).toEqual([])
+    expect(paperStepsDue(new Date('2026-11-16T00:30:00Z'))).toEqual([
+      { type: 'paper_preopen_check', tradeDate: '2026-11-16' },
+    ])
+    expect(paperStepsDue(new Date('2026-11-16T01:15:00Z')).map((step) => step.type)).toEqual([
+      'paper_preopen_check',
+      'paper_cutoff',
+    ])
+    const afterClose = paperStepsDue(new Date('2026-11-16T09:30:00Z'))
+    expect(afterClose.map((step) => step.type)).toEqual([
+      'paper_preopen_check',
+      'paper_cutoff',
+      'paper_settle',
+      'paper_position_scan',
+      'paper_reconcile',
+      'paper_review_daily',
+      'paper_evaluate_outcomes',
+      'paper_cards_next_day',
+    ])
+    expect(paperStepsDue(new Date('2026-11-14T01:59:00Z'))).toEqual([])
+    expect(paperStepsDue(new Date('2026-11-14T02:00:00Z'))).toEqual([
+      { type: 'paper_review_weekly', tradeDate: '2026-11-14' },
+    ])
+    expect(paperStepsDue(new Date('2026-11-15T02:00:00Z'))).toEqual([])
   })
 })

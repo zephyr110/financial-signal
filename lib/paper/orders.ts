@@ -20,6 +20,7 @@ import {
   refreshPaperAccountCash,
   refreshPaperPositions,
   setPaperKillSwitch,
+  setPaperMissingPriceState,
   writePaperAudit,
 } from './repo'
 import { evaluateRisk } from './risk'
@@ -240,6 +241,8 @@ export interface ConfirmPaperOrderInput {
   reservations?: ReservationRequest[]
   confirmedAt?: string
   cutoffAt?: string | null
+  /** 影子账户复用同一张卡下单，但不推进卡状态（卡状态只反映用户侧动作）。 */
+  mutateCard?: boolean
 }
 
 export interface ConfirmPaperOrderResult {
@@ -342,20 +345,25 @@ export async function confirmPaperOrder(input: ConfirmPaperOrderInput): Promise<
           `决策卡交易日 ${str(card.trade_date)} 与委托目标日 ${input.targetTradeDate} 不一致`)
       }
       const cardStatus = str(card.status)
-      if (cardStatus !== 'active' && cardStatus !== 'triggered') {
+      const allowed = input.mutateCard === false
+        ? ['active', 'triggered', 'confirmed']
+        : ['active', 'triggered']
+      if (!allowed.includes(cardStatus)) {
         throw new PaperRepoError('INVALID_STATE', `决策卡不可确认: ${cardStatus}`)
       }
       if (input.cardVersion != null && input.cardVersion !== num(card.card_version)) {
         throw new PaperRepoError('INVALID_STATE',
           `决策卡版本已变化: ${input.cardVersion} -> ${num(card.card_version)}`)
       }
-      await tx.execute({
-        sql: `UPDATE paper_decision_cards SET status = 'confirmed', updated_at = ?
-              WHERE id = ? AND status IN ('active','triggered')`,
-        args: [now, input.cardId],
-      })
-      await insertCardEvent(tx, input.cardId, 'confirmed', cardStatus, 'confirmed',
-        { orderId: id, actor: input.actor ?? 'user' }, now)
+      if (input.mutateCard !== false) {
+        await tx.execute({
+          sql: `UPDATE paper_decision_cards SET status = 'confirmed', updated_at = ?
+                WHERE id = ? AND status IN ('active','triggered')`,
+          args: [now, input.cardId],
+        })
+        await insertCardEvent(tx, input.cardId, 'confirmed', cardStatus, 'confirmed',
+          { orderId: id, actor: input.actor ?? 'user' }, now)
+      }
     }
 
     await tx.execute({
@@ -696,7 +704,8 @@ export async function settlePaperOrder(input: {
       ? {
           id: card.id,
           version: card.version,
-          status: card.status,
+          // 影子单自己就是确认动作，卡状态仍归用户侧；否则结算会因卡未确认被拒。
+          status: order.actor === 'shadow' ? 'confirmed' : card.status,
           symbolCode: card.symbolCode,
           stopPriceCents: card.stopPriceCents,
           maxLossCents: card.maxLossCents,
@@ -748,7 +757,8 @@ export async function settlePaperOrder(input: {
       detail: decision.detail,
     }, settledAt)
 
-    if (decision.nextCardStatus && order.cardId) {
+    // 影子单不推进用户侧的卡状态；卡由用户确认/截止时统一收口。
+    if (decision.nextCardStatus && order.cardId && order.actor === 'user') {
       const cardGuard = await tx.execute({
         sql: `UPDATE paper_decision_cards SET status = ?, updated_at = ?
               WHERE id = ? AND status = 'confirmed'`,
@@ -872,6 +882,25 @@ export async function settlePaperOrder(input: {
   } catch (err) {
     await tx.rollback().catch(() => {})
     throw err
+  }
+
+  if (decision.reasonCode === 'MISSING_PRICE') {
+    await setPaperMissingPriceState({
+      accountId: order.accountId,
+      since: order.targetTradeDate,
+      now: settledAt,
+    })
+    await recordPaperRiskEvent(await getDb(), {
+      accountId: order.accountId,
+      rule: 'missing_price',
+      severity: 'block',
+      action: 'block_buys',
+      message: `结算缺少 ${order.symbolCode} 官方开盘价，委托按缺价过期`,
+      dataQuality: 'fail',
+      orderId: order.id,
+      cardId: order.cardId,
+      createdAt: settledAt,
+    })
   }
 
   return { applied: true, orderId: order.id, decision }

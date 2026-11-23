@@ -1,6 +1,8 @@
 import { fetchMarketData, saveMarketData, runBacktest } from '../../../lib/market';
 import { assertCronAuth } from '../../../lib/cronAuth';
 import { defaultBatchId, withPipelineRun, isJobFresh } from '../../../lib/pipeline';
+import { isChinaMarketOpen } from '../../../lib/china-calendar';
+import { todayShanghai } from '../../../lib/cockpit/format';
 
 /**
  * Phase 4: Fetch market data + run backtest.
@@ -9,11 +11,16 @@ import { defaultBatchId, withPipelineRun, isJobFresh } from '../../../lib/pipeli
  * 节流：回测是全量重建（30 天窗口 × 全市场指数，单次数万行读取）。
  * 调度频率（QStash 30 分钟）远高于数据需要，距上次成功 < 6h 直接跳过，
  * 避免行读取配额被高频调度推爆。行情数据本身 6h 更新一次也足够。
+ * 周末、法定节假日与调休补班日不跑行情；新闻/政策分析走独立 cron，不受影响。
  */
 export default async function handler(req, res) {
   if (!await assertCronAuth(req, res)) return;
 
   try {
+    const tradeDate = todayShanghai();
+    if (!await isChinaMarketOpen(tradeDate)) {
+      return res.status(200).json({ ok: true, skipped: 'not_trading_day', tradeDate });
+    }
     if (await isJobFresh('fetch-market', 6 * 3600 * 1000)) {
       return res.status(200).json({ ok: true, skipped: 'fresh (within 6h)' });
     }

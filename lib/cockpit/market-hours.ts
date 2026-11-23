@@ -4,6 +4,8 @@
  * 休市日的快照会重复落在同一 trade_time 上，由写入方幂等覆盖。
  */
 
+import type { TaskType } from './types'
+
 const MINUTE_MS = 60_000
 
 export type ASharePhase = 'preopen' | 'morning' | 'lunch' | 'afternoon' | 'postclose' | 'closed'
@@ -120,4 +122,37 @@ export function livePlan(now = new Date()): LivePlan {
 export function shouldQueueDailyClose(now = new Date()): boolean {
   const { weekday, minutes } = shanghaiClock(now)
   return weekday >= 1 && weekday <= 5 && minutes >= DAILY_CLOSE
+}
+
+/**
+ * 模拟盘每日节奏（Asia/Shanghai）。补跑只补队列，不补成交：
+ * 09:15 之后到达的盘前任务由影子执行自行拒绝。
+ */
+const PAPER_STEPS: Array<{ type: TaskType; at: number }> = [
+  { type: 'paper_preopen_check', at: 8 * 60 + 30 },
+  { type: 'paper_cutoff', at: 9 * 60 + 15 },
+  { type: 'paper_settle', at: 16 * 60 + 20 },
+  { type: 'paper_position_scan', at: 16 * 60 + 20 },
+  { type: 'paper_reconcile', at: 16 * 60 + 30 },
+  { type: 'paper_review_daily', at: 17 * 60 },
+  { type: 'paper_evaluate_outcomes', at: 17 * 60 + 15 },
+  { type: 'paper_cards_next_day', at: 17 * 60 + 30 },
+]
+
+const WEEKLY_REVIEW = 10 * 60
+
+export interface PaperDueStep {
+  type: TaskType
+  tradeDate: string
+}
+
+export function paperStepsDue(now = new Date()): PaperDueStep[] {
+  const { weekday, minutes, date } = shanghaiClock(now)
+  if (weekday === 6) {
+    return minutes >= WEEKLY_REVIEW ? [{ type: 'paper_review_weekly', tradeDate: date }] : []
+  }
+  if (weekday === 0) return []
+  return PAPER_STEPS
+    .filter((step) => minutes >= step.at)
+    .map((step) => ({ type: step.type, tradeDate: date }))
 }

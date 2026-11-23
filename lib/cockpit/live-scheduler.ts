@@ -1,7 +1,14 @@
 import { getActiveDbTarget, getDb, resolveDbTarget } from '../db'
 import { readDbConfig } from '../db-config'
+import { isChinaMarketOpen } from '../china-calendar'
 import { refreshOverseasQuotes } from '../desk/overseas'
-import { livePlan, shanghaiClock, shouldQueueDailyClose } from './market-hours'
+import {
+  livePlan,
+  paperStepsDue,
+  shanghaiClock,
+  shouldQueueDailyClose,
+  type PaperDueStep,
+} from './market-hours'
 import { refreshLiveQuotes } from './sources/live-quotes'
 import { enqueueTask, scheduleTaskDrain } from './tasks'
 
@@ -67,12 +74,48 @@ async function queueCloseAnalysis(tradeDate: string): Promise<void> {
   }
 }
 
+const PAPER_RETRY_MS = 10 * 60_000
+const PAPER_MAX_RETRIES = 3
+/** 同一天同一步失败的退避状态；进程重启后重新计。 */
+const paperRetry = new Map<string, { failures: number; nextAt: number }>()
+
+/** 模拟盘节奏按日期幂等入队；失败任务 10 分钟后再试，最多 3 次。 */
+async function queuePaperRhythm(steps: PaperDueStep[], at: Date): Promise<void> {
+  if (!steps.length) return
+  const db = await getDb()
+  for (const step of steps) {
+    const key = `live-paper:${step.type}:${step.tradeDate}`
+    const existing = await db.execute({
+      sql: 'SELECT status FROM tasks WHERE idempotency_key = ? LIMIT 1',
+      args: [key],
+    })
+    const status = existing.rows.length ? String(existing.rows[0].status) : ''
+    if (status === 'succeeded' || status === 'queued' || status === 'running') continue
+    if (status === 'failed' || status === 'canceled') {
+      const state = paperRetry.get(key)
+      if (state && (state.failures >= PAPER_MAX_RETRIES || at.getTime() < state.nextAt)) continue
+      paperRetry.set(key, {
+        failures: (state?.failures ?? 0) + 1,
+        nextAt: at.getTime() + PAPER_RETRY_MS,
+      })
+    }
+    const task = await enqueueTask({
+      type: step.type,
+      params: { tradeDate: step.tradeDate },
+      idempotencyKey: key,
+    })
+    if (task.status === 'queued' || task.status === 'running') scheduleTaskDrain()
+  }
+}
+
 export interface LiveSchedulerDeps {
   now?: () => Date
   dbReady?: () => boolean | Promise<boolean>
+  isTradingDay?: (date: string) => Promise<boolean>
   refreshQuotes?: () => Promise<unknown>
   refreshOverseas?: () => Promise<unknown>
   queueClose?: (tradeDate: string) => Promise<unknown>
+  queuePaper?: (steps: PaperDueStep[], at: Date) => Promise<unknown>
   log?: (message: string) => void
 }
 
@@ -97,6 +140,9 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
     return result
   })
   const queueClose = overrides.queueClose || queueCloseAnalysis
+  const queuePaper = overrides.queuePaper || queuePaperRhythm
+  const tradingDayAt = overrides.isTradingDay
+    || ((date: string) => isChinaMarketOpen(date, { allowNetwork: true }))
   const log = overrides.log || ((message: string) => console.log(`[live] ${message}`))
 
   const lastErrors: Record<string, string> = {}
@@ -104,11 +150,13 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
   let lastOverseasAt = 0
   let dailyDoneDate = ''
   let dailyAttemptAt = 0
+  let calendarDate = ''
+  let calendarOpen = true
   let ticking = false
   let timer: ReturnType<typeof setInterval> | null = null
   let kick: ReturnType<typeof setTimeout> | null = null
 
-  function report(kind: 'quote' | 'overseas' | 'daily' | 'tick', err: unknown) {
+  function report(kind: 'quote' | 'overseas' | 'daily' | 'paper' | 'calendar' | 'tick', err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     if (lastErrors[kind] === message) return
     lastErrors[kind] = message
@@ -118,8 +166,26 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
         ? '外盘快照失败'
         : kind === 'daily'
           ? '收盘分析入队失败'
-          : '调度器异常'
+          : kind === 'paper'
+            ? '模拟盘任务入队失败'
+            : kind === 'calendar'
+              ? '交易日历检查失败'
+              : '调度器异常'
     log(`${label}：${message}`)
+  }
+
+  /** 每个交易日只查一次；失败不缓存，下一轮重试。 */
+  async function tradingDayOf(date: string): Promise<boolean> {
+    if (date === calendarDate) return calendarOpen
+    try {
+      calendarOpen = await tradingDayAt(date)
+      calendarDate = date
+      delete lastErrors.calendar
+      return calendarOpen
+    } catch (err) {
+      report('calendar', err)
+      return false
+    }
   }
 
   async function tick(): Promise<void> {
@@ -130,8 +196,10 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
       const at = now()
       const stamp = at.getTime()
       const plan = livePlan(at)
+      // 节假日与调休补班日不跑行情、收盘与模拟盘；外盘仍按自身时段刷新。
+      const tradingDay = await tradingDayOf(shanghaiClock(at).date)
 
-      if (plan.quoteIntervalMs != null && stamp - lastQuoteAt >= plan.quoteIntervalMs) {
+      if (tradingDay && plan.quoteIntervalMs != null && stamp - lastQuoteAt >= plan.quoteIntervalMs) {
         lastQuoteAt = stamp
         try {
           await refreshQuotes()
@@ -151,7 +219,7 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
         }
       }
 
-      if (shouldQueueDailyClose(at)) {
+      if (tradingDay && shouldQueueDailyClose(at)) {
         const tradeDate = shanghaiClock(at).date
         const due = dailyDoneDate !== tradeDate && stamp - dailyAttemptAt >= DAILY_RETRY_MS
         if (due) {
@@ -164,6 +232,18 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
           } catch (err) {
             report('daily', err)
           }
+        }
+      }
+
+      // 周复盘是研究动作而非行情处理，周六休市也照常跑；其余步骤只在开市日入队。
+      const paperSteps = paperStepsDue(at)
+        .filter((step) => tradingDay || step.type === 'paper_review_weekly')
+      if (paperSteps.length) {
+        try {
+          await queuePaper(paperSteps, at)
+          delete lastErrors.paper
+        } catch (err) {
+          report('paper', err)
         }
       }
     } catch (err) {
