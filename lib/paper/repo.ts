@@ -101,6 +101,7 @@ export interface PaperAccountRow {
 export interface PaperExperimentRow {
   id: string
   name: string
+  protocolVersion: string
   policyVersion: string
   benchmarkCode: string
   initialCashCents: number
@@ -159,6 +160,7 @@ function mapExperiment(row: Row): PaperExperimentRow {
   return {
     id: str(row.id),
     name: str(row.name),
+    protocolVersion: str(row.protocol_version, 'v1'),
     policyVersion: str(row.policy_version),
     benchmarkCode: str(row.benchmark_code),
     initialCashCents: num(row.initial_cash_cents),
@@ -241,83 +243,103 @@ export interface CreatedPaperExperiment {
   policyHash: string
 }
 
-export async function createPaperExperiment(
-  input: CreatePaperExperimentInput,
-): Promise<CreatedPaperExperiment> {
+function assertCreateInput(input: CreatePaperExperimentInput): void {
   if (!input.name?.trim()) throw new PaperRepoError('INVALID_INPUT', '实验名称不能为空')
   if (!input.benchmarkCode?.trim()) throw new PaperRepoError('INVALID_INPUT', '基准代码不能为空')
   if (!Number.isSafeInteger(input.initialCashCents) || input.initialCashCents <= 0) {
     throw new PaperRepoError('INVALID_INPUT', '初始资金必须为正整数分')
   }
   validatePaperPolicy(input.policy)
+}
 
-  const db = await getDb()
+/** 在调用方事务内建实验；重置与新建共用，保证旧实验关闭与新实验创建同事务提交。 */
+export async function insertPaperExperiment(
+  conn: Conn,
+  input: CreatePaperExperimentInput,
+): Promise<{ experimentId: string; accountIds: Record<'user' | 'shadow', string>; policyHash: string }> {
+  assertCreateInput(input)
   const now = nowIso(input.now)
   const experimentId = input.id ?? `exp-${crypto.randomUUID()}`
   const startedAt = input.startedAt ?? now
   const userId = `acc-${crypto.randomUUID()}`
   const shadowId = `shadow-${crypto.randomUUID()}`
   const initDate = tradeDateOf(startedAt)
+  const { hash } = await insertPolicyVersion(conn, input.policy, now, true)
+  await conn.execute({
+    sql: `INSERT INTO paper_experiments
+      (id, name, protocol_version, policy_version, benchmark_code, initial_cash_cents, status,
+       protocol_json, baseline_json, started_at, planned_end_at, config_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      experimentId,
+      input.name.trim(),
+      input.protocolVersion,
+      input.policy.version,
+      input.benchmarkCode.trim(),
+      input.initialCashCents,
+      JSON.stringify(input.protocol ?? {}),
+      JSON.stringify(input.baseline ?? {}),
+      startedAt,
+      input.plannedEndAt ?? null,
+      JSON.stringify(input.config ?? {}),
+      now,
+      now,
+    ],
+  })
 
+  const accounts: Array<[string, 'user' | 'shadow', string]> = [
+    [userId, 'user', '主账户'],
+    [shadowId, 'shadow', '影子账户'],
+  ]
+  for (const [accountId, kind, name] of accounts) {
+    await conn.execute({
+      sql: `INSERT INTO paper_accounts
+        (id, experiment_id, kind, name, initial_cash_cents, cash_cents, status, is_demo, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      args: [accountId, experimentId, kind, name, input.initialCashCents, input.initialCashCents,
+        input.isDemo ? 1 : 0, now],
+    })
+    await conn.execute({
+      sql: `INSERT INTO paper_cash_entries
+        (id, account_id, kind, amount_cents, balance_after_cents, ref_type, ref_id, trade_date, memo, created_at)
+        VALUES (?, ?, 'initial', ?, ?, 'account', ?, ?, '期初资金', ?)`,
+      args: [`init-${accountId}`, accountId, input.initialCashCents, input.initialCashCents,
+        accountId, initDate, now],
+    })
+    await conn.execute({
+      sql: `INSERT INTO paper_risk_state (account_id, updated_at) VALUES (?, ?)
+            ON CONFLICT(account_id) DO NOTHING`,
+      args: [accountId, now],
+    })
+  }
+
+  await writePaperAudit(conn, {
+    actor: 'system',
+    action: 'experiment.created',
+    entityType: 'paper_experiment',
+    entityId: experimentId,
+    payload: {
+      name: input.name,
+      policyVersion: input.policy.version,
+      policyHash: hash,
+      protocolHash: crypto.createHash('sha256')
+        .update(JSON.stringify(input.protocol ?? {}))
+        .digest('hex'),
+      resetOf: (input.config as { resetFrom?: string } | undefined)?.resetFrom ?? null,
+    },
+    createdAt: now,
+  })
+  return { experimentId, accountIds: { user: userId, shadow: shadowId }, policyHash: hash }
+}
+
+export async function createPaperExperiment(
+  input: CreatePaperExperimentInput,
+): Promise<CreatedPaperExperiment> {
+  const db = await getDb()
   const tx = await db.transaction('write')
+  let experimentId = ''
   try {
-    const { hash } = await insertPolicyVersion(tx, input.policy, now, true)
-    await tx.execute({
-      sql: `INSERT INTO paper_experiments
-        (id, name, protocol_version, policy_version, benchmark_code, initial_cash_cents, status,
-         protocol_json, baseline_json, started_at, planned_end_at, config_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        experimentId,
-        input.name.trim(),
-        input.protocolVersion,
-        input.policy.version,
-        input.benchmarkCode.trim(),
-        input.initialCashCents,
-        JSON.stringify(input.protocol ?? {}),
-        JSON.stringify(input.baseline ?? {}),
-        startedAt,
-        input.plannedEndAt ?? null,
-        JSON.stringify(input.config ?? {}),
-        now,
-        now,
-      ],
-    })
-
-    const accounts: Array<[string, 'user' | 'shadow', string]> = [
-      [userId, 'user', '主账户'],
-      [shadowId, 'shadow', '影子账户'],
-    ]
-    for (const [accountId, kind, name] of accounts) {
-      await tx.execute({
-        sql: `INSERT INTO paper_accounts
-          (id, experiment_id, kind, name, initial_cash_cents, cash_cents, status, is_demo, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-        args: [accountId, experimentId, kind, name, input.initialCashCents, input.initialCashCents,
-          input.isDemo ? 1 : 0, now],
-      })
-      await tx.execute({
-        sql: `INSERT INTO paper_cash_entries
-          (id, account_id, kind, amount_cents, balance_after_cents, ref_type, ref_id, trade_date, memo, created_at)
-          VALUES (?, ?, 'initial', ?, ?, 'account', ?, ?, '期初资金', ?)`,
-        args: [`init-${accountId}`, accountId, input.initialCashCents, input.initialCashCents,
-          accountId, initDate, now],
-      })
-      await tx.execute({
-        sql: `INSERT INTO paper_risk_state (account_id, updated_at) VALUES (?, ?)
-              ON CONFLICT(account_id) DO NOTHING`,
-        args: [accountId, now],
-      })
-    }
-
-    await writePaperAudit(tx, {
-      actor: 'system',
-      action: 'experiment.created',
-      entityType: 'paper_experiment',
-      entityId: experimentId,
-      payload: { name: input.name, policyVersion: input.policy.version, policyHash: hash },
-      createdAt: now,
-    })
+    experimentId = (await insertPaperExperiment(tx, input)).experimentId
     await tx.commit()
   } catch (err) {
     await tx.rollback().catch(() => {})
