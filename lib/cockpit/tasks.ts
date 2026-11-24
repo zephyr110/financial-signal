@@ -119,9 +119,9 @@ function stableStringify(value: unknown): string {
   return `{${Object.keys(obj).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(',')}}`
 }
 
-function defaultIdempotencyKey(type: TaskType, params: Record<string, unknown>, tradeDate: string): string {
+function defaultIdempotencyKey(keyScope: string, params: Record<string, unknown>, dateParts: string[]): string {
   return crypto.createHash('sha256')
-    .update(`${type}|${stableStringify(params)}|${tradeDate}|${PROMPT_VERSION}|${MODEL}`)
+    .update(`${keyScope}|${stableStringify(params)}|${dateParts.join('|')}|${PROMPT_VERSION}|${MODEL}`)
     .digest('hex')
 }
 
@@ -221,10 +221,25 @@ export async function enqueueTask(input: {
   // lane 只由任务类型决定；即使调用方透传 params.lane 也不能改变调度通道。
   const lane: TaskLane = INTERACTIVE_TYPES.has(input.type) ? 'interactive' : 'core'
   const force = params.force === true
-  const paramDate = typeof params.tradeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.tradeDate)
+  const explicitDate = typeof params.tradeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.tradeDate)
     ? params.tradeDate
-    : todayShanghai()
-  let idempotencyKey = input.idempotencyKey || defaultIdempotencyKey(input.type, params, paramDate)
+    : null
+  let idempotencyKey = input.idempotencyKey
+  if (!idempotencyKey) {
+    const today = todayShanghai()
+    let keyScope: string = input.type
+    let keyDates: string[] = [explicitDate ?? today]
+    if (input.type === 'daily_brief') {
+      // 旧键按运行日算且无版本段，历史成功任务会继续占位；v2 与它们隔离。
+      keyScope = 'daily_brief:v2'
+      if (!explicitDate) {
+        // 数据日决定简报目标；保留运行日，盘前失败与收盘后生成才不会被互相吞并。
+        const latest = await getLatestMarketDate().catch(() => null)
+        keyDates = [today, latest ?? 'no-market']
+      }
+    }
+    idempotencyKey = defaultIdempotencyKey(keyScope, params, keyDates)
+  }
   const db = await getDb()
   const tx = await db.transaction('write')
   try {
