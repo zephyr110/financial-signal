@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { Loader2, Newspaper, RefreshCw } from "lucide-react";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
@@ -57,6 +57,30 @@ export function TopbarRefreshButton({ onClick, refreshing, label = "刷新数据
         aria-label={label}
       >
         <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+      </Button>
+    </Hint>
+  );
+}
+
+export function TopbarIngestButton({ onClick, busy, label = "抓取并分析新闻" }) {
+  return (
+    <Hint content={label}>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => onClick?.()}
+        disabled={busy}
+        className={cn(
+          "text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+          !busy && "active:scale-95"
+        )}
+        aria-label={label}
+      >
+        {busy ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Newspaper className="h-4 w-4" />
+        )}
       </Button>
     </Hint>
   );

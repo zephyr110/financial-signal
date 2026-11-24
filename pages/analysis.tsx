@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Head from "next/head";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2, Newspaper } from "lucide-react";
 import AnalysisOverview from "../components/AnalysisOverview";
 import ScoreFilter from "../components/ScoreFilter";
 import IndustryBarChart from "../components/IndustryBarChart";
@@ -17,9 +17,10 @@ import SignalAlert from "../components/SignalAlert";
 import SignalTimeline from "../components/SignalTimeline";
 import IndustrySelector from "../components/IndustrySelector";
 import AppShell from "../components/app-shell";
-import { TopbarRefreshButton } from "../components/app-topbar";
+import { TopbarIngestButton, TopbarRefreshButton } from "../components/app-topbar";
 import SectionNavGroup from "../components/SectionNavGroup";
 import ErrorBanner from "../components/ErrorBanner";
+import { Button } from "../components/ui/button";
 import SearchBar from "../components/SearchBar";
 import SignalSearchResults from "../components/SignalSearchResults";
 import WatchlistPanel from "../components/WatchlistPanel";
@@ -112,6 +113,8 @@ export default function Analysis({
   const [viewMode, setViewMode] = useState<"industry" | "company">("industry");
   const [error, setError] = useState(ssgError ?? null);
   const [fetching, setFetching] = useState(false);
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestError, setIngestError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<number | null>(() => {
     if (!ssgItems || ssgItems.length < 50) return null;
@@ -184,6 +187,31 @@ export default function Analysis({
       }
     }
   }, [trendHours, watchedEff]);
+
+  // 空面板时由用户显式补数据：fetch 只归档，analyze 才调用 LLM，单次最多 10 条。
+  const handleIngest = useCallback(async () => {
+    if (ingesting) return;
+    setIngesting(true);
+    setIngestError(null);
+    try {
+      const res = await fetch('/api/news/refresh', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      await doRefresh();
+      if (Number(data.analyzed) === 0) {
+        setIngestError(
+          Number(data.fetched) === 0
+            ? '本次没有抓到新新闻；近 24 小时可能仍无信号。'
+            : '抓取成功，但本次没有生成新的分析结果；请稍后重试。'
+        );
+      }
+    } catch (e) {
+      console.error('News ingest failed:', e);
+      setIngestError(e instanceof Error ? e.message : '抓取或分析失败，请稍后重试');
+    } finally {
+      setIngesting(false);
+    }
+  }, [doRefresh, ingesting]);
 
   // SSG 已提供默认视图数据时跳过 mount 双读（无关注行业、trend=168h、无 SSG 错误）
   const skipInitialFetch =
@@ -422,7 +450,12 @@ export default function Analysis({
         title="信号分析"
         subtitle="政策、行业与公司信号，按强度与事件线索聚合"
         scrollable={false}
-        actions={<TopbarRefreshButton onClick={doRefresh} refreshing={fetching} />}
+        actions={
+          <>
+            <TopbarIngestButton onClick={handleIngest} busy={ingesting} />
+            <TopbarRefreshButton onClick={doRefresh} refreshing={fetching} />
+          </>
+        }
         sidebarExtra={<SectionNavGroup items={navItems} scrollRoot={scrollRoot} />}
       >
         <div className="flex min-h-0 flex-1 flex-col">
@@ -452,6 +485,7 @@ export default function Analysis({
           </div>
 
           <ErrorBanner message={error} />
+          <ErrorBanner message={ingestError} />
 
           <WatchlistPanel items={items} threads={threads} heatmap={normHeatmap} />
 
@@ -638,6 +672,28 @@ export default function Analysis({
                 hasMore={!!nextCursor}
                 loading={loadingMore}
                 onLoadMore={loadMore}
+                emptyMessage={
+                  items.length === 0
+                    ? "最近 24 小时还没有已分析的信号。本地 Web 不会自动抓取新闻，点下方按钮抓取并分析。"
+                    : undefined
+                }
+                emptyAction={
+                  items.length === 0 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleIngest}
+                      disabled={ingesting}
+                    >
+                      {ingesting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Newspaper className="h-4 w-4" />
+                      )}
+                      {ingesting ? "抓取分析中…" : "抓取最新新闻并分析"}
+                    </Button>
+                  ) : undefined
+                }
               />
             </>
           )}

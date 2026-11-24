@@ -108,7 +108,7 @@ pnpm typecheck  # tsc --noEmit
 
 自托管若通过设置页使用 Turso，请把 `db-config.json` 放在与数据库相同的可写持久卷上；切换后端或凭据后需重启进程。
 
-桌面端由内置调度器驱动（默认 30 分钟，可在设置中调整）。Web 部署没有常驻调度：由 GitHub Actions（每天北京时间 05:17 跑全管线）、Vercel Cron（`fetch` + `analyze`）和可选 QStash 承担。所有端点幂等、自带节流，并受 `CRON_SECRET` 保护。
+桌面端由内置调度器驱动（默认 30 分钟，可在设置中调整）。Web 部署没有常驻调度：由 GitHub Actions（每天北京时间 05:17 跑全管线）、Vercel Cron（`fetch` + `analyze`）和可选 QStash 承担。所有端点幂等、自带节流，并受 `CRON_SECRET` 保护。本地 Web 开发也没有常驻调度，可在 `/analysis` 右上角点「抓取并分析新闻」手动补一批（每次最多 10 条，会消耗 LLM 额度）。
 
 ## 文档
 

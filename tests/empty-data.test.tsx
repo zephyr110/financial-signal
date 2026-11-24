@@ -16,9 +16,14 @@ describe("EmptyData", () => {
 
   it("使用 inbox 图标，并在容器内水平垂直居中", () => {
     const { container } = render(<EmptyData />);
-    const box = screen.getByRole("status");
-    expect(box.className).toContain("items-center");
-    expect(box.className).toContain("justify-center");
+    const box = screen.getByRole("status").parentElement;
+    expect(box?.className).toContain("items-center");
+    expect(box?.className).toContain("justify-center");
     expect(container.querySelector("svg")).toBeTruthy();
+  });
+
+  it("操作按钮在 live region 之外，避免读屏重复播报", () => {
+    render(<EmptyData action={<button type="button">重试</button>} />);
+    expect(screen.getByRole("status")).not.toContainElement(screen.getByRole("button", { name: "重试" }));
   });
 });
