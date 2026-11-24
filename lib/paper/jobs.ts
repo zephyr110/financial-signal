@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
 import { dateShanghai, todayShanghai } from '../cockpit/format'
+import { weeklyPeriodEnd } from '../cockpit/market-hours'
 import { paperRequestHash } from './api'
 import {
   addCalendarDays,
@@ -1136,9 +1137,13 @@ export async function runPaperWeeklyReview(input: {
   const now = input.now ?? new Date().toISOString()
   const experiment = await activeExperiment(input.experimentId)
   if (!experiment) return { skipped: true, reason: 'NO_ACTIVE_EXPERIMENT', tradeDate, detail: {} }
-  const weekday = new Date(`${tradeDate}T00:00:00Z`).getUTCDay()
-  const periodEnd = addCalendarDays(tradeDate, weekday === 6 ? 0 : -((weekday + 1) % 7))
+  const periodEnd = weeklyPeriodEnd(tradeDate)
   const periodStart = addCalendarDays(periodEnd, -5)
+  const startedAt = Date.parse(experiment.startedAt ?? experiment.createdAt)
+  if (Number.isFinite(startedAt) && startedAt > Date.parse(`${periodEnd}T23:59:59+08:00`)) {
+    // 实验开始前的一周没有净值可复盘，补跑不应留下空记录。
+    return { skipped: true, reason: 'PERIOD_BEFORE_START', tradeDate, detail: {} }
+  }
   const db = await getDb()
   const accounts = await listPaperAccounts(experiment.id)
   const summary: Record<string, unknown> = {}

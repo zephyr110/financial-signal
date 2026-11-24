@@ -3,10 +3,12 @@ import {
   aSharePhase,
   livePlan,
   newYorkClock,
+  paperStepKey,
   paperStepsDue,
   shanghaiClock,
   shouldQueueDailyClose,
   usSessionActive,
+  weeklyPeriodEnd,
 } from '../lib/cockpit/market-hours'
 
 /**
@@ -103,5 +105,18 @@ describe('market hours', () => {
     expect(paperStepsDue(new Date('2026-11-15T02:00:00Z'))).toEqual([
       { type: 'paper_review_weekly', tradeDate: '2026-11-15' },
     ])
+  })
+
+  it('周复盘按周期末周六幂等，工作日补跑不重算同一周', () => {
+    expect(weeklyPeriodEnd('2026-11-14')).toBe('2026-11-14')
+    expect(weeklyPeriodEnd('2026-11-15')).toBe('2026-11-14')
+    expect(weeklyPeriodEnd('2026-11-16')).toBe('2026-11-14')
+    expect(weeklyPeriodEnd('2026-11-20')).toBe('2026-11-14')
+    expect(paperStepKey({ type: 'paper_review_weekly', tradeDate: '2026-11-16' }))
+      .toBe('live-paper:paper_review_weekly:2026-11-14')
+    expect(paperStepKey({ type: 'paper_review_weekly', tradeDate: '2026-11-15' }))
+      .toBe('live-paper:paper_review_weekly:2026-11-14')
+    expect(paperStepKey({ type: 'paper_settle', tradeDate: '2026-11-16' }))
+      .toBe('live-paper:paper_settle:2026-11-16')
   })
 })

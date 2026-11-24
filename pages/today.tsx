@@ -2,9 +2,11 @@ import Head from 'next/head'
 import Link from 'next/link'
 import type { GetServerSideProps } from 'next'
 import type { SourceHealth, TodayPayload } from '@/lib/cockpit/types'
-import { formatDateCn, formatTime } from '@/lib/cockpit/format'
+import { formatDateCn, formatTime, todayShanghai } from '@/lib/cockpit/format'
 import { ensureCockpitDemoSeed } from '@/lib/cockpit/demo'
-import { getSourceHealth, getTodayPayload } from '@/lib/cockpit/repo'
+import { isChinaMarketOpen } from '@/lib/china-calendar'
+import { getLatestMarketDate, getSourceHealth, getTodayPayload } from '@/lib/cockpit/repo'
+import { todayBriefState, type TodayBriefState } from '@/lib/cockpit/today-state'
 import { serializable } from '@/lib/cockpit/page-data'
 import { stripToolProtocolFromAnswer } from '@/lib/agent/format'
 import { CockpitShell } from '@/components/cockpit/cockpit-shell'
@@ -26,27 +28,40 @@ import {
 interface TodayProps {
   payload: TodayPayload | null
   sourceHealth: SourceHealth[]
+  briefState: TodayBriefState
   loadError?: string
 }
 
 export const getServerSideProps: GetServerSideProps<TodayProps> = async () => {
   try {
     if (process.env.COCKPIT_DEMO === '1') await ensureCockpitDemoSeed()
-    const [payload, sourceHealth] = await Promise.all([getTodayPayload(), getSourceHealth()])
-    return { props: serializable({ payload, sourceHealth }) }
+    const [payload, sourceHealth, latestMarketDate] = await Promise.all([
+      getTodayPayload(),
+      getSourceHealth(),
+      getLatestMarketDate(),
+    ])
+    const today = todayShanghai()
+    const marketOpen = payload && payload.tradeDate !== today
+      ? await isChinaMarketOpen(today, { allowNetwork: false }).catch(() => null)
+      : null
+    const briefState = payload
+      ? todayBriefState({ reportDate: payload.tradeDate, today, latestMarketDate, marketOpen })
+      : 'current'
+    return { props: serializable({ payload, sourceHealth, briefState }) }
   } catch (err) {
     console.error('[today]', err instanceof Error ? err.message : err)
     return {
       props: {
         payload: null,
         sourceHealth: [],
+        briefState: 'current',
         loadError: '数据暂时不可用。请稍后刷新，或到任务中心重新生成收盘简报。',
       },
     }
   }
 }
 
-export default function TodayPage({ payload, sourceHealth, loadError }: TodayProps) {
+export default function TodayPage({ payload, sourceHealth, briefState, loadError }: TodayProps) {
   if (!payload) {
     return (
       <>
@@ -79,6 +94,25 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
   }
 
   const { hero, indices, breadth, turnover, impacts, documents, tomorrow, dataQuality } = payload
+  const reportDateCn = formatDateCn(payload.tradeDate)
+  let notice: { title: string; detail: string; action: boolean } | null = null
+  if (briefState === 'closed') {
+    notice = { title: '今天休市', detail: `下方为最近交易日 ${reportDateCn} 的简报。`, action: false }
+  } else if (briefState === 'pending-generate') {
+    notice = {
+      title: '今日简报尚未生成',
+      detail: `今日行情已入库；生成后这里会换成今日简报。下方仍是 ${reportDateCn} 的简报。`,
+      action: true,
+    }
+  } else if (briefState === 'pending-close') {
+    notice = {
+      title: '今日简报尚未生成',
+      detail: `今日收盘行情尚未入库，约 16:15 完成后可生成。下方仍是 ${reportDateCn} 的简报。`,
+      action: false,
+    }
+  } else if (briefState === 'unknown') {
+    notice = { title: '今日简报尚未生成', detail: `下方为最近一期 ${reportDateCn} 的简报。`, action: true }
+  }
   const confidenceInputs = [
     ['数据完整度', hero.confidence.inputs.completeness],
     ['时效性', hero.confidence.inputs.freshness],
@@ -101,6 +135,22 @@ export default function TodayPage({ payload, sourceHealth, loadError }: TodayPro
         sourceHealth={sourceHealth}
         dataQuality={dataQuality}
       >
+        {notice && (
+          <aside
+            className={`ck-brief-notice${briefState === 'closed' ? ' is-closed' : ''}`}
+            aria-label="简报时效提示"
+          >
+            <div className="ck-brief-notice-main">
+              <strong>{notice.title}</strong>
+              <span>{notice.detail}</span>
+            </div>
+            {notice.action && (
+              <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/tasks">
+                去任务中心
+              </Link>
+            )}
+          </aside>
+        )}
         <article className="ck-card ck-hero-card" aria-labelledby="brief-claim">
           <div className="ck-hero-top">
             <span className="ck-hero-kicker">收盘判断</span>

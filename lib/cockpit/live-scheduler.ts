@@ -4,6 +4,7 @@ import { isChinaMarketOpen } from '../china-calendar'
 import { refreshOverseasQuotes } from '../desk/overseas'
 import {
   livePlan,
+  paperStepKey,
   paperStepsDue,
   shanghaiClock,
   shouldQueueDailyClose,
@@ -94,7 +95,7 @@ async function queuePaperRhythm(steps: PaperDueStep[], at: Date): Promise<void> 
   if (!steps.length) return
   const db = await getDb()
   for (const step of steps) {
-    const key = `live-paper:${step.type}:${step.tradeDate}`
+    const key = paperStepKey(step)
     const existing = await db.execute({
       sql: 'SELECT status FROM tasks WHERE idempotency_key = ? LIMIT 1',
       args: [key],

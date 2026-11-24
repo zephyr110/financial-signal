@@ -51,7 +51,7 @@ const QUICK_ACTIONS: Array<{
     type: 'daily_brief',
     params: {},
     title: '生成今日简报',
-    hint: '事实→校验→版本',
+    hint: '收盘后生成 · 事实→校验',
     icon: FileText,
   },
   {

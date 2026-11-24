@@ -1,8 +1,9 @@
 import crypto from 'crypto'
 import { getDb } from '../db'
-import { buildAndStoreDailyReport, PROMPT_VERSION } from './brief'
+import { isChinaMarketOpen } from '../china-calendar'
+import { buildAndStoreDailyReport, PROMPT_VERSION, resolveDailyBriefDate } from './brief'
 import { todayShanghai } from './format'
-import { getJournal, getPortfolio, getStockDetail, getTheses, getTodayPayload } from './repo'
+import { getJournal, getLatestMarketDate, getPortfolio, getStockDetail, getTheses, getTodayPayload } from './repo'
 import { createNotification } from './notifications'
 import { answerBriefQuestion } from './narrative'
 import { ingestMarket } from './sources/market'
@@ -413,13 +414,6 @@ export async function claimNextTask(lane?: TaskLane): Promise<TaskRecord | null>
   }
 }
 
-async function latestTradeDate(): Promise<string | null> {
-  const db = await getDb()
-  const res = await db.execute({ sql: 'SELECT MAX(trade_date) AS d FROM market_overview', args: [] })
-  const value = res.rows[0]?.d
-  return value ? String(value) : null
-}
-
 function paperParams(params: Record<string, unknown>): { tradeDate?: string; experimentId?: string } {
   return {
     tradeDate: typeof params.tradeDate === 'string' ? params.tradeDate : undefined,
@@ -447,8 +441,21 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
   const params = task.params || {}
   switch (task.type) {
     case 'daily_brief': {
-      const tradeDate = typeof params.tradeDate === 'string' ? params.tradeDate : await latestTradeDate()
-      if (!tradeDate) throw new Error('没有可用的交易日，先完成行情入库')
+      const requested = typeof params.tradeDate === 'string' ? params.tradeDate : null
+      const today = todayShanghai()
+      const latest = await getLatestMarketDate()
+      const needsGuard = !requested && !params.force && latest != null && latest < today
+      const decision = resolveDailyBriefDate({
+        requested,
+        force: Boolean(params.force),
+        today,
+        latestMarketDate: latest,
+        todayOpen: needsGuard
+          ? await isChinaMarketOpen(today, { allowNetwork: false }).catch(() => false)
+          : false,
+      })
+      if (decision.ok === false) throw new Error(decision.message)
+      const tradeDate = decision.tradeDate
       // 简报会被单独重跑，不能只依赖 daily_close 抓公告，否则「政策与公告」永远为空。
       await setProgress(task.id, 15, '抓取官方公告与政策')
       let documents = 0
