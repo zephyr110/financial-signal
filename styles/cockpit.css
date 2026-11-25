@@ -1443,6 +1443,42 @@ a.ck-chip:hover {
   line-height: 1.6;
 }
 
+/* 今日页的简报时效提示：昨日简报仍在页面上，必须显式说明它不是今日。 */
+.ck-brief-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--ck-warning) 38%, var(--ck-line));
+  border-radius: var(--ck-radius-sm);
+  background: var(--ck-warning-soft);
+  color: var(--ck-ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ck-brief-notice.is-closed {
+  border-color: var(--ck-line);
+  background: var(--ck-surface-2);
+}
+
+.ck-brief-notice-main {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.ck-brief-notice strong {
+  display: block;
+  font-weight: 600;
+}
+
+.ck-brief-notice span {
+  color: var(--ck-muted);
+}
+
 /* ---------- 数据源状态 ---------- */
 
 .ck-rail-note {

@@ -32,6 +32,8 @@ CBOE 延迟行情 ─► 隔夜外盘背景     └─► 事后验证（1/5/20 
 ```
 
 - **每日收盘（`daily_close`）** 拉取行情、抓取官方公告，生成并校验收盘简报。
+- **新闻管线（`news_pipeline`）** 抓取新闻源 → LLM 打分 → 深挖高分信号 → 串联事件线索（6 小时节流），跑在后台 lane。
+- **板块快照（`market_snapshot`）** 收盘后抓取行业板块日行情并重建信号回测，盘中不写库。
 - **投研台刷新（`desk_tick`）** 聚合行业宽度、成交额与动量，在一个事务里写入判断与证据，再对到期判断做事后验证。
 - **深挖调查（`desk_investigation`）** 跑在交互 lane，慢证据收集不会阻塞收盘链路。
 
@@ -108,7 +110,7 @@ pnpm typecheck  # tsc --noEmit
 
 自托管若通过设置页使用 Turso，请把 `db-config.json` 放在与数据库相同的可写持久卷上；切换后端或凭据后需重启进程。
 
-桌面端由内置调度器驱动（默认 30 分钟，可在设置中调整）。Web 部署没有常驻调度：由 GitHub Actions（每天北京时间 05:17 跑全管线）、Vercel Cron（`fetch` + `analyze`）和可选 QStash 承担。所有端点幂等、自带节流，并受 `CRON_SECRET` 保护。
+桌面端由 Electron 内置调度器驱动（默认 30 分钟，可在设置中调整）。自托管 Web 使用本地 SQLite 时，Next 进程内的调度器每 30 秒 tick：盘中抓 A 股快照、交易时段刷新外盘、16:10 排入 `daily_close`（行情 + 公告 + 简报）、`market_snapshot` 与 `desk_tick`，并每 30 分钟跑一轮 `news_pipeline`；模拟盘按 09:15、16:20 等固定节奏入队。打包桌面端（`DESKTOP_MODE=1`）跳过新闻管线，避免与 Electron 调度器重复；Vercel、构建期与演示模式不启动常驻调度。Turso 部署没有常驻调度：由 GitHub Actions（每天北京时间 05:17 跑全管线）、Vercel Cron（`fetch` + `analyze`）和可选 QStash 承担。所有端点幂等、自带节流，并受 `CRON_SECRET` 保护。本地 Web 也可在 `/analysis` 右上角点「抓取并分析新闻」手动补一批（每次最多 10 条，会消耗 LLM 额度）。
 
 ## 文档
 

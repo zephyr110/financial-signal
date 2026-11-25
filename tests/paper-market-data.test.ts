@@ -214,6 +214,18 @@ describe('模拟盘行情供给', () => {
     expect(review.rows[0]).toMatchObject({ period_start: '2026-05-25', period_end: SATURDAY })
   })
 
+  it('实验开始前的一周不写空周复盘', async () => {
+    const result = await jobs.runPaperWeeklyReview({ experimentId, tradeDate: '2026-05-27', now: NOW })
+    expect(result).toMatchObject({ skipped: true, reason: 'PERIOD_BEFORE_START' })
+
+    const review = await db.execute({
+      sql: `SELECT COUNT(*) AS n FROM paper_reviews
+            WHERE experiment_id = ? AND kind = 'weekly' AND period_end = '2026-05-23'`,
+      args: [experimentId],
+    })
+    expect(Number(review.rows[0].n)).toBe(0)
+  })
+
   it('09:15 前不截止，16:20 前不结算', async () => {
     const earlyCutoff = await jobs.runPaperCutoff({
       experimentId,

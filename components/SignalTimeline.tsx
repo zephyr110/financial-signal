@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import EmptyData from "@/components/EmptyData";
 import AnalysisNewsCard from './AnalysisNewsCard';
@@ -7,13 +8,16 @@ interface Props {
   hasMore?: boolean;
   loading?: boolean;
   onLoadMore?: () => void;
+  emptyMessage?: ReactNode;
+  emptyAction?: ReactNode;
 }
 
-export default function SignalTimeline({ items, hasMore, loading, onLoadMore }: Props) {
+export default function SignalTimeline({ items, hasMore, loading, onLoadMore, emptyMessage, emptyAction }: Props) {
   if (!items || items.length === 0) {
     return (
       <EmptyData
-        message="暂无信号数据，等待新闻归档和分析完成…"
+        message={emptyMessage ?? "暂无信号数据，等待新闻归档和分析完成…"}
+        action={emptyAction}
         className="min-h-[240px]"
       />
     );

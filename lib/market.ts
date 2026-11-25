@@ -5,6 +5,7 @@
 import { getDb, getBacktestByIndustry } from './db';
 import { cachedRead, readCacheKey, READ_CACHE_TTL, clearReadCache } from './read-cache';
 import { INDUSTRY_ALIASES } from './constants';
+import { todayShanghai } from './cockpit/format';
 
 export type EventDirection = 'long' | 'short' | 'neutral' | 'mixed';
 
@@ -409,7 +410,8 @@ export async function fetchMarketData() {
  */
 export async function saveMarketData(rows) {
   const db = await getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  // UTC 日期在北京时间 00:00–08:00 会落到前一天，板块快照与简报交易日就对不上。
+  const today = todayShanghai();
   let inserted = 0;
   // 批量写入(每批 50,仿 insertNewsBatch):29 个板块逐条往返 → 1 次/批
   for (let i = 0; i < rows.length; i += 50) {

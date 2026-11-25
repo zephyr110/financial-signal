@@ -10,6 +10,13 @@ const QUOTES = [
   { symbol: '_DJI', name: '道琼斯工业' },
 ] as const
 
+// CBOE 的 CDN 对脚本 UA 直接 403；浏览器 UA + Referer 才放行。
+const CBOE_HEADERS = {
+  Accept: 'application/json',
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  Referer: 'https://www.cboe.com/',
+} as const
+
 type Row = Record<string, unknown>
 
 export interface OverseasRefreshResult {
@@ -43,7 +50,7 @@ export async function refreshOverseasQuotes(options: { fetchImpl?: typeof fetch 
   const outcomes = await Promise.all(QUOTES.map(async (quote) => {
     try {
       const res = await fetchImpl(`https://cdn-api.cboe.com/api/global/delayed_quotes/quotes/${quote.symbol}.json`, {
-        headers: { Accept: 'application/json', 'User-Agent': 'financial-signal/1.0' },
+        headers: CBOE_HEADERS,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const payload = await res.json() as Row

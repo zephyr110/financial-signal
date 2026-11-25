@@ -14,6 +14,35 @@ import type {
 
 export const PROMPT_VERSION = 'daily-brief-v1'
 
+export type DailyBriefDateDecision =
+  | { ok: true; tradeDate: string }
+  | { ok: false; reason: 'NO_MARKET_DATA' | 'TODAY_PENDING'; message: string }
+
+/**
+ * “生成今日简报”的日期语义：交易日收盘数据未入库时拒绝静默复用上一交易日；
+ * force 只用于重算最近一期，不冒充今日。
+ */
+export function resolveDailyBriefDate(input: {
+  requested?: string | null
+  force?: boolean
+  today: string
+  latestMarketDate: string | null
+  todayOpen: boolean
+}): DailyBriefDateDecision {
+  if (input.requested) return { ok: true, tradeDate: input.requested }
+  if (!input.latestMarketDate) {
+    return { ok: false, reason: 'NO_MARKET_DATA', message: '没有可用的交易日，先完成行情入库' }
+  }
+  if (!input.force && input.todayOpen && input.latestMarketDate < input.today) {
+    return {
+      ok: false,
+      reason: 'TODAY_PENDING',
+      message: `${input.today} 的收盘行情尚未入库，收盘后（约 16:15）再生成今日简报；当前最新为 ${input.latestMarketDate} 的简报`,
+    }
+  }
+  return { ok: true, tradeDate: input.latestMarketDate }
+}
+
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string' || !value) return fallback
   try {
@@ -327,7 +356,7 @@ export async function buildAndStoreDailyReport(
       sql: `INSERT INTO reports
             (kind, subject_code, trade_date, version, status, payload_json, fact_snapshot_id,
              model, prompt_version, cost_micros, is_demo, created_at, published_at)
-            VALUES ('daily_brief', '', ?, ?, 'published', ?, ?, ?, ?, 0, ?, ?, ?)`,
+            VALUES ('daily_brief', '', ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         tradeDate,
         version,

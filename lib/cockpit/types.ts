@@ -4,8 +4,10 @@ export type SourceTier = 0 | 1 | 2 | 3
 export type EvidenceKind = 'fact' | 'inference' | 'counter' | 'conclusion'
 export type ConfidenceLabel = '低' | '中' | '高'
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
-export type TaskLane = 'core' | 'interactive'
+export type TaskLane = 'core' | 'interactive' | 'background'
 export type TaskType =
+  | 'news_pipeline'
+  | 'market_snapshot'
   | 'daily_brief'
   | 'thesis_review'
   | 'ask'

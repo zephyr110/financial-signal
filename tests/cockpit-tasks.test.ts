@@ -1,6 +1,7 @@
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
+import crypto from 'crypto'
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 
 /**
@@ -256,6 +257,57 @@ describe('cockpit task queue', () => {
     for (const task of await tasks.listTasks(100)) {
       if (task.type === 'market_backfill' && task.status === 'queued') await tasks.cancelTask(task.id)
     }
+  })
+
+  it('简报键按数据日推进，旧的按运行日成功任务不再占位', async () => {
+    const db = await dbModule.getDb()
+    const { todayShanghai } = await import('../lib/cockpit/format')
+    const { PROMPT_VERSION } = await import('../lib/cockpit/brief')
+    const today = todayShanghai()
+    // 模拟旧版本留下的成功任务：键按运行日算，且没有 v2 版本段。
+    const legacyKey = crypto.createHash('sha256')
+      .update(`daily_brief|{}|${today}|${PROMPT_VERSION}|deterministic`)
+      .digest('hex')
+    await db.execute({
+      sql: `INSERT INTO tasks
+            (id, type, params_json, status, progress, step, idempotency_key, attempts,
+             model, cost_micros, created_at)
+            VALUES ('legacy-daily-brief', 'daily_brief', '{}', 'succeeded', 100, '完成', ?, 1,
+                    'deterministic', 0, ?)`,
+      args: [legacyKey, new Date().toISOString()],
+    })
+
+    const beforeClose = await tasks.enqueueTask({ type: 'daily_brief', params: {} })
+    expect(beforeClose.id).not.toBe('legacy-daily-brief')
+    expect(beforeClose.status).toBe('queued')
+
+    // 收盘入库让 latest 前移：同一运行日应换新键；同一数据日重复点击仍幂等。
+    await db.execute({
+      sql: `INSERT INTO market_overview
+            (trade_date, breadth_json, turnover_json, source_id, is_demo, created_at)
+            VALUES ('2099-12-31', '{}', '{}', 'test', 0, ?)`,
+      args: [new Date().toISOString()],
+    })
+    const afterClose = await tasks.enqueueTask({ type: 'daily_brief', params: {} })
+    expect(afterClose.id).not.toBe(beforeClose.id)
+    const again = await tasks.enqueueTask({ type: 'daily_brief', params: {} })
+    expect(again.id).toBe(afterClose.id)
+
+    for (const id of ['legacy-daily-brief', beforeClose.id, afterClose.id]) {
+      await db.execute({ sql: 'DELETE FROM task_events WHERE task_id = ?', args: [id] })
+      await db.execute({ sql: 'DELETE FROM tasks WHERE id = ?', args: [id] })
+    }
+    await db.execute({ sql: "DELETE FROM market_overview WHERE trade_date = '2099-12-31'", args: [] })
+  })
+
+  it('新闻管线与板块快照进入后台 lane，不占核心通道', async () => {
+    const news = await tasks.enqueueTask({ type: 'news_pipeline', params: {} })
+    const market = await tasks.enqueueTask({ type: 'market_snapshot', params: {} })
+    expect(news.lane).toBe('background')
+    expect(market.lane).toBe('background')
+
+    await tasks.cancelTask(news.id)
+    await tasks.cancelTask(market.id)
   })
 
   afterAll(async () => {

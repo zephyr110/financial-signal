@@ -50,6 +50,16 @@ describe('cockpit demo → brief', () => {
     expect(payload!.hero.confidence.label).toBe('中')
   })
 
+  it('交易日收盘数据未入库时不把上一交易日当作今日简报', () => {
+    const base = { today: '2026-11-24', latestMarketDate: '2026-11-23', todayOpen: true }
+    expect(brief.resolveDailyBriefDate(base)).toMatchObject({ ok: false, reason: 'TODAY_PENDING' })
+    expect(brief.resolveDailyBriefDate({ ...base, force: true })).toEqual({ ok: true, tradeDate: '2026-11-23' })
+    expect(brief.resolveDailyBriefDate({ ...base, todayOpen: false })).toEqual({ ok: true, tradeDate: '2026-11-23' })
+    expect(brief.resolveDailyBriefDate({ ...base, latestMarketDate: '2026-11-24' })).toEqual({ ok: true, tradeDate: '2026-11-24' })
+    expect(brief.resolveDailyBriefDate({ ...base, requested: '2026-11-20' })).toEqual({ ok: true, tradeDate: '2026-11-20' })
+    expect(brief.resolveDailyBriefDate({ ...base, latestMarketDate: null })).toMatchObject({ ok: false, reason: 'NO_MARKET_DATA' })
+  })
+
   it('事实包只包含登记来源，持仓有真实计算值', async () => {
     const pack = await facts.buildFactPack(demo.DEMO_TRADE_DATE)
     const sourceIds = new Set(pack.dataQuality.map((s) => s.id))
@@ -186,10 +196,18 @@ describe('cockpit demo → brief', () => {
     expect(forced.version).toBe(2)
     const db = await dbModule.getDb()
     const rows = await db.execute({
-      sql: 'SELECT version, payload_json FROM reports WHERE kind = ? ORDER BY version',
+      sql: `SELECT version, payload_json, is_demo, cost_micros, created_at, published_at
+            FROM reports WHERE kind = ? ORDER BY version`,
       args: ['daily_brief'],
     })
     expect(rows.rows.map((r) => Number(r.version))).toEqual([1, 2])
+    // 回归：INSERT 占位符曾比参数少一个，时间列被错位写成成本/示例标记。
+    for (const row of rows.rows) {
+      expect(String(row.created_at)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      expect(String(row.published_at)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      expect(Number(row.is_demo)).toBe(1)
+      expect(Number(row.cost_micros)).toBe(0)
+    }
   })
 })
 

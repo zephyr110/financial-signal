@@ -46,7 +46,7 @@ export function PortfolioEditor() {
       setCode('')
       setShares('')
       setCost('')
-      setSuccess('已写入持仓；最新价与盈亏等行情入库后补齐。')
+      setSuccess('已保存持仓；同一代码按股数加权合并，最新价与盈亏等行情入库后补齐。')
       await router.replace(router.asPath)
     } catch (error) {
       setError(httpErrorMessage(error, '网络连接失败，未写入持仓。'))
@@ -59,7 +59,7 @@ export function PortfolioEditor() {
     <form className="ck-card ck-form" onSubmit={(event) => void submit(event)}>
       <h2 className="ck-form-title">录入或更新持仓</h2>
       <p className="ck-form-hint">
-        同一代码再次提交会覆盖股数与成本。真实持仓写入独立账户，不会与示例数据混用。
+        同一代码再次提交会按股数加权合并，不会覆盖已有持仓；如需修正请先移除再录入。真实持仓写入独立账户，不会与示例数据混用。
       </p>
       <div className="ck-form-row">
         <div className="ck-field">

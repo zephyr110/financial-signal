@@ -108,7 +108,7 @@ Self-hosted runs default to a local SQLite file. To use Turso, pick it in Settin
 
 When using Settings-based Turso on a self-hosted server, keep `db-config.json` on the same persistent, writable volume as the database and restart after changing the backend or credentials.
 
-Desktop builds run a built-in scheduler (30 minutes by default, configurable in Settings). Web deployments have no resident scheduler: GitHub Actions (daily full pipeline at 05:17 Beijing time), Vercel Cron (`fetch` + `analyze`) and optional QStash cover that role. All endpoints are idempotent, self-throttle, and are protected by `CRON_SECRET`.
+Desktop builds run an Electron scheduler (30 minutes by default, configurable in Settings). A self-hosted Web instance backed by local SQLite also runs an in-process scheduler that ticks every 30 seconds: intraday A-share snapshots, overseas quotes during market hours, the 16:10 close chain (`daily_close` for prices + filings + brief, `market_snapshot` and `desk_tick`), a `news_pipeline` pass every 30 minutes, and the paper-trading rhythm. Packaged desktop builds (`DESKTOP_MODE=1`) skip the news pass to avoid duplicating the Electron scheduler; Vercel, build and demo modes never start it. Turso deployments have no resident scheduler: GitHub Actions (daily full pipeline at 05:17 Beijing time), Vercel Cron (`fetch` + `analyze`) and optional QStash cover that role. All endpoints are idempotent, self-throttle, and are protected by `CRON_SECRET`.
 
 ## Documentation
 

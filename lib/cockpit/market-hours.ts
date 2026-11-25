@@ -146,9 +146,23 @@ export interface PaperDueStep {
   tradeDate: string
 }
 
+/** 周复盘归属的最近一个周六（含当天）；周日与工作日都回退到本周六。 */
+export function weeklyPeriodEnd(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  const weekday = d.getUTCDay()
+  d.setUTCDate(d.getUTCDate() - (weekday === 6 ? 0 : (weekday + 1) % 7))
+  return d.toISOString().slice(0, 10)
+}
+
+/** 周复盘按周期末幂等，工作日补跑同一周不会每天重算。 */
+export function paperStepKey(step: PaperDueStep): string {
+  const date = step.type === 'paper_review_weekly' ? weeklyPeriodEnd(step.tradeDate) : step.tradeDate
+  return `live-paper:${step.type}:${date}`
+}
+
 export function paperStepsDue(now = new Date()): PaperDueStep[] {
   const { weekday, minutes, date } = shanghaiClock(now)
-  // 周复盘按“最近一个周六”落库并幂等覆盖，周末/工作日都入队才能补上错过的周六。
+  // 周复盘按周期末周六幂等；周末/工作日都入队，才能在错过周六后补上同一周。
   const weekly: PaperDueStep[] = minutes >= WEEKLY_REVIEW ? [{ type: 'paper_review_weekly', tradeDate: date }] : []
   if (weekday === 6 || weekday === 0) return weekly
   return [

@@ -63,7 +63,7 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
 
-        <Disclosure title="录入或更新持仓" hint="同一代码会覆盖股数与成本" headingLevel={2}>
+        <Disclosure title="录入或更新持仓" hint="同一代码会按股数加权合并" headingLevel={2}>
           <PortfolioEditor />
         </Disclosure>
 

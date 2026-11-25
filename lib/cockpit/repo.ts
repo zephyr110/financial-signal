@@ -138,6 +138,13 @@ export async function getTodayPayload(tradeDate?: string): Promise<TodayPayload 
   return parseJson<TodayPayload | null>(res.rows[0].payload_json, null)
 }
 
+/** 最新已入库的交易日；判断“今日简报”是否具备数据时不能只看报告日期。 */
+export async function getLatestMarketDate(): Promise<string | null> {
+  const db = await getDb()
+  const res = await db.execute({ sql: 'SELECT MAX(trade_date) AS d FROM market_overview', args: [] })
+  return res.rows[0]?.d ? String(res.rows[0].d) : null
+}
+
 export async function getWatchlist(): Promise<WatchlistItem[]> {
   const db = await getDb()
   const [itemsRes, barsRes, thesisRes, sourcesRes, symbolsRes, backfillRes] = await Promise.all([

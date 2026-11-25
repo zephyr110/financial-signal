@@ -92,16 +92,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return sendError(req, res, 400, 'INVALID_COST', '成本价需以整数分表示，且不超过 10 亿元')
     }
     const now = new Date().toISOString()
-    await db.execute({
-      sql: `INSERT INTO positions (account_id, code, shares, avg_cost_cents, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(account_id, code) DO UPDATE SET
-              shares = excluded.shares,
-              avg_cost_cents = excluded.avg_cost_cents,
-              closed_at = NULL,
-              updated_at = excluded.updated_at`,
-      args: [accountId, code, shares, cents, now],
-    })
+    const tx = await db.transaction('write')
+    try {
+      const existing = await tx.execute({
+        sql: 'SELECT shares, avg_cost_cents FROM positions WHERE account_id = ? AND code = ?',
+        args: [accountId, code],
+      })
+      let nextShares = shares
+      let nextCost = cents
+      const row = existing.rows[0]
+      if (row) {
+        const oldShares = Number(row.shares)
+        const oldCost = Number(row.avg_cost_cents)
+        nextShares = oldShares + shares
+        if (nextShares > 1_000_000_000) {
+          await tx.rollback()
+          return sendError(req, res, 400, 'INVALID_SHARES', '合并后股数超过 1,000,000,000')
+        }
+        // 加权平均成本；BigInt 防止大股数乘成本时丢精度，四舍五入到分。
+        const total = BigInt(oldShares) * BigInt(oldCost) + BigInt(shares) * BigInt(cents)
+        nextCost = Number((total + BigInt(nextShares) / BigInt(2)) / BigInt(nextShares))
+      }
+      await tx.execute({
+        sql: `INSERT INTO positions (account_id, code, shares, avg_cost_cents, updated_at)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(account_id, code) DO UPDATE SET
+                shares = excluded.shares,
+                avg_cost_cents = excluded.avg_cost_cents,
+                closed_at = NULL,
+                updated_at = excluded.updated_at`,
+        args: [accountId, code, nextShares, nextCost, now],
+      })
+      await tx.commit()
+    } catch (err) {
+      try { await tx.rollback() } catch { /* tx already closed */ }
+      throw err
+    }
     noStore(res)
     return res.status(201).json({ data: await getPortfolio(), meta: await buildMeta() })
   } catch (err) {
