@@ -3,9 +3,14 @@ import { getDb } from '../db'
 import { isChinaMarketOpen } from '../china-calendar'
 import { buildAndStoreDailyReport, PROMPT_VERSION, resolveDailyBriefDate } from './brief'
 import { todayShanghai } from './format'
+import { shanghaiClock } from './market-hours'
 import { getJournal, getLatestMarketDate, getPortfolio, getStockDetail, getTheses, getTodayPayload } from './repo'
 import { createNotification } from './notifications'
-import { answerBriefQuestion } from './narrative'
+import { answerBriefQuestion, llmConfigured } from './narrative'
+import { archiveNews } from '../archive'
+import { analyzeUnanalyzedNews, deepAnalyzeSignals, detectEventThreads } from '../analyze'
+import { defaultBatchId, isJobFresh, withPipelineRun } from '../pipeline'
+import { fetchMarketData, runBacktest, saveMarketData } from '../market'
 import { ingestMarket } from './sources/market'
 import { ingestFreeSymbol } from './sources/free'
 import { ingestAkshare } from './sources/akshare'
@@ -29,6 +34,8 @@ import { sanitizeErrorMessage } from '../safe-json'
 import type { TaskEvent, TaskLane, TaskRecord, TaskStatus, TaskType } from './types'
 
 export const TASK_TYPES: TaskType[] = [
+  'news_pipeline',
+  'market_snapshot',
   'daily_brief',
   'thesis_review',
   'ask',
@@ -51,9 +58,10 @@ export const TASK_TYPES: TaskType[] = [
   'paper_evaluate_outcomes',
 ]
 
-/** 核心链路与交互研究分 lane：深挖再慢也不阻塞收盘入库。 */
+/** 核心链路、交互研究与后台管线分 lane：深挖/新闻再慢也不阻塞收盘入库。 */
 const INTERACTIVE_TYPES = new Set<TaskType>(['ask', 'symbol_deep_dive', 'desk_investigation'])
-const TASK_LANES: TaskLane[] = ['core', 'interactive']
+const BACKGROUND_TYPES = new Set<TaskType>(['news_pipeline', 'market_snapshot'])
+const TASK_LANES: TaskLane[] = ['core', 'interactive', 'background']
 const MAX_ATTEMPTS = 2
 const LEASE_MS = 5 * 60 * 1000
 const MODEL = 'deterministic'
@@ -70,6 +78,8 @@ const SOURCE_LABEL: Record<string, string> = {
 }
 
 const TASK_LABEL: Record<string, string> = {
+  news_pipeline: '新闻管线',
+  market_snapshot: '板块行情快照',
   daily_brief: '收盘简报',
   thesis_review: '论点复核',
   ask: '简报问答',
@@ -126,10 +136,12 @@ function defaultIdempotencyKey(keyScope: string, params: Record<string, unknown>
 }
 
 function mapTask(row: Row): TaskRecord {
+  const rawLane = str(row.lane, 'core')
+  const lane: TaskLane = rawLane === 'interactive' || rawLane === 'background' ? rawLane : 'core'
   return {
     id: str(row.id),
     type: str(row.type),
-    lane: (str(row.lane, 'core') === 'interactive' ? 'interactive' : 'core') as TaskLane,
+    lane,
     status: str(row.status) as TaskStatus,
     progress: num(row.progress),
     step: str(row.step) || undefined,
@@ -219,7 +231,9 @@ export async function enqueueTask(input: {
   if (!TASK_TYPES.includes(input.type)) throw new Error(`未知任务类型: ${input.type}`)
   const params = input.params && typeof input.params === 'object' ? input.params : {}
   // lane 只由任务类型决定；即使调用方透传 params.lane 也不能改变调度通道。
-  const lane: TaskLane = INTERACTIVE_TYPES.has(input.type) ? 'interactive' : 'core'
+  const lane: TaskLane = INTERACTIVE_TYPES.has(input.type)
+    ? 'interactive'
+    : BACKGROUND_TYPES.has(input.type) ? 'background' : 'core'
   const force = params.force === true
   const explicitDate = typeof params.tradeDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.tradeDate)
     ? params.tradeDate
@@ -455,6 +469,96 @@ function assertPaperDataReady(result: PaperJobResult): void {
 async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
   const params = task.params || {}
   switch (task.type) {
+    case 'news_pipeline': {
+      const batchId = defaultBatchId()
+      await setProgress(task.id, 10, '抓取新闻源')
+      const counts = await withPipelineRun(
+        'fetch',
+        batchId,
+        () => archiveNews(),
+        (r: Record<string, number>) => Object.entries(r)
+          .filter(([key]) => key !== 'duplicates')
+          .reduce((sum, [, value]) => sum + (value || 0), 0),
+      )
+      const fetched = Object.entries(counts)
+        .filter(([key]) => key !== 'duplicates')
+        .reduce((sum, [, value]) => sum + (value || 0), 0)
+
+      if (!await llmConfigured()) {
+        return { fetched, duplicates: counts.duplicates || 0, analyzed: 0, deepAnalyzed: 0, threads: 0, skipped: 'no_llm' }
+      }
+
+      await setProgress(task.id, 35, 'LLM 信号打分与实体映射')
+      const analysis = await withPipelineRun(
+        'analyze',
+        batchId,
+        () => analyzeUnanalyzedNews(),
+        (r) => r.analyzed,
+      )
+
+      await setProgress(task.id, 60, '深挖高分信号')
+      const deep = await withPipelineRun(
+        'deep-analyze',
+        batchId,
+        () => deepAnalyzeSignals(),
+        (r) => r.analyzed,
+      )
+
+      await setProgress(task.id, 80, '串联事件线索')
+      let threads = 0
+      let threadsSkipped = false
+      // 与 cron 端点保持同一个 6h 节流；否则 30 分钟一轮会把 LLM 用量推高 12 倍。
+      if (await isJobFresh('event-threads', 6 * 3600 * 1000)) {
+        threadsSkipped = true
+      } else {
+        const events = await withPipelineRun(
+          'event-threads',
+          batchId,
+          () => detectEventThreads(24),
+          (r) => r.threads?.length || 0,
+        )
+        threads = events.threads?.length || 0
+      }
+
+      return {
+        fetched,
+        duplicates: counts.duplicates || 0,
+        analyzed: analysis.analyzed,
+        analysisErrors: analysis.errors,
+        deepAnalyzed: deep.analyzed,
+        deepErrors: deep.errors,
+        threads,
+        threadsSkipped,
+      }
+    }
+    case 'market_snapshot': {
+      const tradeDate = todayShanghai()
+      if (!await isChinaMarketOpen(tradeDate)) {
+        return { tradeDate, skipped: 'not_trading_day' }
+      }
+      // saveMarketData 按“今天”写日线：盘中手动触发会把盘中价当成收盘价，必须等收盘后。
+      if (shanghaiClock().minutes < 15 * 60 + 5) {
+        return { tradeDate, skipped: 'before_close' }
+      }
+      if (await isJobFresh('fetch-market', 6 * 3600 * 1000)) {
+        return { tradeDate, skipped: 'fresh' }
+      }
+      await setProgress(task.id, 20, '抓取行业板块日行情')
+      const result = await withPipelineRun(
+        'fetch-market',
+        defaultBatchId(),
+        async () => {
+          const rows = await fetchMarketData()
+          const saved = await saveMarketData(rows)
+          if (saved === 0) throw new Error('no market rows fetched (upstream unavailable)')
+          await setProgress(task.id, 80, '重建信号有效性回测')
+          const backtest = await runBacktest()
+          return { marketRows: saved, backtestPairs: backtest.pairs }
+        },
+        (r) => r.marketRows + r.backtestPairs,
+      )
+      return { tradeDate, ...result }
+    }
     case 'daily_brief': {
       const requested = typeof params.tradeDate === 'string' ? params.tradeDate : null
       const today = todayShanghai()
@@ -560,6 +664,10 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       const requested = typeof params.tradeDate === 'string' ? params.tradeDate : undefined
       await setProgress(task.id, 15, '拉取收盘行情（Tushare 优先，免费源兜底）')
       const ingest = await ingestMarket({ tradeDate: requested })
+      // 指定日期时数据源可能尚未更新并回落到上一日；宁可失败重试，也不能把旧行情写成今日简报。
+      if (requested && ingest.tradeDate !== requested) {
+        throw new Error(`${requested} 收盘行情尚未入库（数据源最新 ${ingest.tradeDate}），稍后重试`)
+      }
       const warnings = [...ingest.warnings]
       const backfillQueued = await queueWatchlistBackfills()
 
@@ -940,8 +1048,10 @@ async function finishTask(
     })
   }
   const row = await getTaskRow(task.id)
-  // 自动补库逐只一条会刷屏；模拟盘每日 7 个例行任务也只报失败。状态在任务中心可见。
+  // 自动补库逐只一条、模拟盘每日例行、后台管线每 30 分钟一轮都会刷屏，只报失败。
   const quietSuccess = task.type.startsWith('paper_')
+    || task.type === 'news_pipeline'
+    || task.type === 'market_snapshot'
   if (!patch.requeue && task.type !== 'market_backfill'
     && (status === 'failed' || (status === 'succeeded' && !quietSuccess))) {
     const result = patch.result && typeof patch.result === 'object'

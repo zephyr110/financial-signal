@@ -300,6 +300,16 @@ describe('cockpit task queue', () => {
     await db.execute({ sql: "DELETE FROM market_overview WHERE trade_date = '2099-12-31'", args: [] })
   })
 
+  it('新闻管线与板块快照进入后台 lane，不占核心通道', async () => {
+    const news = await tasks.enqueueTask({ type: 'news_pipeline', params: {} })
+    const market = await tasks.enqueueTask({ type: 'market_snapshot', params: {} })
+    expect(news.lane).toBe('background')
+    expect(market.lane).toBe('background')
+
+    await tasks.cancelTask(news.id)
+    await tasks.cancelTask(market.id)
+  })
+
   afterAll(async () => {
     const db = await dbModule.getDb()
     await db.close?.()

@@ -241,9 +241,19 @@ export default function Analysis({
       if (gen !== listGenRef.current) return; // 手动刷新/筛选已接管
       const fresh = parseAnalysisItems(data.items);
       setItems((prev) => {
-        const seen = new Set(prev.map((item) => item.analysis_id ?? item.id));
-        const added = fresh.filter((item) => !seen.has(item.analysis_id ?? item.id));
-        return added.length > 0 ? [...added, ...prev] : prev;
+        const itemKey = (item: (typeof fresh)[number]) => item.analysis_id ?? item.id;
+        const seen = new Set(prev.map(itemKey));
+        // 已加载的旧行按 id 覆盖：重新分析后摘要/分数会变，只合并新增会一直显示旧结果。
+        const byKey = new Map(fresh.map((item) => [itemKey(item), item]));
+        let changed = false;
+        const updated = prev.map((item) => {
+          const next = byKey.get(itemKey(item));
+          if (!next) return item;
+          changed = true;
+          return next;
+        });
+        const added = fresh.filter((item) => !seen.has(itemKey(item)));
+        return added.length > 0 || changed ? [...added, ...updated] : prev;
       });
       setStats(data.stats || {});
       setHeatmap(data.heatmap || []);
@@ -260,12 +270,18 @@ export default function Analysis({
   }, [trendHours, watchedEff]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    const refreshIfIdle = () => {
       if (document.visibilityState !== "visible") return;
       if (isSearchActiveRef.current || loadingMoreRef.current) return;
       void doAutoRefresh();
-    }, ANALYSIS_AUTO_REFRESH_MS);
-    return () => window.clearInterval(timer);
+    };
+    const timer = window.setInterval(refreshIfIdle, ANALYSIS_AUTO_REFRESH_MS);
+    // 切回标签页立即对齐，不必再等满一个轮询周期。
+    document.addEventListener("visibilitychange", refreshIfIdle);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshIfIdle);
+    };
   }, [doAutoRefresh]);
 
   // Apply industry filter first, then score/card filters on top

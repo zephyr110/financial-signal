@@ -14,6 +14,7 @@ import { EvidenceSpine } from '@/components/cockpit/evidence-spine'
 import { MarketPulse, MarketSnapshot } from '@/components/cockpit/market-pulse'
 import { DocumentList } from '@/components/cockpit/document-list'
 import { TodayTabs } from '@/components/TodayTabs'
+import { TodayAutoRefresh } from '@/components/cockpit/today-auto-refresh'
 import { buttonVariants } from '@/components/ui/button'
 import {
   ConfidencePill,
@@ -76,6 +77,7 @@ export default function TodayPage({ payload, sourceHealth, briefState, loadError
           headerAction={<TodayTabs />}
           sourceHealth={sourceHealth}
         >
+          <TodayAutoRefresh signature="" />
           {loadError && <div className="ck-error-banner">{loadError}</div>}
           <EmptyState
             title="今天还没有收盘简报"
@@ -135,6 +137,7 @@ export default function TodayPage({ payload, sourceHealth, briefState, loadError
         sourceHealth={sourceHealth}
         dataQuality={dataQuality}
       >
+        <TodayAutoRefresh signature={`${payload.tradeDate}|${payload.issueNo}|${payload.generatedAt}`} />
         {notice && (
           <aside
             className={`ck-brief-notice${briefState === 'closed' ? ' is-closed' : ''}`}

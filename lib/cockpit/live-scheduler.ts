@@ -14,13 +14,16 @@ import { refreshLiveQuotes } from './sources/live-quotes'
 import { enqueueTask, scheduleTaskDrain } from './tasks'
 
 /**
- * 进程内交易时段调度器：随 Next 服务启动，30 秒一次 tick。
- * 盘中抓 A 股快照，美股时段刷新外盘，16:10 排队收盘入库与驾驶舱分析。
+ * 进程内调度器：随 Next 服务启动，30 秒一次 tick。
+ * 盘中抓 A 股快照，美股时段刷新外盘；16:10 排队收盘、简报、板块行情与驾驶舱分析；
+ * 本地 SQLite 下每 30 分钟跑新闻抓取/分析。桌面端由 Electron 调度器负责后者，避免重复。
  */
 
 const TICK_MS = 30_000
 const START_DELAY_MS = 5_000
 const DAILY_RETRY_MS = 5 * 60_000
+const NEWS_INTERVAL_MS = 30 * 60_000
+const NEWS_BUCKET_MS = 30 * 60_000
 const SINGLETON_KEY = '__cockpitLiveScheduler'
 
 export function liveSchedulerEnabled(
@@ -75,12 +78,50 @@ async function queueCloseAnalysis(tradeDate: string): Promise<void> {
   }
 }
 
+/** 本地 Web：一次 daily_close 完成行情、公告与简报，再补板块行情快照和驾驶舱。 */
+async function queueDailyCloseAnalysis(tradeDate: string): Promise<void> {
+  const close = await enqueueTask({
+    type: 'daily_close',
+    params: { tradeDate },
+    idempotencyKey: `live-close:v2:${tradeDate}`,
+  })
+  const market = await enqueueTask({
+    type: 'market_snapshot',
+    params: {},
+    idempotencyKey: `live-market:${tradeDate}`,
+  })
+  const desk = await enqueueTask({
+    type: 'desk_tick',
+    params: {},
+    idempotencyKey: `live-desk:${tradeDate}`,
+  })
+  if ([close, market, desk].some((task) => task.status === 'queued' || task.status === 'running')) {
+    scheduleTaskDrain()
+  }
+}
+
+/** 每 30 分钟一个幂等桶：多个 Next 进程同时 tick 也只会排一个新闻任务。 */
+async function queueNewsPipeline(at: Date): Promise<void> {
+  const bucket = new Date(Math.floor(at.getTime() / NEWS_BUCKET_MS) * NEWS_BUCKET_MS).toISOString()
+  const task = await enqueueTask({
+    type: 'news_pipeline',
+    params: {},
+    idempotencyKey: `live-news:${bucket}`,
+  })
+  if (task.status === 'queued' || task.status === 'running') scheduleTaskDrain()
+}
+
 /** 入队成功不等于抓取成功；收盘任务后来失败时当天还要再排一次（enqueueTask 会把 failed 重置为 queued）。 */
 async function closeTasksFailed(tradeDate: string): Promise<boolean> {
   const db = await getDb()
   const r = await db.execute({
-    sql: 'SELECT status FROM tasks WHERE idempotency_key IN (?, ?)',
-    args: [`live-close:${tradeDate}`, `live-desk:${tradeDate}`],
+    sql: 'SELECT status FROM tasks WHERE idempotency_key IN (?, ?, ?, ?)',
+    args: [
+      `live-close:${tradeDate}`,
+      `live-close:v2:${tradeDate}`,
+      `live-market:${tradeDate}`,
+      `live-desk:${tradeDate}`,
+    ],
   })
   return r.rows.some((row) => row.status === 'failed' || row.status === 'canceled')
 }
@@ -128,6 +169,8 @@ export interface LiveSchedulerDeps {
   queueClose?: (tradeDate: string) => Promise<unknown>
   closeTasksFailed?: (tradeDate: string) => Promise<boolean>
   queuePaper?: (steps: PaperDueStep[], at: Date) => Promise<unknown>
+  queueNews?: (at: Date) => Promise<unknown>
+  pipelineAutomation?: boolean
   log?: (message: string) => void
 }
 
@@ -151,9 +194,12 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
     if (result.written === 0) throw new Error(result.warnings.join('；') || '外盘行情为空')
     return result
   })
-  const queueClose = overrides.queueClose || queueCloseAnalysis
+  const pipelineAutomation = overrides.pipelineAutomation ?? process.env.DESKTOP_MODE !== '1'
+  const queueClose = overrides.queueClose
+    || (pipelineAutomation ? queueDailyCloseAnalysis : queueCloseAnalysis)
   const closeFailed = overrides.closeTasksFailed || closeTasksFailed
   const queuePaper = overrides.queuePaper || queuePaperRhythm
+  const queueNews = overrides.queueNews || queueNewsPipeline
   const tradingDayAt = overrides.isTradingDay
     || ((date: string) => isChinaMarketOpen(date, { allowNetwork: true }))
   const log = overrides.log || ((message: string) => console.log(`[live] ${message}`))
@@ -161,6 +207,7 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
   const lastErrors: Record<string, string> = {}
   let lastQuoteAt = 0
   let lastOverseasAt = 0
+  let lastNewsAt = 0
   let dailyDoneDate = ''
   let dailyAttemptAt = 0
   let calendarDate = ''
@@ -169,7 +216,7 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
   let timer: ReturnType<typeof setInterval> | null = null
   let kick: ReturnType<typeof setTimeout> | null = null
 
-  function report(kind: 'quote' | 'overseas' | 'daily' | 'paper' | 'calendar' | 'tick', err: unknown) {
+  function report(kind: 'quote' | 'overseas' | 'daily' | 'paper' | 'news' | 'calendar' | 'tick', err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     if (lastErrors[kind] === message) return
     lastErrors[kind] = message
@@ -181,7 +228,9 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
           ? '收盘分析入队失败'
           : kind === 'paper'
             ? '模拟盘任务入队失败'
-            : kind === 'calendar'
+            : kind === 'news'
+              ? '新闻管线入队失败'
+              : kind === 'calendar'
               ? '交易日历检查失败'
               : '调度器异常'
     log(`${label}：${message}`)
@@ -211,6 +260,17 @@ export function createLiveScheduler(overrides: LiveSchedulerDeps = {}): LiveSche
       const plan = livePlan(at)
       // 节假日与调休补班日不跑行情、收盘与模拟盘；外盘仍按自身时段刷新。
       const tradingDay = await tradingDayOf(shanghaiClock(at).date)
+
+      // 新闻是 7×24 的；本地 Web 用 30 分钟幂等桶，避免重启/多进程重复调用 LLM。
+      if (pipelineAutomation && stamp - lastNewsAt >= NEWS_INTERVAL_MS) {
+        lastNewsAt = stamp
+        try {
+          await queueNews(at)
+          delete lastErrors.news
+        } catch (err) {
+          report('news', err)
+        }
+      }
 
       if (tradingDay && plan.quoteIntervalMs != null && stamp - lastQuoteAt >= plan.quoteIntervalMs) {
         lastQuoteAt = stamp

@@ -15,6 +15,7 @@ function build(start: string, tradingDay = true) {
   const queueClose = vi.fn(async () => undefined)
   const closeTasksFailed = vi.fn(async (_tradeDate: string) => false)
   const queuePaper = vi.fn(async (_steps: PaperDueStep[], _at: Date) => undefined)
+  const queueNews = vi.fn(async (_at: Date) => undefined)
   const scheduler = createLiveScheduler({
     now: () => clock.now,
     dbReady: () => true,
@@ -24,9 +25,10 @@ function build(start: string, tradingDay = true) {
     queueClose,
     closeTasksFailed,
     queuePaper,
+    queueNews,
     log: () => {},
   })
-  return { clock, isTradingDay, refreshQuotes, refreshOverseas, queueClose, closeTasksFailed, queuePaper, scheduler }
+  return { clock, isTradingDay, refreshQuotes, refreshOverseas, queueClose, closeTasksFailed, queuePaper, queueNews, scheduler }
 }
 
 describe('交易时段调度器', () => {
@@ -136,6 +138,7 @@ describe('交易时段调度器', () => {
       refreshOverseas: async () => undefined,
       queueClose: async () => undefined,
       queuePaper: async () => undefined,
+      queueNews: async () => undefined,
       log,
     })
 
@@ -164,6 +167,60 @@ describe('交易时段调度器', () => {
     expect(queueClose).toHaveBeenLastCalledWith('2026-11-17')
   })
 
+  it('新闻管线首次入队，之后每 30 分钟一次', async () => {
+    const { clock, queueNews, scheduler } = build('2026-11-16T00:00:00Z', false)
+    await scheduler.tick()
+    expect(queueNews).toHaveBeenCalledTimes(1)
+    expect(queueNews.mock.calls[0][0]).toEqual(new Date('2026-11-16T00:00:00Z'))
+
+    clock.now = new Date('2026-11-16T00:29:59Z')
+    await scheduler.tick()
+    expect(queueNews).toHaveBeenCalledTimes(1)
+
+    clock.now = new Date('2026-11-16T00:30:00Z')
+    await scheduler.tick()
+    expect(queueNews).toHaveBeenCalledTimes(2)
+  })
+
+  it('新闻入队失败不影响本轮行情抓取', async () => {
+    const log = vi.fn()
+    const refreshQuotes = vi.fn(async () => undefined)
+    const scheduler = createLiveScheduler({
+      now: () => new Date('2026-11-16T02:00:00Z'),
+      dbReady: () => true,
+      isTradingDay: async () => true,
+      refreshQuotes,
+      refreshOverseas: async () => undefined,
+      queueClose: async () => undefined,
+      queuePaper: async () => undefined,
+      queueNews: async () => { throw new Error('database is locked') },
+      log,
+    })
+
+    await scheduler.tick()
+    expect(refreshQuotes).toHaveBeenCalledTimes(1)
+    expect(log).toHaveBeenCalledWith('新闻管线入队失败：database is locked')
+  })
+
+  it('桌面模式不排新闻管线，避免与 Electron 调度器重复', async () => {
+    const queueNews = vi.fn(async () => undefined)
+    const scheduler = createLiveScheduler({
+      now: () => new Date('2026-11-16T02:00:00Z'),
+      dbReady: () => true,
+      isTradingDay: async () => true,
+      refreshQuotes: async () => undefined,
+      refreshOverseas: async () => undefined,
+      queueClose: async () => undefined,
+      queuePaper: async () => undefined,
+      queueNews,
+      pipelineAutomation: false,
+      log: () => {},
+    })
+
+    await scheduler.tick()
+    expect(queueNews).not.toHaveBeenCalled()
+  })
+
   it('入队失败 5 分钟后重试，成功后不再重复', async () => {
     const clock = { now: new Date('2026-11-16T08:10:00Z') }
     const queueClose = vi.fn()
@@ -178,6 +235,7 @@ describe('交易时段调度器', () => {
       queueClose,
       closeTasksFailed: async () => false,
       queuePaper: async () => undefined,
+      queueNews: async () => undefined,
       log: () => {},
     })
 
@@ -211,6 +269,7 @@ describe('交易时段调度器', () => {
       queueClose,
       closeTasksFailed,
       queuePaper: async () => undefined,
+      queueNews: async () => undefined,
       log: () => {},
     })
 
@@ -243,6 +302,7 @@ describe('交易时段调度器', () => {
       refreshOverseas: async () => undefined,
       queueClose,
       queuePaper: async () => undefined,
+      queueNews: async () => undefined,
       log: () => {},
     })
     await scheduler.tick()
@@ -260,6 +320,7 @@ describe('交易时段调度器', () => {
       refreshOverseas: async () => undefined,
       queueClose: async () => undefined,
       queuePaper: async () => undefined,
+      queueNews: async () => undefined,
       log,
     })
     await expect(scheduler.tick()).resolves.toBeUndefined()
@@ -281,6 +342,7 @@ describe('交易时段调度器', () => {
       refreshOverseas: async () => undefined,
       queueClose: async () => undefined,
       queuePaper: async () => undefined,
+      queueNews: async () => undefined,
       log: () => {},
     })
 

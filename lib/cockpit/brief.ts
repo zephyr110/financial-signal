@@ -356,7 +356,7 @@ export async function buildAndStoreDailyReport(
       sql: `INSERT INTO reports
             (kind, subject_code, trade_date, version, status, payload_json, fact_snapshot_id,
              model, prompt_version, cost_micros, is_demo, created_at, published_at)
-            VALUES ('daily_brief', '', ?, ?, 'published', ?, ?, ?, ?, 0, ?, ?, ?)`,
+            VALUES ('daily_brief', '', ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         tradeDate,
         version,
