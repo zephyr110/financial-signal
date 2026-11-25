@@ -3,6 +3,7 @@ import {
   AgentOutputError,
   agentBias,
   computeAgentOutcomeMetrics,
+  deriveAgentRunStatus,
   extractAgentJson,
   normalizeAgentPlan,
   type AgentSymbolSnapshot,
@@ -74,6 +75,16 @@ describe('agentBias', () => {
   it('hold 只有持仓时才算看多，空仓观望不参与方向统计', () => {
     expect(agentBias('hold', 100)).toBe('bull')
     expect(agentBias('hold', 0)).toBeNull()
+  })
+})
+
+describe('deriveAgentRunStatus', () => {
+  it('没有交易或全部未执行都收口为 skipped，部分执行为 partial', () => {
+    expect(deriveAgentRunStatus(0, 0, 0)).toBe('skipped')
+    expect(deriveAgentRunStatus(3, 0, 3)).toBe('skipped')
+    expect(deriveAgentRunStatus(3, 2, 1)).toBe('partial')
+    expect(deriveAgentRunStatus(3, 2, 0)).toBe('partial')
+    expect(deriveAgentRunStatus(3, 3, 0)).toBe('executed')
   })
 })
 
@@ -169,6 +180,31 @@ describe('normalizeAgentPlan', () => {
       symbols: [symbol({ atr20Cents: null })], policy, navCents: NAV,
     }).decisions[0]
     expect(noAtr).toMatchObject({ status: 'skipped', statusReason: 'MISSING_PRICE_OR_ATR' })
+
+    const riskOff = normalizeAgentPlan(plan([rawDecision()]), {
+      symbols: [symbol()], policy, navCents: NAV, marketRiskOff: true,
+    }).decisions[0]
+    expect(riskOff).toMatchObject({ status: 'skipped', statusReason: 'MARKET_RISK_OFF' })
+  })
+
+  it('极低价格不生成 0 止损卡：低于 2 分直接跳过，边界价保住正止损', () => {
+    const penny = normalizeAgentPlan(plan([rawDecision()]), {
+      symbols: [symbol({ lastCloseCents: 1, atr20Cents: 1, ma20Cents: 1, ma60Cents: 1 })],
+      policy,
+      navCents: NAV,
+    }).decisions[0]
+    expect(penny).toMatchObject({ status: 'skipped', statusReason: 'MISSING_PRICE_OR_ATR' })
+
+    const edge = normalizeAgentPlan(plan([
+      rawDecision({ plannedPriceCents: 1, stopPriceCents: 1 }),
+    ]), {
+      symbols: [symbol({ lastCloseCents: 2, atr20Cents: 1, ma20Cents: 2, ma60Cents: 2 })],
+      policy,
+      navCents: NAV,
+    }).decisions[0]
+    expect(edge.status).toBe('planned')
+    expect(edge.plannedPriceCents).toBe(2)
+    expect(edge.stopPriceCents).toBeGreaterThan(0)
   })
 
   it('卖出只对持仓生效：清仓全卖、减仓按整手取整', () => {

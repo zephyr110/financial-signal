@@ -363,7 +363,8 @@ async function loadNavSeries(accountId: string): Promise<PaperSummary['nav']['se
 async function loadCards(experimentId: string, today: string): Promise<PaperSummary['cards']> {
   const db = await getDb()
   const latestR = await db.execute({
-    sql: 'SELECT MAX(trade_date) AS d FROM paper_decision_cards WHERE experiment_id = ?',
+    sql: `SELECT MAX(trade_date) AS d FROM paper_decision_cards
+          WHERE experiment_id = ? AND id NOT LIKE 'acard-%'`,
     args: [experimentId],
   })
   const latestTradeDate = nullableStr(latestR.rows[0]?.d)
@@ -373,6 +374,7 @@ async function loadCards(experimentId: string, today: string): Promise<PaperSumm
   const pendingR = await db.execute({
     sql: `SELECT trade_date, status, COUNT(*) AS n FROM paper_decision_cards
           WHERE experiment_id = ? AND status IN ('active','triggered') AND stance = 'candidate'
+            AND id NOT LIKE 'acard-%'
           GROUP BY trade_date, status`,
     args: [experimentId],
   })
@@ -387,7 +389,8 @@ async function loadCards(experimentId: string, today: string): Promise<PaperSumm
   if (latestTradeDate) {
     const batchR = await db.execute({
       sql: `SELECT status, COUNT(*) AS n FROM paper_decision_cards
-            WHERE experiment_id = ? AND trade_date = ? GROUP BY status`,
+            WHERE experiment_id = ? AND trade_date = ? AND id NOT LIKE 'acard-%'
+            GROUP BY status`,
       args: [experimentId, latestTradeDate],
     })
     for (const row of batchR.rows) counts[str(row.status)] = num(row.n)
@@ -405,7 +408,7 @@ async function loadCards(experimentId: string, today: string): Promise<PaperSumm
                   AND m2.valid_from <= c.trade_date
                   AND (m2.valid_to IS NULL OR m2.valid_to >= c.trade_date)
               )
-            WHERE c.experiment_id = ? AND c.trade_date = ?
+            WHERE c.experiment_id = ? AND c.trade_date = ? AND c.id NOT LIKE 'acard-%'
             ORDER BY c.confidence_score DESC, c.created_at, c.id
             LIMIT 8`,
       args: [experimentId, latestTradeDate],

@@ -456,11 +456,12 @@ function paperParams(params: Record<string, unknown>): { tradeDate?: string; exp
 }
 
 function paperTaskResult(result: PaperJobResult): Record<string, unknown> {
+  // detail 可能带 skipped 等计数字段；先铺 detail，再用任务级字段覆盖。
   return {
+    ...result.detail,
     skipped: result.skipped,
     reason: result.reason ?? null,
     tradeDate: result.tradeDate,
-    ...result.detail,
   }
 }
 
@@ -472,7 +473,9 @@ function assertPaperDataReady(result: PaperJobResult): void {
 }
 
 /** 模型/数据暂态失败也要走任务重试，不能静默留空。 */
-const AGENT_RETRYABLE = new Set(['NO_MARKET_DATA', 'LLM_INVALID_OUTPUT', 'LLM_NOT_CONFIGURED'])
+const AGENT_RETRYABLE = new Set([
+  'NO_MARKET_DATA', 'LLM_INVALID_OUTPUT', 'LLM_NOT_CONFIGURED', 'PLAN_PERSIST_FAILED',
+])
 
 function assertAgentPlanGenerated(result: { skipped: boolean; reason?: string; barsDate: string }): void {
   if (result.skipped && result.reason && AGENT_RETRYABLE.has(result.reason)) {
@@ -807,6 +810,7 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       assertAgentPlanGenerated(result)
       await setProgress(task.id, 90, '写入决策与审计记录')
       return {
+        ...result.detail,
         skipped: result.skipped,
         reason: result.reason ?? null,
         barsDate: result.barsDate,
@@ -814,7 +818,6 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
         runId: result.runId ?? null,
         decisions: result.decisions ?? 0,
         warnings: result.warnings ?? [],
-        ...result.detail,
       }
     }
     case 'paper_agent_outcomes': {
@@ -822,10 +825,10 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       const result = await runPaperAgentOutcomes(paperParams(params))
       await setProgress(task.id, 90, '写入正确率与校准样本')
       return {
+        ...result.detail,
         skipped: result.skipped,
         reason: result.reason ?? null,
         tradeDate: result.tradeDate,
-        ...result.detail,
       }
     }
     case 'thesis_review': {

@@ -21,6 +21,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!isTradeDate(tradeDate)) {
       return sendError(req, res, 400, 'INVALID_INPUT', 'tradeDate 必须是 YYYY-MM-DD')
     }
+    if (action === 'plan' && tradeDate !== todayShanghai()) {
+      return sendError(req, res, 400, 'INVALID_INPUT', '计划只能按当天收盘数据生成，不能补跑历史日期')
+    }
     const type = action === 'plan' ? 'paper_agent_plan' : 'paper_agent_outcomes'
     const params: Record<string, unknown> = { tradeDate, manual: true }
     if (typeof body.experimentId === 'string' && body.experimentId) {

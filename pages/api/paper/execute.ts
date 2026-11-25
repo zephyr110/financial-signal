@@ -10,6 +10,7 @@ import {
   sendPaperData,
   sendPaperError,
 } from '../../../lib/paper/api'
+import { isAgentCardId } from '../../../lib/paper/agent-tags'
 import { isPaperTradingDay } from '../../../lib/paper/calendar'
 import { calcFees, reserveBuyPriceCents } from '../../../lib/paper/market'
 import { confirmPaperOrder, type ReservationRequest } from '../../../lib/paper/orders'
@@ -71,6 +72,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const row = r.rows[0]
       if (String(row.experiment_id) !== ctx.experiment.id) {
         return sendError(req, res, 400, 'INVALID_INPUT', '决策卡属于其他实验')
+      }
+      // agent 卡由 08:30 的执行器按幂等键下单；人工确认会把卡置为 confirmed，反而卡死 agent。
+      if (isAgentCardId(cardId)) {
+        return sendError(req, res, 400, 'INVALID_INPUT', '投资经理决策卡由系统自动执行，不支持人工下单')
       }
       const cardSymbol = String(row.symbol_code)
       if (symbolCode && symbolCode !== cardSymbol) {

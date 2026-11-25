@@ -27,7 +27,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let tradeDate = requested
     if (!tradeDate) {
       const r = await db.execute({
-        sql: 'SELECT MAX(trade_date) AS d FROM paper_decision_cards WHERE experiment_id = ?',
+        sql: `SELECT MAX(trade_date) AS d FROM paper_decision_cards
+              WHERE experiment_id = ? AND id NOT LIKE 'acard-%'`,
         args: [ctx.experiment.id],
       })
       const latest = r.rows[0]?.d
@@ -44,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   AND m2.valid_from <= c.trade_date
                   AND (m2.valid_to IS NULL OR m2.valid_to >= c.trade_date)
               )
-            WHERE c.experiment_id = ? AND c.trade_date = ?
+            WHERE c.experiment_id = ? AND c.trade_date = ? AND c.id NOT LIKE 'acard-%'
             ORDER BY c.confidence_score DESC, c.created_at, c.id`,
       args: [ctx.experiment.id, tradeDate],
     })

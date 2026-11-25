@@ -6,6 +6,7 @@ import {
   type AgentHorizon,
 } from './agent'
 import { computePaperNav } from './jobs'
+import { resolvePaperBenchmarkCode } from './metrics'
 import {
   getCurrentPaperExperiment,
   getPaperExperiment,
@@ -25,9 +26,9 @@ const num = (v: unknown): number => (Number.isFinite(Number(v)) ? Number(v) : 0)
 const maybeNum = (v: unknown): number | null => (v == null ? null : Number(v))
 const maybeBool = (v: unknown): boolean | null => (v == null ? null : num(v) === 1)
 
-const MAX_STATS_DECISIONS = 1000
 const DISPLAY_DECISIONS = 80
 const RUNS_SHOWN = 30
+const OUTCOME_QUERY_CHUNK = 400
 
 export interface AgentOutcomeView {
   horizonDays: AgentHorizon
@@ -340,40 +341,48 @@ export async function buildPaperAgentDashboard(input?: {
   const accounts = await listPaperAccounts(experiment.id)
   const user = accounts.find((account) => account.kind === 'user') ?? null
 
-  const runsR = await db.execute({
-    sql: `SELECT r.id, r.bars_date, r.plan_trade_date, r.status, r.trigger_source, r.model,
-                 r.market_view, r.review, r.error_code, r.error_message, r.created_at, r.completed_at,
-                 (SELECT COUNT(*) FROM paper_agent_decisions d WHERE d.run_id = r.id) AS decisions,
-                 (SELECT COUNT(*) FROM paper_agent_decisions d WHERE d.run_id = r.id AND d.status = 'executed') AS executed
-          FROM paper_agent_runs r WHERE r.experiment_id = ?
-          ORDER BY r.bars_date DESC LIMIT ?`,
-    args: [experiment.id, RUNS_SHOWN],
-  })
-
-  const decisionsR = await db.execute({
-    sql: `SELECT d.id, d.run_id, d.decided_for_date, d.symbol_code, d.symbol_name, d.action, d.conviction,
-                 d.thesis, d.evidence_json, d.counter_evidence_json, d.invalidation, d.planned_qty,
-                 d.planned_price_cents, d.stop_price_cents, d.status, d.status_reason, d.position_qty_before,
-                 o.status AS order_status, c.status AS card_status
-          FROM paper_agent_decisions d
-          LEFT JOIN paper_orders o ON o.id = d.order_id
-          LEFT JOIN paper_decision_cards c ON c.id = d.card_id
-          WHERE d.experiment_id = ?
-          ORDER BY d.decided_for_date DESC, d.seq ASC
-          LIMIT ?`,
-    args: [experiment.id, MAX_STATS_DECISIONS],
-  })
+  const [runsR, runCountsR, decisionsR] = await Promise.all([
+    db.execute({
+      sql: `SELECT r.id, r.bars_date, r.plan_trade_date, r.status, r.trigger_source, r.model,
+                   r.market_view, r.review, r.error_code, r.error_message, r.created_at, r.completed_at,
+                   (SELECT COUNT(*) FROM paper_agent_decisions d WHERE d.run_id = r.id) AS decisions,
+                   (SELECT COUNT(*) FROM paper_agent_decisions d WHERE d.run_id = r.id AND d.status = 'executed') AS executed
+            FROM paper_agent_runs r WHERE r.experiment_id = ?
+            ORDER BY r.bars_date DESC LIMIT ?`,
+      args: [experiment.id, RUNS_SHOWN],
+    }),
+    db.execute({
+      // 列表只展示最近 30 次，但总数必须是全量，否则总览会随展示窗口缩水。
+      sql: `SELECT COUNT(*) AS runs,
+                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+            FROM paper_agent_runs WHERE experiment_id = ?`,
+      args: [experiment.id],
+    }),
+    db.execute({
+      sql: `SELECT d.id, d.run_id, d.decided_for_date, d.symbol_code, d.symbol_name, d.action, d.conviction,
+                   d.thesis, d.evidence_json, d.counter_evidence_json, d.invalidation, d.planned_qty,
+                   d.planned_price_cents, d.stop_price_cents, d.status, d.status_reason, d.position_qty_before,
+                   o.status AS order_status, c.status AS card_status
+            FROM paper_agent_decisions d
+            LEFT JOIN paper_orders o ON o.id = d.order_id
+            LEFT JOIN paper_decision_cards c ON c.id = d.card_id
+            WHERE d.experiment_id = ?
+            ORDER BY d.decided_for_date DESC, d.seq ASC`,
+      args: [experiment.id],
+    }),
+  ])
   const decisionIds = decisionsR.rows.map((row) => str(row.id))
   const outcomesByDecision = new Map<string, AgentOutcomeView[]>()
-  if (decisionIds.length) {
+  for (let i = 0; i < decisionIds.length; i += OUTCOME_QUERY_CHUNK) {
+    const chunk = decisionIds.slice(i, i + OUTCOME_QUERY_CHUNK)
     const outcomesR = await db.execute({
       sql: `SELECT decision_id, horizon_days, entry_date, evaluate_date, entry_price_cents, end_price_cents,
                    return_bp, benchmark_return_bp, alpha_bp, max_favorable_bp, max_adverse_bp,
                    direction_hit, alpha_hit, invalidation_hit, data_quality
             FROM paper_agent_outcomes
-            WHERE decision_id IN (${decisionIds.map(() => '?').join(',')})
+            WHERE decision_id IN (${chunk.map(() => '?').join(',')})
             ORDER BY horizon_days ASC`,
-      args: decisionIds,
+      args: chunk,
     })
     for (const row of outcomesR.rows) {
       const list = outcomesByDecision.get(str(row.decision_id)) ?? []
@@ -473,8 +482,9 @@ export async function buildPaperAgentDashboard(input?: {
       ?? curve[0]?.date
       ?? null
     if (startDate) {
-      const startClose = await loadLatestClosePriceCents(experiment.benchmarkCode, startDate)
-      const endClose = await loadLatestClosePriceCents(experiment.benchmarkCode, todayShanghai())
+      const benchmarkCode = await resolvePaperBenchmarkCode(experiment.benchmarkCode, startDate)
+      const startClose = await loadLatestClosePriceCents(benchmarkCode, startDate)
+      const endClose = await loadLatestClosePriceCents(benchmarkCode, todayShanghai())
       if (startClose && endClose) {
         benchmarkReturnBp = Math.round((endClose - startClose) * 10_000 / startClose)
       }
@@ -482,7 +492,6 @@ export async function buildPaperAgentDashboard(input?: {
     if (nav) nav.benchmarkReturnBp = benchmarkReturnBp
   }
 
-  const failedRuns = runs.filter((run) => run.status === 'failed').length
   const evaluated = decisions.filter((decision) => decision.outcomes.length > 0).length
   return {
     generatedAt: now,
@@ -496,8 +505,8 @@ export async function buildPaperAgentDashboard(input?: {
     },
     nav,
     counts: {
-      runs: runs.length,
-      failedRuns,
+      runs: num(runCountsR.rows[0]?.runs),
+      failedRuns: num(runCountsR.rows[0]?.failed),
       decisions: decisions.length,
       executed: decisions.filter((decision) => decision.status === 'executed').length,
       evaluated,

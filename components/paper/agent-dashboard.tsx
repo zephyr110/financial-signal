@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { ArrowLeft, Bot, RefreshCw, Sparkles } from 'lucide-react'
 import { Disclosure, EmptyState, SectionHeader, Sparkline } from '@/components/cockpit/bits'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { Hint } from '@/components/ui/hint'
 import { formatCny, formatShortDate, formatTime } from '@/lib/cockpit/format'
 import type {
   AgentDashboard,
@@ -121,22 +122,25 @@ function OutcomeChips({ decision }: { decision: AgentDecisionView }) {
   return (
     <span className="flex flex-wrap gap-1.5">
       {decision.outcomes.map((outcome) => (
-        <span
+        <Hint
           key={outcome.horizonDays}
-          className={cn(
-            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] tabular-nums',
-            outcome.alphaHit == null
-              ? 'border-border bg-muted/60 text-muted-foreground'
-              : outcome.alphaHit
-                ? 'border-positive/30 bg-positive/10 text-positive'
-                : 'border-destructive/30 bg-destructive/10 text-destructive',
-          )}
-          title={outcome.evaluateDate ? `评估日 ${outcome.evaluateDate}` : undefined}
+          content={outcome.evaluateDate ? `评估日 ${outcome.evaluateDate}` : undefined}
         >
-          T+{outcome.horizonDays}
-          <b className="font-semibold">{formatBpPct(outcome.returnBp)}</b>
-          <span className="opacity-75">α {formatBpPct(outcome.alphaBp)}</span>
-        </span>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] tabular-nums',
+              outcome.alphaHit == null
+                ? 'border-border bg-muted/60 text-muted-foreground'
+                : outcome.alphaHit
+                  ? 'border-positive/30 bg-positive/10 text-positive'
+                  : 'border-destructive/30 bg-destructive/10 text-destructive',
+            )}
+          >
+            T+{outcome.horizonDays}
+            <b className="font-semibold">{formatBpPct(outcome.returnBp)}</b>
+            <span className="opacity-75">α {formatBpPct(outcome.alphaBp)}</span>
+          </span>
+        </Hint>
       ))}
     </span>
   )
@@ -310,6 +314,8 @@ export function AgentDashboardView({ dashboard }: { dashboard: AgentDashboard })
   const [detail, setDetail] = useState<AgentRunDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const detailRequestRef = useRef(0)
+  const detailAbortRef = useRef<AbortController | null>(null)
 
   const stats = dashboard.stats.find((item) => item.horizonDays === horizon) ?? dashboard.stats[0]
 
@@ -337,11 +343,18 @@ export function AgentDashboardView({ dashboard }: { dashboard: AgentDashboard })
   }, [])
 
   const openRun = useCallback(async (runId: string) => {
+    detailAbortRef.current?.abort()
+    const request = detailRequestRef.current + 1
+    detailRequestRef.current = request
     if (detailId === runId) {
       setDetailId(null)
       setDetail(null)
+      setDetailError(null)
+      setDetailLoading(false)
       return
     }
+    const controller = new AbortController()
+    detailAbortRef.current = controller
     setDetailId(runId)
     setDetail(null)
     setDetailError(null)
@@ -349,14 +362,18 @@ export function AgentDashboardView({ dashboard }: { dashboard: AgentDashboard })
     try {
       const response = await fetch(`/api/paper/agent/runs/${encodeURIComponent(runId)}`, {
         headers: { accept: 'application/json' },
+        signal: controller.signal,
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload?.error?.message ?? '读取失败')
+      // 慢响应返回时用户可能已切到别的 run，旧数据不能覆盖新选择。
+      if (request !== detailRequestRef.current) return
       setDetail(payload.data as AgentRunDetail)
     } catch (err) {
+      if (request !== detailRequestRef.current) return
       setDetailError(err instanceof Error ? err.message : '读取失败')
     } finally {
-      setDetailLoading(false)
+      if (request === detailRequestRef.current) setDetailLoading(false)
     }
   }, [detailId])
 
@@ -496,7 +513,7 @@ export function AgentDashboardView({ dashboard }: { dashboard: AgentDashboard })
         <SectionHeader
           id="agent-runs-title"
           title="每日计划"
-          detail="点开任意一次运行，可回溯模型输入、每次尝试、决策与最终成交。"
+          detail="列表展示最近 30 次，上方计数为全量；点开可回溯模型输入、每次尝试、决策与最终成交。"
         />
         {dashboard.runs.length === 0 ? (
           <EmptyState title="还没有计划记录">

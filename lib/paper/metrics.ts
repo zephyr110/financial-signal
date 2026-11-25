@@ -321,7 +321,7 @@ async function loadCardExecution(experimentId: string, asOfDate: string): Promis
   // 17:30 会在当天写入次日卡；按 as_of 截断，否则刚生成的卡就被算进当日执行率。
   const cardsR = await db.execute({
     sql: `SELECT id, stance, status FROM paper_decision_cards
-          WHERE experiment_id = ? AND trade_date <= ?`,
+          WHERE experiment_id = ? AND trade_date <= ? AND id NOT LIKE 'acard-%'`,
     args: [experimentId, asOfDate],
   })
   const ordersR = await db.execute({
@@ -516,7 +516,8 @@ async function loadOutcomes(
 ): Promise<PaperOutcomeCohort[]> {
   const db = await getDb()
   const cardsR = await db.execute({
-    sql: 'SELECT id FROM paper_decision_cards WHERE experiment_id = ?',
+    sql: `SELECT id FROM paper_decision_cards
+          WHERE experiment_id = ? AND id NOT LIKE 'acard-%'`,
     args: [experimentId],
   })
   // 一次取全量再按 cohort 归类，避免 IN (...) 超过 SQLite 变量上限。
@@ -619,7 +620,7 @@ async function loadMaturity(input: {
   // 17:30 会写入 trade_date=次日 的卡；不排除未来日期会把观察窗起点推到还没开市的一天。
   const lastCardR = await db.execute({
     sql: `SELECT MAX(trade_date) AS d FROM paper_decision_cards
-          WHERE experiment_id = ? AND trade_date <= ?`,
+          WHERE experiment_id = ? AND trade_date <= ? AND id NOT LIKE 'acard-%'`,
     args: [input.experimentId, input.asOfDate],
   })
   const lastCard = lastCardR.rows[0]?.d == null ? null : String(lastCardR.rows[0].d)

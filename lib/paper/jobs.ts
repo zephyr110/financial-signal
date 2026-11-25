@@ -3,6 +3,7 @@ import { getDb } from '../db'
 import { dateShanghai, todayShanghai } from '../cockpit/format'
 import { weeklyPeriodEnd } from '../cockpit/market-hours'
 import { runPaperAgentExecute } from './agent'
+import { isAgentCardId } from './agent-tags'
 import { paperRequestHash } from './api'
 import {
   addCalendarDays,
@@ -388,8 +389,10 @@ export async function runPaperCards(input: {
   let observe = 0
   for (const feature of features) {
     const existing = await db.execute({
+      // agent 卡是独立仓位建议，不能占掉确定性计划的去重名额。
       sql: `SELECT 1 AS ok FROM paper_decision_cards
-            WHERE experiment_id = ? AND trade_date = ? AND symbol_code = ? LIMIT 1`,
+            WHERE experiment_id = ? AND trade_date = ? AND symbol_code = ?
+              AND id NOT LIKE 'acard-%' LIMIT 1`,
       args: [experiment.id, cardTradeDate, feature.symbolCode],
     })
     if (existing.rows.length) continue
@@ -518,10 +521,22 @@ export async function runPaperPreopen(input: {
   let agent: Record<string, unknown> = {}
   try {
     const result = await runPaperAgentExecute({ experimentId: experiment.id, tradeDate, now })
+    // detail 里的计数可能叫 skipped；先铺 detail 再写布尔字段，避免覆盖任务状态。
     agent = {
+      ...result.detail,
       skipped: result.skipped,
       reason: result.reason ?? null,
-      ...result.detail,
+    }
+    if (user && num(result.detail.errors) > 0) {
+      await recordPaperRiskEvent(db, {
+        accountId: user.id,
+        rule: 'agent_execute_partial_error',
+        severity: 'warn',
+        action: 'alert',
+        message: `投资经理 agent 有 ${num(result.detail.errors)} 条决策执行异常`,
+        dataQuality: 'pass',
+        createdAt: now,
+      })
     }
     if (user && result.skipped && result.reason !== 'NO_PLANNED_ORDERS') {
       await recordPaperRiskEvent(db, {
@@ -906,8 +921,9 @@ async function loadDailyFacts(experiment: PaperExperimentRow, tradeDate: string)
   }
 
   const cardsR = await db.execute({
+    // agent 卡单独在投资经理页复盘，混进确定性计划会同时污染分母与「未确认」偏离。
     sql: `SELECT id, symbol_code, stance, status FROM paper_decision_cards
-          WHERE experiment_id = ? AND trade_date = ?`,
+          WHERE experiment_id = ? AND trade_date = ? AND id NOT LIKE 'acard-%'`,
     args: [experiment.id, tradeDate],
   })
   const cards = { total: cardsR.rows.length, candidates: 0, invalidated: 0 }
@@ -917,7 +933,7 @@ async function loadDailyFacts(experiment: PaperExperimentRow, tradeDate: string)
   }
 
   const ordersR = await db.execute({
-    sql: `SELECT id, card_id, symbol_code, status, reject_code, off_plan_reason, actor
+    sql: `SELECT id, card_id, symbol_code, status, reject_code, off_plan_reason, actor, client_request_id
           FROM paper_orders WHERE experiment_id = ? AND target_trade_date = ?`,
     args: [experiment.id, tradeDate],
   })
@@ -934,9 +950,15 @@ async function loadDailyFacts(experiment: PaperExperimentRow, tradeDate: string)
   const orders: Record<string, number> = {}
   const deviations: DailyFacts['deviations'] = []
   const userOrders = ordersR.rows.filter((row) => str(row.actor) === 'user')
+  // agent 委托由投资经理页单独统计；计入人工计划的偏离/执行率会把两套策略混在一起。
+  const manualOrders = userOrders.filter((row) =>
+    !isAgentCardId(str(row.card_id)) && !str(row.client_request_id).startsWith('agent:'))
   for (const row of userOrders) {
     const status = str(row.status)
     orders[status] = (orders[status] ?? 0) + 1
+  }
+  for (const row of manualOrders) {
+    const status = str(row.status)
     if (row.off_plan_reason) {
       deviations.push({
         cardId: str(row.card_id), symbolCode: str(row.symbol_code),
@@ -950,7 +972,7 @@ async function loadDailyFacts(experiment: PaperExperimentRow, tradeDate: string)
       })
     }
   }
-  const confirmedCardIds = new Set(userOrders.map((row) => str(row.card_id)).filter(Boolean))
+  const confirmedCardIds = new Set(manualOrders.map((row) => str(row.card_id)).filter(Boolean))
   let triggeredCandidates = 0
   for (const row of cardsR.rows) {
     if (str(row.stance) !== 'candidate') continue
@@ -965,7 +987,7 @@ async function loadDailyFacts(experiment: PaperExperimentRow, tradeDate: string)
       deviations.push({ cardId, symbolCode: str(row.symbol_code), reason: 'not_confirmed' })
     }
   }
-  const filledCards = new Set(userOrders
+  const filledCards = new Set(manualOrders
     .filter((row) => str(row.status) === 'filled')
     .map((row) => str(row.card_id)).filter(Boolean))
   const executionRateBp = triggeredCandidates > 0
@@ -1299,6 +1321,7 @@ export async function runPaperEvaluateOutcomes(input: {
                  stop_price_cents, horizon
           FROM paper_decision_cards
           WHERE experiment_id = ? AND trade_date >= ? AND stance = 'candidate'
+            AND id NOT LIKE 'acard-%'
           ORDER BY trade_date ASC`,
     args: [experiment.id, lookback],
   })
