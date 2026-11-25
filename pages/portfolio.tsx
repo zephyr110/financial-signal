@@ -1,5 +1,6 @@
 import Head from 'next/head'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 import type { GetServerSideProps } from 'next'
 import type { PortfolioView, SourceHealth } from '@/lib/cockpit/types'
 import { formatCny, formatPrice, formatSignedPct } from '@/lib/cockpit/format'
@@ -46,6 +47,8 @@ function pnlTone(value: number): string {
 }
 
 export default function PortfolioPage({ portfolio, sourceHealth, loadError }: PortfolioProps) {
+  const router = useRouter()
+  const addCode = typeof router.query.add === 'string' ? router.query.add.trim() : ''
   const empty = !portfolio || portfolio.positions.length === 0
 
   return (
@@ -63,8 +66,13 @@ export default function PortfolioPage({ portfolio, sourceHealth, loadError }: Po
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
 
-        <Disclosure title="录入或更新持仓" hint="同一代码会按股数加权合并" headingLevel={2}>
-          <PortfolioEditor />
+        <Disclosure
+          title="录入或更新持仓"
+          hint="同一代码会按股数加权合并"
+          headingLevel={2}
+          defaultOpen={addCode !== ''}
+        >
+          <PortfolioEditor initialCode={addCode} />
         </Disclosure>
 
         {empty ? (
