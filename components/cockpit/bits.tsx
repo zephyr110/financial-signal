@@ -284,11 +284,13 @@ export function SectionHeader({
   title,
   detail,
   action,
+  actionClassName,
   id,
 }: {
   title: string
   detail?: string
   action?: ReactNode
+  actionClassName?: string
   id?: string
 }) {
   return (
@@ -297,7 +299,11 @@ export function SectionHeader({
         <h2 className="ck-section-title" id={id}>{title}</h2>
         {detail && <p className="ck-section-detail">{detail}</p>}
       </div>
-      {action && <div className="ck-section-action">{action}</div>}
+      {action && (
+        <div className={`ck-section-action${actionClassName ? ` ${actionClassName}` : ''}`}>
+          {action}
+        </div>
+      )}
     </div>
   )
 }
