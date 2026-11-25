@@ -136,7 +136,9 @@ const PAPER_STEPS: Array<{ type: TaskType; at: number }> = [
   { type: 'paper_reconcile', at: 16 * 60 + 30 },
   { type: 'paper_review_daily', at: 17 * 60 },
   { type: 'paper_evaluate_outcomes', at: 17 * 60 + 15 },
+  { type: 'paper_agent_outcomes', at: 17 * 60 + 20 },
   { type: 'paper_cards_next_day', at: 17 * 60 + 30 },
+  { type: 'paper_agent_plan', at: 17 * 60 + 35 },
 ]
 
 const WEEKLY_REVIEW = 10 * 60

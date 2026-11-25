@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { getDb } from '../db'
 import { dateShanghai, todayShanghai } from '../cockpit/format'
 import { weeklyPeriodEnd } from '../cockpit/market-hours'
+import { runPaperAgentExecute } from './agent'
 import { paperRequestHash } from './api'
 import {
   addCalendarDays,
@@ -513,6 +514,42 @@ export async function runPaperPreopen(input: {
     }
   }
 
+  // agent 下单失败不能让整条盘前链路失败：影子执行与卡失效照常完成，错误单独留痕。
+  let agent: Record<string, unknown> = {}
+  try {
+    const result = await runPaperAgentExecute({ experimentId: experiment.id, tradeDate, now })
+    agent = {
+      skipped: result.skipped,
+      reason: result.reason ?? null,
+      ...result.detail,
+    }
+    if (user && result.skipped && result.reason !== 'NO_PLANNED_ORDERS') {
+      await recordPaperRiskEvent(db, {
+        accountId: user.id,
+        rule: 'agent_execute_skipped',
+        severity: 'warn',
+        action: 'skip',
+        message: `投资经理 agent 未执行：${result.reason}`,
+        dataQuality: 'pass',
+        createdAt: now,
+      })
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    agent = { skipped: true, reason: 'AGENT_ERROR', message }
+    if (user) {
+      await recordPaperRiskEvent(db, {
+        accountId: user.id,
+        rule: 'agent_execute_error',
+        severity: 'block',
+        action: 'alert',
+        message: `投资经理 agent 执行失败：${message}`,
+        dataQuality: 'warn',
+        createdAt: now,
+      })
+    }
+  }
+
   const shadow = await runPaperShadowExecution({ experimentId: experiment.id, tradeDate, now })
   if (shadow.skipped && shadow.reason === 'PAST_CUTOFF') {
     const user = accountOf(await listPaperAccounts(experiment.id), 'user')
@@ -540,7 +577,7 @@ export async function runPaperPreopen(input: {
   return {
     skipped: false,
     tradeDate,
-    detail: { invalidated, shadow: shadow.detail, shadowSkipped: shadow.reason ?? null },
+    detail: { invalidated, agent, shadow: shadow.detail, shadowSkipped: shadow.reason ?? null },
   }
 }
 
@@ -568,7 +605,7 @@ export async function runPaperShadowExecution(input: {
   const cardsR = await db.execute({
     sql: `SELECT * FROM paper_decision_cards
           WHERE experiment_id = ? AND trade_date = ? AND status = 'active'
-            AND stance = 'candidate'
+            AND stance = 'candidate' AND id NOT LIKE 'acard-%'
           ORDER BY confidence_score DESC, id`,
     args: [experiment.id, tradeDate],
   })

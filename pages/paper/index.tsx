@@ -1,7 +1,9 @@
 import { useCallback } from 'react'
 import Head from 'next/head'
+import Link from 'next/link'
 import { useRouter } from 'next/router'
 import type { GetServerSideProps } from 'next'
+import { Bot } from 'lucide-react'
 import type { SourceHealth } from '@/lib/cockpit/types'
 import { getSourceHealth } from '@/lib/cockpit/repo'
 import { serializable } from '@/lib/cockpit/page-data'
@@ -9,6 +11,7 @@ import { buildPaperSummary, type PaperSummary } from '@/lib/paper/summary'
 import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { PaperSetup } from '@/components/paper/paper-setup'
 import { PaperOverview } from '@/components/paper/paper-overview'
+import { buttonVariants } from '@/components/ui/button'
 
 interface PaperPageProps {
   summary: PaperSummary | null
@@ -56,6 +59,11 @@ export default function PaperPage({ summary, sourceHealth, loadError }: PaperPag
         subtitle="虚拟资金按固定规则执行，用真实行情逐日对账。这里回答今天要不要动，不放预测和荐股。"
         asOf={summary?.generatedAt}
         sourceHealth={sourceHealth}
+        headerAction={
+          <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/paper/agent">
+            <Bot /> 投资经理战绩
+          </Link>
+        }
       >
         {loadError && <div className="ck-error-banner">{loadError}</div>}
         {!summary ? (

@@ -190,6 +190,7 @@ const MIGRATIONS: Array<{ version: number; name: string; up: (db) => Promise<voi
   { version: 17, name: 'Agent 个人数据按账号隔离', up: migrationAgentUserScope },
   { version: 18, name: 'Agent 消息分支树（parent/selected/root）', up: migrationAgentMessageTree },
   { version: 19, name: '纸面模拟盘账本/决策卡/元数据', up: migrationPaperSchema },
+  { version: 20, name: '模拟盘投资经理 agent 决策留痕与事后评估', up: migrationPaperAgentSchema },
 ];
 
 /** v5：backtest_result 补 direction 列（事件极性:long/short/neutral/mixed;NULL=迁移前遗留）。
@@ -1494,6 +1495,126 @@ async function migrationPaperSchema(db) {
       CREATE TRIGGER IF NOT EXISTS paper_audit_log_no_delete
         BEFORE DELETE ON paper_audit_log
         BEGIN SELECT RAISE(ABORT, 'paper_audit_log is append-only'); END;
+    `);
+    await tx.commit();
+  } catch (err) {
+    try { await tx.rollback(); } catch { /* 已失效的事务 */ }
+    throw err;
+  }
+}
+
+/** v20：投资经理 agent 的完整证据链——输入快照、每次模型尝试、结构化决策、执行事件与事后收益。
+ *  运行/决策/事件只追加；outcomes 是可重算的派生结果，按 (decision, horizon) 覆盖更新。 */
+async function migrationPaperAgentSchema(db) {
+  const tx = await db.transaction('write');
+  try {
+    await tx.executeMultiple(`
+      CREATE TABLE IF NOT EXISTS paper_agent_runs (
+        id                TEXT PRIMARY KEY,
+        experiment_id     TEXT NOT NULL REFERENCES paper_experiments(id),
+        account_id        TEXT NOT NULL REFERENCES paper_accounts(id),
+        bars_date         TEXT NOT NULL,
+        plan_trade_date   TEXT NOT NULL,
+        trigger_source    TEXT NOT NULL CHECK (trigger_source IN ('scheduled','manual','retry')),
+        status            TEXT NOT NULL CHECK (status IN ('planning','planned','partial','executed','failed','skipped')),
+        model             TEXT,
+        prompt_version    TEXT NOT NULL,
+        input_json        TEXT NOT NULL,
+        raw_response      TEXT,
+        market_view       TEXT,
+        review            TEXT,
+        decisions_json    TEXT NOT NULL DEFAULT '[]',
+        usage_json        TEXT,
+        error_code        TEXT,
+        error_message     TEXT,
+        created_at        TEXT NOT NULL,
+        completed_at      TEXT,
+        UNIQUE (experiment_id, bars_date)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_agent_runs_experiment
+        ON paper_agent_runs(experiment_id, bars_date DESC);
+
+      CREATE TABLE IF NOT EXISTS paper_agent_attempts (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id        TEXT NOT NULL REFERENCES paper_agent_runs(id),
+        attempt_no    INTEGER NOT NULL CHECK (attempt_no > 0),
+        raw_response  TEXT,
+        error_message TEXT,
+        usage_json    TEXT,
+        created_at    TEXT NOT NULL,
+        UNIQUE (run_id, attempt_no)
+      );
+
+      CREATE TABLE IF NOT EXISTS paper_agent_decisions (
+        id                    TEXT PRIMARY KEY,
+        run_id                TEXT NOT NULL REFERENCES paper_agent_runs(id),
+        experiment_id         TEXT NOT NULL REFERENCES paper_experiments(id),
+        account_id            TEXT NOT NULL REFERENCES paper_accounts(id),
+        seq                   INTEGER NOT NULL CHECK (seq > 0),
+        symbol_code           TEXT NOT NULL,
+        symbol_name           TEXT,
+        action                TEXT NOT NULL CHECK (action IN ('buy','add','reduce','exit','hold','avoid')),
+        conviction            INTEGER NOT NULL CHECK (conviction BETWEEN 0 AND 100),
+        thesis                TEXT NOT NULL,
+        evidence_json         TEXT NOT NULL DEFAULT '[]',
+        counter_evidence_json TEXT NOT NULL DEFAULT '[]',
+        invalidation          TEXT NOT NULL,
+        planned_qty           INTEGER,
+        planned_price_cents   INTEGER,
+        stop_price_cents      INTEGER,
+        position_qty_before   INTEGER NOT NULL DEFAULT 0 CHECK (position_qty_before >= 0),
+        card_id               TEXT REFERENCES paper_decision_cards(id),
+        order_id              TEXT REFERENCES paper_orders(id),
+        status                TEXT NOT NULL CHECK (status IN ('planned','noted','executed','skipped','rejected')),
+        status_reason         TEXT,
+        decided_for_date      TEXT NOT NULL,
+        created_at            TEXT NOT NULL,
+        updated_at            TEXT NOT NULL,
+        UNIQUE (run_id, symbol_code)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_agent_decisions_experiment
+        ON paper_agent_decisions(experiment_id, decided_for_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_paper_agent_decisions_symbol
+        ON paper_agent_decisions(symbol_code, decided_for_date DESC);
+
+      CREATE TABLE IF NOT EXISTS paper_agent_events (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id       TEXT NOT NULL REFERENCES paper_agent_runs(id),
+        decision_id  TEXT REFERENCES paper_agent_decisions(id),
+        kind         TEXT NOT NULL,
+        message      TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        created_at   TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_agent_events_run
+        ON paper_agent_events(run_id, id);
+
+      CREATE TABLE IF NOT EXISTS paper_agent_outcomes (
+        decision_id          TEXT NOT NULL REFERENCES paper_agent_decisions(id),
+        horizon_days         INTEGER NOT NULL CHECK (horizon_days IN (1,5,20)),
+        entry_date           TEXT NOT NULL,
+        evaluate_date        TEXT,
+        entry_price_cents    INTEGER,
+        end_price_cents      INTEGER,
+        return_bp            INTEGER,
+        benchmark_return_bp  INTEGER,
+        alpha_bp             INTEGER,
+        max_favorable_bp     INTEGER,
+        max_adverse_bp       INTEGER,
+        direction_hit        INTEGER CHECK (direction_hit IN (0,1)),
+        alpha_hit            INTEGER CHECK (alpha_hit IN (0,1)),
+        invalidation_hit     INTEGER CHECK (invalidation_hit IN (0,1)),
+        data_quality         TEXT NOT NULL DEFAULT 'pending' CHECK (data_quality IN ('pending','pass','warn','fail')),
+        notes                TEXT,
+        evaluated_at         TEXT NOT NULL,
+        PRIMARY KEY (decision_id, horizon_days)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_paper_agent_outcomes_horizon
+        ON paper_agent_outcomes(horizon_days, alpha_hit);
     `);
     await tx.commit();
   } catch (err) {

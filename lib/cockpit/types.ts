@@ -28,6 +28,8 @@ export type TaskType =
   | 'paper_cards_next_day'
   | 'paper_review_weekly'
   | 'paper_evaluate_outcomes'
+  | 'paper_agent_plan'
+  | 'paper_agent_outcomes'
 export type ThesisStatus = 'active' | 'strengthened' | 'weakened' | 'broken' | 'review_due'
 export type HealthStatus = 'ok' | 'stale' | 'error' | 'demo' | 'inactive'
 

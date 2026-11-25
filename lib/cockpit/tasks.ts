@@ -18,6 +18,7 @@ import { normalizeCode } from './codes'
 import { ingestOfficialDocuments } from './sources/official'
 import { refreshDesk } from '../desk/engine'
 import { createInvestigation, listInvestigations, queueAutoInvestigations, runInvestigation } from '../desk/investigation'
+import { runPaperAgentOutcomes, runPaperAgentPlan } from '../paper/agent'
 import {
   runPaperCards,
   runPaperCutoff,
@@ -56,6 +57,8 @@ export const TASK_TYPES: TaskType[] = [
   'paper_cards_next_day',
   'paper_review_weekly',
   'paper_evaluate_outcomes',
+  'paper_agent_plan',
+  'paper_agent_outcomes',
 ]
 
 /** 核心链路、交互研究与后台管线分 lane：深挖/新闻再慢也不阻塞收盘入库。 */
@@ -100,6 +103,8 @@ const TASK_LABEL: Record<string, string> = {
   paper_cards_next_day: '模拟盘次日决策卡',
   paper_review_weekly: '模拟盘周复盘',
   paper_evaluate_outcomes: '模拟盘决策评估',
+  paper_agent_plan: '投资经理 agent 制定计划',
+  paper_agent_outcomes: '投资经理 agent 决策评估',
 }
 
 type Row = Record<string, unknown>
@@ -466,6 +471,15 @@ function assertPaperDataReady(result: PaperJobResult): void {
   }
 }
 
+/** 模型/数据暂态失败也要走任务重试，不能静默留空。 */
+const AGENT_RETRYABLE = new Set(['NO_MARKET_DATA', 'LLM_INVALID_OUTPUT', 'LLM_NOT_CONFIGURED'])
+
+function assertAgentPlanGenerated(result: { skipped: boolean; reason?: string; barsDate: string }): void {
+  if (result.skipped && result.reason && AGENT_RETRYABLE.has(result.reason)) {
+    throw new Error(`${result.barsDate} 投资经理计划未生成（${result.reason}），等待重试`)
+  }
+}
+
 async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
   const params = task.params || {}
   switch (task.type) {
@@ -780,6 +794,39 @@ async function runTask(task: TaskRecord): Promise<Record<string, unknown>> {
       const result = await runPaperEvaluateOutcomes(paperParams(params))
       await setProgress(task.id, 90, '写入 5/20/60 日结果')
       return paperTaskResult(result)
+    }
+    case 'paper_agent_plan': {
+      await setProgress(task.id, 20, '汇总行情、新闻与账户')
+      const { tradeDate, experimentId } = paperParams(params)
+      await setProgress(task.id, 45, '投资经理生成次日计划')
+      const result = await runPaperAgentPlan({
+        barsDate: tradeDate,
+        experimentId,
+        triggerSource: params.manual === true ? 'manual' : 'scheduled',
+      })
+      assertAgentPlanGenerated(result)
+      await setProgress(task.id, 90, '写入决策与审计记录')
+      return {
+        skipped: result.skipped,
+        reason: result.reason ?? null,
+        barsDate: result.barsDate,
+        planTradeDate: result.planTradeDate ?? null,
+        runId: result.runId ?? null,
+        decisions: result.decisions ?? 0,
+        warnings: result.warnings ?? [],
+        ...result.detail,
+      }
+    }
+    case 'paper_agent_outcomes': {
+      await setProgress(task.id, 40, '评估 agent 决策的 1/5/20 日结果')
+      const result = await runPaperAgentOutcomes(paperParams(params))
+      await setProgress(task.id, 90, '写入正确率与校准样本')
+      return {
+        skipped: result.skipped,
+        reason: result.reason ?? null,
+        tradeDate: result.tradeDate,
+        ...result.detail,
+      }
     }
     case 'thesis_review': {
       await setProgress(task.id, 30, '读取论点与证据')

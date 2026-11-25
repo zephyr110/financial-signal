@@ -85,8 +85,7 @@ describe('market hours', () => {
       'paper_preopen_check',
       'paper_cutoff',
     ])
-    const afterClose = paperStepsDue(new Date('2026-11-16T09:30:00Z'))
-    expect(afterClose.map((step) => step.type)).toEqual([
+    expect(paperStepsDue(new Date('2026-11-16T09:30:00Z')).map((step) => step.type)).toEqual([
       'paper_preopen_check',
       'paper_cutoff',
       'paper_settle',
@@ -94,9 +93,12 @@ describe('market hours', () => {
       'paper_reconcile',
       'paper_review_daily',
       'paper_evaluate_outcomes',
+      'paper_agent_outcomes',
       'paper_cards_next_day',
       'paper_review_weekly',
     ])
+    // 17:35 的 agent 计划在确定性卡片之后；17:30 的快照不能提前把它算进去。
+    expect(paperStepsDue(new Date('2026-11-16T09:35:00Z')).map((step) => step.type)).toContain('paper_agent_plan')
     expect(paperStepsDue(new Date('2026-11-14T01:59:00Z'))).toEqual([])
     expect(paperStepsDue(new Date('2026-11-14T02:00:00Z'))).toEqual([
       { type: 'paper_review_weekly', tradeDate: '2026-11-14' },
