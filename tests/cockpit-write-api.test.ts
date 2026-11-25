@@ -214,6 +214,47 @@ describe('驾驶舱写入接口', () => {
       expect(res._status).toBe(200)
       expect(res._body.data.positions.some((item: { code: string }) => item.code === '600519.SH')).toBe(false)
     })
+
+    it('同一代码再次录入时合并股数并按加权平均重算成本与盈亏', async () => {
+      const db = await dbModule.getDb()
+      await db.execute({
+        sql: `INSERT OR REPLACE INTO market_bars
+              (code, trade_date, open, high, low, close, volume, amount, adj_factor,
+               adjust_type, source_id, fetched_at, is_demo)
+              VALUES ('601398.SH', '2099-12-30', 7, 7, 7, 7, 1000, 7000, 1, 'raw', 'test', ?, 0)`,
+        args: [new Date().toISOString()],
+      })
+
+      const first = mockRes()
+      await portfolioHandler(mockReq('POST', {
+        body: { code: '601398', shares: 100, avgCostCents: 500 },
+      }), first)
+      expect(first._status).toBe(201)
+
+      const second = mockRes()
+      await portfolioHandler(mockReq('POST', {
+        body: { code: '601398', shares: 200, avgCostCents: 650 },
+      }), second)
+      expect(second._status).toBe(201)
+      expect(second._body.data.positions.find(
+        (item: { code: string }) => item.code === '601398.SH',
+      )).toMatchObject({
+        shares: 300,
+        avgCost: 6,
+        price: 7,
+        marketValue: 210_000,
+        pnl: 30_000,
+        pnlPct: 16.67,
+      })
+
+      const rows = await db.execute({
+        sql: 'SELECT shares, avg_cost_cents FROM positions WHERE account_id = ? AND code = ?',
+        args: ['main-account', '601398.SH'],
+      })
+      expect(rows.rows).toHaveLength(1)
+      expect(Number(rows.rows[0].shares)).toBe(300)
+      expect(Number(rows.rows[0].avg_cost_cents)).toBe(600)
+    })
   })
 
   describe('论点', () => {
