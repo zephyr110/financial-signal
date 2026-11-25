@@ -145,9 +145,11 @@
 
 .ck-section-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
   gap: 14px;
+  row-gap: 8px;
   margin-bottom: 12px;
 }
 
@@ -185,6 +187,7 @@
 
 .ck-section-action {
   flex: none;
+  margin-left: auto;
   color: var(--ck-accent);
   font-size: 13px;
   font-weight: 500;
@@ -194,6 +197,17 @@
 .ck-section-action:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+/* 非链接动作（如排序按钮组）不继承链接的强调色与下划线 */
+.ck-section-action-plain {
+  color: var(--ck-faint);
+  font-weight: 400;
+  white-space: normal;
+}
+
+.ck-section-action-plain:hover {
+  text-decoration: none;
 }
 
 .ck-card {
@@ -2000,6 +2014,18 @@ a.ck-chip:hover {
 .ck-watch-toggle svg {
   width: 14px;
   height: 14px;
+}
+
+.ck-watch-sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.ck-watch-sort-label {
+  margin-right: 2px;
+  font-size: 12px;
 }
 
 /* 自选行录入持仓：与折叠按钮同尺寸，悬停用主色区分“写回账本”动作 */
