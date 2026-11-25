@@ -97,6 +97,16 @@ describe('自选行内展开', () => {
     expect(screen.getByRole('button', { name: '展开贵州茅台个股详情' })).toBeInTheDocument()
   })
 
+  it('录入持仓入口在展开按钮左侧，并带上股票代码', () => {
+    render(<WatchlistRow item={item} />)
+    const add = screen.getByRole('link', { name: '将贵州茅台录入持仓' })
+    expect(add).toHaveAttribute('href', '/portfolio?add=600519.SH')
+
+    const toggle = screen.getByRole('button', { name: '展开贵州茅台个股详情' })
+    expect(add.closest('.ck-watch-action')).toBe(toggle.closest('.ck-watch-action'))
+    expect(add.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('详情接口失败时仍保留进入个股页的出口', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
       JSON.stringify({ error: { message: '未找到该标的' } }),

@@ -6,9 +6,9 @@ import { Hint } from '@/components/ui/hint'
 import { Input } from '@/components/ui/input'
 import { http, httpErrorMessage } from '@/lib/http/client'
 
-export function PortfolioEditor() {
+export function PortfolioEditor({ initialCode = '' }: { initialCode?: string }) {
   const router = useRouter()
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(initialCode)
   const [shares, setShares] = useState('')
   const [cost, setCost] = useState('')
   const [busy, setBusy] = useState(false)
