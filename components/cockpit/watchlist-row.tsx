@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2, Plus } from 'lucide-react'
 import type { StockDetail, WatchlistItem } from '@/lib/cockpit/types'
 import { formatPrice } from '@/lib/cockpit/format'
 import { http, httpErrorMessage } from '@/lib/http/client'
@@ -100,8 +100,17 @@ export function WatchlistRow({ item }: { item: WatchlistItem }) {
         </div>
       </button>
 
-      {/* 折叠与移除按钮同排同尺寸，默认常显 */}
+      {/* 录入持仓、折叠与移除按钮同排同尺寸，默认常显 */}
       <div className="ck-watch-action">
+        <Hint content="录入持仓">
+          <Link
+            className={`ck-watch-add ${buttonVariants({ variant: 'ghost', size: 'icon-sm' })}`}
+            href={`/portfolio?add=${encodeURIComponent(item.code)}`}
+            aria-label={`将${item.name}录入持仓`}
+          >
+            <Plus aria-hidden="true" />
+          </Link>
+        </Hint>
         <Hint content={open ? '收起详情' : '展开详情'}>
           <Button
             variant="ghost"

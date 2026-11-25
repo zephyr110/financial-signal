@@ -2002,6 +2002,22 @@ a.ck-chip:hover {
   height: 14px;
 }
 
+/* 自选行录入持仓：与折叠按钮同尺寸，悬停用主色区分“写回账本”动作 */
+.ck-watch-add {
+  flex: none;
+  color: var(--ck-faint);
+}
+
+.ck-watch-add:hover:not(:disabled) {
+  background: var(--ck-accent-soft);
+  color: var(--ck-accent);
+}
+
+.ck-watch-add svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* 0fr→1fr 让展开高度可过渡；内层 overflow 裁切，收起时不可见于视觉 */
 .ck-watch-expand {
   grid-column: 1 / -1;
