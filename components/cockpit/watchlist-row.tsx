@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import type { StockDetail, WatchlistItem } from '@/lib/cockpit/types'
 import { formatPrice } from '@/lib/cockpit/format'
+import { http, httpErrorMessage } from '@/lib/http/client'
 import { watchAnchorId } from '@/lib/cockpit/anchor'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Hint } from '@/components/ui/hint'
@@ -33,18 +34,18 @@ export function WatchlistRow({ item }: { item: WatchlistItem }) {
   async function load() {
     setDetail({ status: 'loading' })
     try {
-      const res = await fetch(`/api/cockpit/stocks/${encodeURIComponent(item.code)}`, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(15000),
-      })
-      const json = await res.json() as { data?: StockDetail; error?: { message?: string } }
-      if (!res.ok || !json.data) {
-        setDetail({ status: 'error', message: json.error?.message || '读取个股证据失败。' })
+      const json = await http.get<{ data?: StockDetail }>(
+        `/api/cockpit/stocks/${encodeURIComponent(item.code)}`,
+        { timeoutMs: 15000, fallbackMessage: '读取个股证据失败。' },
+      )
+      if (!json.data) {
+        setDetail({ status: 'error', message: '读取个股证据失败。' })
         return
       }
       setDetail({ status: 'ready', detail: json.data })
-    } catch {
-      setDetail({ status: 'error', message: '网络连接失败，未能读取个股证据。' })
+    } catch (error) {
+      // 超时和 HTTP 错误带上客户端给出的具体原因
+      setDetail({ status: 'error', message: httpErrorMessage(error, '网络连接失败，未能读取个股证据。') })
     }
   }
 

@@ -11,6 +11,7 @@ import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
 import { clearClientCaches, cn } from "@/lib/utils";
+import { http, httpErrorMessage } from "@/lib/http/client";
 
 /**
  * 设置弹窗（头像菜单「设置」→ 弹窗）：
@@ -118,8 +119,7 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     setScheduler(null);
     const desktopBridge = typeof window !== "undefined" ? window.desktop : null;
     setIsDesktop(Boolean(desktopBridge?.getScheduler));
-    fetch("/api/settings")
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    http.get("/api/settings")
       .then((d) => {
         if (run !== openRun.current) return;
         setModel(d.llm?.model ?? "");
@@ -199,20 +199,9 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       ...(webSearchKey ? { webSearchApiKey: webSearchKey } : clearedKeys.has("webSearchApiKey") ? { webSearchApiKey: "" } : {}),
     };
     try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        setError(d.error || "保存失败，请重试");
-        return;
-      }
+      await http.post("/api/settings", body, { fallbackMessage: "保存失败，请重试" });
       // 刷新掩码状态；保存已成功，刷新失败不能伪装成保存失败。
-      const d = await fetch("/api/settings")
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null);
+      const d = await http.get("/api/settings").catch(() => null);
       if (d) {
         setApiKeySet(Boolean(d.llm?.apiKeySet));
         setTursoUrlSet(Boolean(d.storage?.urlSet));
@@ -235,8 +224,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       setTursoUrl("");
       setClearTursoToken(false);
       setOkMsg("已保存");
-    } catch {
-      setError("网络错误，请稍后重试");
+    } catch (error) {
+      setError(httpErrorMessage(error, "网络错误，请稍后重试"));
     } finally {
       setSaving(false);
     }
@@ -253,19 +242,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
     if (clearTursoToken) body.tursoToken = null;
     else if (storageBackend === "turso" && tursoToken.trim()) body.tursoToken = tursoToken.trim();
     try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(d.error || "保存失败，请重试");
-        return;
-      }
-      const fresh = await fetch("/api/settings")
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null);
+      const d = (await http.post("/api/settings", body, { fallbackMessage: "保存失败，请重试" })) ?? {};
+      const fresh = await http.get("/api/settings").catch(() => null);
       if (fresh?.storage) {
         setStorage(fresh.storage);
         setStorageBackend(fresh.storage.backend === "turso" ? "turso" : "local");
@@ -276,8 +254,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       setTursoToken("");
       setClearTursoToken(false);
       setOkMsg(d.restartRequired ? "已保存，重启应用后生效" : "已保存");
-    } catch {
-      setError("网络错误，请稍后重试");
+    } catch (error) {
+      setError(httpErrorMessage(error, "网络错误，请稍后重试"));
     } finally {
       setSaving(false);
     }
@@ -316,21 +294,11 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       return;
     }
     try {
-      const res = await fetch("/api/auth/account", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentPassword,
-          ...(accUsername !== username ? { username: accUsername } : {}),
-          ...(newPassword ? { password: newPassword } : {}),
-        }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        setError(d.error || "修改失败，请重试");
-        return;
-      }
-      const d = await res.json().catch(() => ({}));
+      const d = (await http.post("/api/auth/account", {
+        currentPassword,
+        ...(accUsername !== username ? { username: accUsername } : {}),
+        ...(newPassword ? { password: newPassword } : {}),
+      }, { fallbackMessage: "修改失败，请重试" })) ?? {};
       if (d.sessionRevoked) {
         // 改密/改名已吊销全部会话(含本会话)——先提示,再跳登录页重新登录
         setOkMsg("账号信息已更新，请重新登录");
@@ -348,8 +316,8 @@ export default function SettingsDialog({ open, onOpenChange, username, onAccount
       setNewPassword("");
       setConfirmPassword("");
       onAccountChanged?.(accUsername.trim() || username);
-    } catch {
-      setError("网络错误，请稍后重试");
+    } catch (error) {
+      setError(httpErrorMessage(error, "网络错误，请稍后重试"));
     } finally {
       setSaving(false);
     }

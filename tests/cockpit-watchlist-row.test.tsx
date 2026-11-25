@@ -36,10 +36,10 @@ afterEach(() => {
 
 describe('自选行内展开', () => {
   it('首次展开才请求个股详情，再次收起不重复请求', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: detail }),
-    })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: detail }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
     vi.stubGlobal('fetch', fetchMock)
 
     const { container } = render(<WatchlistRow item={item} />)
@@ -52,10 +52,11 @@ describe('自选行内展开', () => {
     fireEvent.click(trigger)
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/cockpit/stocks/600519.SH',
-      expect.objectContaining({ headers: { Accept: 'application/json' } }),
-    )
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/cockpit/stocks/600519.SH')
+    const headers = init.headers as Headers
+    expect(headers.get('accept')).toBe('application/json')
+    expect(headers.get('x-request-id')).toBeTruthy()
     expect(await screen.findByText('证据链')).toBeInTheDocument()
     expect(screen.getByText('当前论点')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '查看完整个股页' })).toHaveAttribute(
@@ -74,10 +75,10 @@ describe('自选行内展开', () => {
   })
 
   it('折叠按钮与移除按钮同排，点击可独立展开与收起', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: detail }),
-    })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: detail }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<WatchlistRow item={item} />)
@@ -97,10 +98,10 @@ describe('自选行内展开', () => {
   })
 
   it('详情接口失败时仍保留进入个股页的出口', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      json: async () => ({ error: { message: '未找到该标的' } }),
-    }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ error: { message: '未找到该标的' } }),
+      { status: 404, headers: { 'Content-Type': 'application/json' } },
+    )))
 
     render(<WatchlistRow item={item} />)
     fireEvent.click(screen.getByRole('button', { name: /600519/ }))

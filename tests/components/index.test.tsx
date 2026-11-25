@@ -48,11 +48,10 @@ beforeEach(() => {
   }
   Object.defineProperty(window, 'desktop', { value: desktopMock, configurable: true })
   // 自动刷新 effect 会 fetch /api/news(AppShell 还会 fetch /api/auth/me),统一 mock 掉
-  global.fetch = vi.fn(async () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({ todayItems: [], pastDates: [] }),
-  })) as any
+  global.fetch = vi.fn(async () => new Response(
+    JSON.stringify({ todayItems: [], pastDates: [] }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  )) as any
 })
 
 afterEach(() => {

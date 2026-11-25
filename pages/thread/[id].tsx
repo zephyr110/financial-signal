@@ -17,6 +17,7 @@ import { getThreadMarketContext } from "../../lib/market";
 import { getBacktestTier, shouldShowNumbers, TIER_LABELS } from "@/lib/backtest";
 import { formatDate, formatTime } from "../../lib/format";
 import { track } from "@/lib/track";
+import { http, HttpError } from "@/lib/http/client";
 
 const STAGE_LABELS = {
   early: "早期",
@@ -48,11 +49,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
 
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/thread/${id}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(r.status === 404 ? "NOT_FOUND" : `HTTP ${r.status}`);
-        return r.json();
-      })
+    http.get(`/api/thread/${id}`)
       .then((d) => {
         if (!cancelled) {
           setData(d);
@@ -61,7 +58,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
       })
       .catch((e) => {
         if (!cancelled) {
-          setError(e.message === "NOT_FOUND" ? "事件线索不存在" : "加载失败，请稍后重试");
+          setError(e instanceof HttpError && e.status === 404 ? "事件线索不存在" : "加载失败，请稍后重试");
         }
       })
       .finally(() => {

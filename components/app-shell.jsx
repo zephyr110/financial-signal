@@ -4,6 +4,7 @@ import { SidebarInset, SidebarProvider } from "./ui/sidebar";
 import AppSidebar from "./app-sidebar";
 import AppTopbar from "./app-topbar";
 import { MobileBottomNav } from "./mobile-bottom-nav";
+import { http, HttpError } from "@/lib/http/client";
 
 // 内容滚动容器 ref——首页下拉刷新读 scrollTop、区块导航 IntersectionObserver 传 root
 const AppShellScrollContext = createContext(null);
@@ -44,13 +45,11 @@ export default function AppShell({
 
   // 会话过期兜底：middleware 只在导航时校验，页面停留期间会话失效时由这里跳回登录页
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => {
-        if (r.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent(router.asPath)}`);
-        }
-      })
-      .catch(() => {});
+    http.get("/api/auth/me").catch((error) => {
+      if (error instanceof HttpError && error.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent(router.asPath)}`);
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

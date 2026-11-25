@@ -10,6 +10,7 @@ import { CockpitShell } from '@/components/cockpit/cockpit-shell'
 import { WatchlistEditor } from '@/components/cockpit/watchlist-editor'
 import { WatchlistRow } from '@/components/cockpit/watchlist-row'
 import { Disclosure, EmptyState, SectionHeader } from '@/components/cockpit/bits'
+import { http } from '@/lib/http/client'
 
 interface WatchlistProps {
   items: WatchlistItem[]
@@ -25,9 +26,7 @@ function BackfillRefresh({ active }: { active: boolean }) {
     const timer = setInterval(() => {
       void (async () => {
         try {
-          const res = await fetch('/api/cockpit/watchlist', { headers: { Accept: 'application/json' } })
-          if (!res.ok) return
-          const json = await res.json() as { data?: WatchlistItem[] }
+          const json = await http.get<{ data?: WatchlistItem[] }>('/api/cockpit/watchlist')
           const waiting = (json.data || []).some((item) =>
             item.price === null && (item.backfill === 'queued' || item.backfill === 'running'))
           if (!waiting) await router.replace(router.asPath)

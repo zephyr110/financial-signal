@@ -62,10 +62,9 @@ const originalScrollIntoView = (Element.prototype as { scrollIntoView?: unknown 
 
 beforeEach(() => {
   // AppShell / AppSidebar 挂载时会请求 /api/auth/me
-  global.fetch = vi.fn(async () => ({
-    ok: true,
+  global.fetch = vi.fn(async () => new Response(JSON.stringify({}), {
     status: 200,
-    json: async () => ({}),
+    headers: { 'Content-Type': 'application/json' },
   })) as unknown as typeof fetch
 })
 
