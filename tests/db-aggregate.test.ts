@@ -101,8 +101,16 @@ describe('SQL 聚合读路径', () => {
     // 中芯国际：利多 4 分 vs 利空 5 分，按信号分加权后归为看跌
     expect(thread?.focus_stocks.bullish).toEqual([]);
     expect(thread?.focus_stocks.bearish).toEqual([
-      { name: '中芯国际', code: '688981.SH' },
-      { name: '长电科技', code: null },
+      {
+        name: '中芯国际',
+        code: '688981.SH',
+        reasons: [{ text: 's2', stance: 'negative' }],
+      },
+      {
+        name: '长电科技',
+        code: null,
+        reasons: [{ text: 's2', stance: 'negative' }],
+      },
     ]);
   });
 
@@ -150,8 +158,83 @@ describe('SQL 聚合读路径', () => {
     expect(thread?.focus_stocks).toEqual({
       bullish: [],
       bearish: [],
-      watch: [{ name: '方向不明公司', code: null }],
+      watch: [{
+        name: '方向不明公司',
+        code: null,
+        reasons: [{ text: 's4', stance: 'mixed' }],
+      }],
     });
+  });
+
+  it('重点个股依据优先取深度分析，且每个方向只留最强一条', async () => {
+    const db = await mod.getDb();
+    await db.execute({
+      sql: 'INSERT INTO news_archive (id, source, source_id, title, content, published_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [3, 'test', 'n3', 't3', 'c3', new Date().toISOString()],
+    });
+    await db.execute({
+      sql: 'INSERT INTO news_archive (id, source, source_id, title, content, published_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [4, 'test', 'n4', 't4', 'c4', new Date().toISOString()],
+    });
+    await db.execute({
+      sql: `INSERT INTO analysis_result (id, news_id, signal_score, category, impact_level, industries, companies, sentiment, summary, deep_analysis)
+            VALUES (3, 3, 3, 'industry', 'moderate', ?, ?, 'positive', '摘要3', '深度依据3')`,
+      args: [JSON.stringify(['半导体']), JSON.stringify(['中芯国际'])],
+    });
+    await db.execute({
+      sql: `INSERT INTO analysis_result (id, news_id, signal_score, category, impact_level, industries, companies, sentiment, summary, deep_analysis)
+            VALUES (4, 4, 5, 'industry', 'critical', ?, ?, 'positive', '摘要4', '深度依据4')`,
+      args: [JSON.stringify(['半导体']), JSON.stringify(['中芯国际'])],
+    });
+    await db.execute({
+      sql: `INSERT INTO event_threads (title, news_ids, narrative, stage, confidence, dedup_key, created_at)
+            VALUES ('依据优先级', ?, 'n', 'early', 'high', '依据优先级', datetime('now'))`,
+      args: [JSON.stringify([1, 2, 3, 4])],
+    });
+
+    const thread = (await mod.getEventThreads(24)).find((t) => t.title === '依据优先级');
+    expect(thread?.focus_stocks.bullish).toEqual([{
+      name: '中芯国际',
+      code: null,
+      reasons: [{ text: '深度依据4', stance: 'positive' }],
+    }]);
+  });
+
+  it('多空打平的待观察个股同时给出多空两边依据', async () => {
+    const db = await mod.getDb();
+    await db.execute({
+      sql: 'INSERT INTO news_archive (id, source, source_id, title, content, published_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [5, 'test', 'n5', 't5', 'c5', new Date().toISOString()],
+    });
+    await db.execute({
+      sql: 'INSERT INTO news_archive (id, source, source_id, title, content, published_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [6, 'test', 'n6', 't6', 'c6', new Date().toISOString()],
+    });
+    await db.execute({
+      sql: `INSERT INTO analysis_result (id, news_id, signal_score, category, impact_level, industries, companies, sentiment, summary)
+            VALUES (5, 5, 5, 'industry', 'critical', ?, ?, 'positive', '利多摘要')`,
+      args: [JSON.stringify(['半导体']), JSON.stringify(['多空公司'])],
+    });
+    await db.execute({
+      sql: `INSERT INTO analysis_result (id, news_id, signal_score, category, impact_level, industries, companies, sentiment, summary)
+            VALUES (6, 6, 5, 'industry', 'critical', ?, ?, 'negative', '利空摘要')`,
+      args: [JSON.stringify(['半导体']), JSON.stringify(['多空公司'])],
+    });
+    await db.execute({
+      sql: `INSERT INTO event_threads (title, news_ids, narrative, stage, confidence, dedup_key, created_at)
+            VALUES ('多空僵持', ?, 'n', 'early', 'medium', '多空僵持', datetime('now'))`,
+      args: [JSON.stringify([5, 6])],
+    });
+
+    const thread = (await mod.getEventThreads(24)).find((t) => t.title === '多空僵持');
+    expect(thread?.focus_stocks.watch).toEqual([{
+      name: '多空公司',
+      code: null,
+      reasons: [
+        { text: '利多摘要', stance: 'positive' },
+        { text: '利空摘要', stance: 'negative' },
+      ],
+    }]);
   });
 
   it('getEventThreadById 关联表缺失时回退 news_ids', async () => {

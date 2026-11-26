@@ -415,10 +415,7 @@ export default function ThreadPage({ data: ssgData, error: ssgError }) {
                     </ul>
                   )}
                   {hasFocusStocks && (
-                    <div className="mt-3">
-                      <span className="text-xs text-muted-foreground">重点个股</span>
-                      <FocusStocks stocks={thread.focus_stocks} className="mt-1.5" />
-                    </div>
+                    <FocusStocks stocks={thread.focus_stocks} className="mt-3" defaultOpen />
                   )}
                 </div>
               )}

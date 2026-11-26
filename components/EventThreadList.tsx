@@ -129,10 +129,7 @@ function EventThreadCard({ thread }) {
                 </>
               )}
               {hasFocusStocks && (
-                <div className="mt-1.5">
-                  <span className="text-xs text-muted-foreground">重点个股：</span>
-                  <FocusStocks stocks={thread.focus_stocks} className="mt-1" />
-                </div>
+                <FocusStocks stocks={thread.focus_stocks} className="mt-1.5" />
               )}
             </div>
           )}

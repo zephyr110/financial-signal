@@ -2543,6 +2543,20 @@ export function normalizeThreadTitle(title: string | null | undefined): string {
   return String(title || '未命名事件').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+type FocusReason = {
+  text: string;
+  stance: 'positive' | 'negative' | 'neutral' | 'mixed';
+  score: number;
+  analysisId: number;
+};
+
+type FocusWeight = {
+  bullish: number;
+  bearish: number;
+  mentioned: number;
+  reasons: FocusReason[];
+};
+
 /**
  * 事件线索的重点个股：成员新闻抽到的公司按情绪投票，信号分越高的新闻权重越大。
  * mixed/neutral 或权重打平的公司归入「待观察」，不硬判方向。
@@ -2558,29 +2572,60 @@ async function attachFocusStocks(db, threads: any[]): Promise<any[]> {
   if (ids.length === 0) return threads.map((t) => ({ ...t, focus_stocks: empty }));
 
   const rows = await db.execute({
-    sql: `SELECT id, sentiment, signal_score, companies FROM analysis_result
+    sql: `SELECT id, sentiment, signal_score, companies, summary, deep_analysis FROM analysis_result
           WHERE id IN (${ids.map(() => '?').join(', ')})`,
     args: ids,
   });
   const byId = new Map<number, any>(rows.rows.map((r) => [Number(r.id), r]));
 
   const scored = threads.map((thread) => {
-    const weights = new Map<string, { bullish: number; bearish: number; mentioned: number }>();
+    const weights = new Map<string, FocusWeight>();
     for (const raw of Array.isArray(thread.news_ids) ? thread.news_ids : []) {
       const analysis = byId.get(Number(raw));
       if (!analysis) continue;
-      const sentiment = String(analysis.sentiment || '');
+      const sentiment = String(analysis.sentiment || '') as FocusReason['stance'];
       const score = Math.max(1, Number(analysis.signal_score) || 1);
+      const deep = String(analysis.deep_analysis || '').trim();
+      const text = (deep || String(analysis.summary || '').trim()).replace(/\s+/g, ' ');
       for (const rawName of tryParseJson(analysis.companies)) {
         const name = String(rawName || '').trim();
         if (!name) continue;
-        const weight = weights.get(name) || { bullish: 0, bearish: 0, mentioned: 0 };
+        const weight = weights.get(name) || { bullish: 0, bearish: 0, mentioned: 0, reasons: [] };
         if (sentiment === 'positive') weight.bullish += score;
         else if (sentiment === 'negative') weight.bearish += score;
         else weight.mentioned += score;
+        if (text) {
+          weight.reasons.push({ text, stance: sentiment, score, analysisId: Number(analysis.id) });
+        }
         weights.set(name, weight);
       }
     }
+
+    // 只留最强依据；待观察多空打平时各留一条，说明为什么会僵持。
+    const topReasons = (entries: FocusReason[], limit = 1) => {
+      const seen = new Set<string>();
+      return [...entries]
+        .sort((a, b) => b.score - a.score || b.analysisId - a.analysisId)
+        .filter((item) => {
+          if (seen.has(item.text)) return false;
+          seen.add(item.text);
+          return true;
+        })
+        .slice(0, limit)
+        .map(({ text, stance }) => ({ text, stance }));
+    };
+    const reasonsFor = (side: 'bullish' | 'bearish' | 'watch', weight: FocusWeight) => {
+      if (side === 'bullish') return topReasons(weight.reasons.filter((r) => r.stance === 'positive'));
+      if (side === 'bearish') return topReasons(weight.reasons.filter((r) => r.stance === 'negative'));
+      if (weight.bullish > 0 && weight.bearish > 0) {
+        return [
+          ...topReasons(weight.reasons.filter((r) => r.stance === 'positive')),
+          ...topReasons(weight.reasons.filter((r) => r.stance === 'negative')),
+        ];
+      }
+      return topReasons(weight.reasons.filter((r) => r.stance === 'neutral' || r.stance === 'mixed'));
+    };
+
     const rank = (side: 'bullish' | 'bearish' | 'watch') => [...weights.entries()]
       .filter(([, w]) => {
         if (side === 'bullish') return w.bullish > w.bearish;
@@ -2593,11 +2638,13 @@ async function attachFocusStocks(db, threads: any[]): Promise<any[]> {
         return right - left;
       })
       .slice(0, 5)
-      .map(([name]) => name);
+      .map(([name, weight]) => ({ name, reasons: reasonsFor(side, weight) }));
     return { thread, bullish: rank('bullish'), bearish: rank('bearish'), watch: rank('watch') };
   });
 
-  const names = [...new Set(scored.flatMap((s) => [...s.bullish, ...s.bearish, ...s.watch]))];
+  const names = [...new Set(
+    scored.flatMap((s) => [...s.bullish, ...s.bearish, ...s.watch].map((stock) => stock.name)),
+  )];
   const codeByName = new Map<string, string>();
   if (names.length > 0) {
     const symbols = await db.execute({
@@ -2606,7 +2653,11 @@ async function attachFocusStocks(db, threads: any[]): Promise<any[]> {
     });
     for (const row of symbols.rows) codeByName.set(String(row.name), String(row.code));
   }
-  const toStock = (name: string) => ({ name, code: codeByName.get(name) || null });
+  const toStock = (stock: { name: string; reasons: Array<{ text: string; stance: string }> }) => ({
+    name: stock.name,
+    code: codeByName.get(stock.name) || null,
+    reasons: stock.reasons,
+  });
 
   return scored.map(({ thread, bullish, bearish, watch }) => ({
     ...thread,
