@@ -5,7 +5,6 @@ import { Hint } from "./ui/hint";
 import { cn } from "@/lib/utils";
 import {
   CATEGORY_LABELS,
-  CATEGORY_COLORS,
   SCORE_COLORS,
   SENTIMENT_LABELS,
   sourceDisplayName,
@@ -13,12 +12,26 @@ import {
 import { parseItemTime, formatTime, formatDate } from "@/lib/format";
 import { track } from "@/lib/track";
 
+// 分类沿用原色相，但改成和情绪标签相同的浅底描边，避免两类标签一重一轻
+const CATEGORY_BADGE: Record<string, string> = {
+  policy: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
+  geopolitics: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+  industry: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  company: "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300",
+  macro: "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300",
+  market_rumor: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+};
+
+// 所有底部标签共用这套形状，只靠上面的语义色区分
+const BADGE_BASE = "h-[18px] rounded-full px-1.5 py-0 text-[11px] font-medium";
+const NEUTRAL_BADGE = "border-border text-muted-foreground";
+
 // A股惯例：红涨绿跌；方向另有文字标签，不靠颜色单独传达
 const SENTIMENT_BADGE: Record<string, string> = {
   positive: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
   negative: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   // 不加 bg-muted：#6b7280 落在 #f3f4f6 上只有 4.39:1，11px 文字要 4.5。
-  neutral: "border-border text-muted-foreground",
+  neutral: NEUTRAL_BADGE,
   mixed: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
 };
 
@@ -53,27 +66,40 @@ export default function AnalysisNewsCard({ item }) {
             )}
 
             <div className="mt-1.5 flex items-center gap-x-1.5 gap-y-1 flex-wrap">
-              <Badge className={cn("h-[18px] text-[11px] px-1.5 py-0", CATEGORY_COLORS[item.category])}>
+              <Badge
+                variant="outline"
+                className={cn(
+                  BADGE_BASE,
+                  CATEGORY_BADGE[item.category] || NEUTRAL_BADGE,
+                )}
+              >
                 {CATEGORY_LABELS[item.category] || item.category}
               </Badge>
 
               {SENTIMENT_LABELS[item.sentiment] && (
                 <Badge
                   variant="outline"
-                  className={cn("h-[18px] text-[11px] px-1.5 py-0", SENTIMENT_BADGE[item.sentiment])}
+                  className={cn(
+                    BADGE_BASE,
+                    SENTIMENT_BADGE[item.sentiment] || NEUTRAL_BADGE,
+                  )}
                 >
                   {SENTIMENT_LABELS[item.sentiment]}
                 </Badge>
               )}
 
               {item.source && (
-                <Badge variant="secondary" className="h-[18px] text-[11px] px-1.5 py-0">
+                <Badge variant="outline" className={cn(BADGE_BASE, NEUTRAL_BADGE)}>
                   {sourceDisplayName(item.source)}
                 </Badge>
               )}
 
               {item.industries?.map((ind) => (
-                <Badge key={ind} variant="outline" className="h-[18px] text-[11px] px-1.5 py-0">
+                <Badge
+                  key={ind}
+                  variant="outline"
+                  className={cn(BADGE_BASE, NEUTRAL_BADGE)}
+                >
                   {ind}
                 </Badge>
               ))}
